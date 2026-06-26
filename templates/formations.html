@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Formations — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
+            <div class="nav-links">
+                <a href="/feed" class="nav-link">Fil</a>
+                <a href="/bourses" class="nav-link">Bourses</a>
+                <a href="/formations" class="nav-link active">Formations</a>
+                <a href="/calendrier" class="nav-link">Calendrier</a>
+                <a href="/groupes" class="nav-link">Groupes</a>
+                <a href="/notifications" class="nav-link" id="notif-link">Alerts <span id="notif-count" style="background:var(--primary);color:white;border-radius:50%;padding:0.1rem 0.4rem;font-size:0.7rem;display:none;"></span></a>
+                <a href="/messagerie" class="nav-link">Messages</a>
+                <a href="/documents" class="nav-link">Cours</a>
+                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
+                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container" style="max-width:900px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;margin-bottom:1.5rem;">
+            <h2>Catalogue des formations</h2>
+            <a href="/formations/ajouter" class="btn btn-orange btn-round">+ Proposer une formation</a>
+        </div>
+
+        <form method="GET" style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-bottom:1.5rem;background:var(--card-bg);padding:1rem;border-radius:12px;">
+            <select name="universite" style="flex:1;min-width:200px;padding:0.5rem;border:1px solid #ddd;border-radius:8px;">
+                <option value="">Toutes les universites</option>
+                {% for u in universites %}
+                <option value="{{ u.universite }}" {% if uni_filter == u.universite %}selected{% endif %}>{{ u.universite }}</option>
+                {% endfor %}
+            </select>
+            <select name="niveau" style="flex:1;min-width:150px;padding:0.5rem;border:1px solid #ddd;border-radius:8px;">
+                <option value="">Tous niveaux</option>
+                {% for n in niveaux %}
+                <option value="{{ n.niveau }}" {% if niveau_filter == n.niveau %}selected{% endif %}>{{ n.niveau }}</option>
+                {% endfor %}
+            </select>
+            <button type="submit" style="padding:0.5rem 1rem;background:var(--primary);color:white;border:none;border-radius:8px;cursor:pointer;">Filtrer</button>
+        </form>
+
+        {% if formations|length == 0 %}
+        <div class="card empty-state">
+            <p>Aucune formation trouvee.</p>
+            <p class="text-muted">Soyez le premier a ajouter une formation !</p>
+        </div>
+        {% endif %}
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:1rem;">
+            {% for f in formations %}
+            <a href="/formations/{{ f.id }}" class="card" style="text-decoration:none;color:inherit;display:block;transition:transform 0.2s;">
+                <div style="margin-bottom:0.5rem;">
+                    <span style="background:var(--primary);color:white;padding:0.2rem 0.6rem;border-radius:20px;font-size:0.75rem;">{{ f.niveau }}</span>
+                </div>
+                <h3 style="margin:0 0 0.3rem;font-size:1rem;">{{ f.nom }}</h3>
+                <p style="font-size:0.85rem;color:var(--text-light);margin:0 0 0.5rem;">{{ f.universite }}</p>
+                <p style="font-size:0.8rem;color:var(--text);">{{ f.description[:120] }}{% if f.description|length > 120 %}...{% endif %}</p>
+                <div style="display:flex;gap:0.5rem;margin-top:0.5rem;font-size:0.75rem;color:var(--text-light);">
+                    {% if f.duree %}<span>Duree: {{ f.duree }}</span>{% endif %}
+                    {% if f.frais %}<span>Frais: {{ f.frais }}</span>{% endif %}
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

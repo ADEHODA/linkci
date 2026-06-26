@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+    <style>
+        .admin-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:1rem;margin-bottom:2rem; }
+        .admin-stat { background:white;border-radius:12px;padding:1.25rem;text-align:center;box-shadow:var(--shadow); }
+        .admin-stat .num { font-size:2rem;font-weight:900;color:var(--orange); }
+        .admin-stat .label { font-size:0.8rem;color:var(--text-light);margin-top:0.25rem; }
+        .admin-section { margin-bottom:2rem; }
+        .admin-section h3 { margin-bottom:1rem; }
+        .admin-table { width:100%;border-collapse:collapse;font-size:0.85rem; }
+        .admin-table th { text-align:left;padding:0.5rem;border-bottom:2px solid var(--border);color:var(--text-muted);font-size:0.75rem;text-transform:uppercase; }
+        .admin-table td { padding:0.5rem;border-bottom:1px solid var(--border); }
+        .admin-table tr:hover td { background:var(--orange-light); }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
+            <div class="nav-links">
+                <a href="/feed" class="nav-link">Fil</a>
+                <a href="/admin" class="nav-link active">Admin</a>
+                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+    <div class="container" style="max-width:1000px;">
+        <h2 style="margin-bottom:1.5rem;">Dashboard Admin</h2>
+        <div class="admin-grid">
+            <div class="admin-stat"><div class="num">{{ stats.users }}</div><div class="label">Utilisateurs</div></div>
+            <div class="admin-stat"><div class="num">{{ stats.posts }}</div><div class="label">Publications</div></div>
+            <div class="admin-stat"><div class="num">{{ stats.bourses }}</div><div class="label">Bourses</div></div>
+            <div class="admin-stat"><div class="num">{{ stats.documents }}</div><div class="label">Documents</div></div>
+            <div class="admin-stat"><div class="num">{{ stats.formations }}</div><div class="label">Formations</div></div>
+            <div class="admin-stat"><div class="num">{{ stats.messages }}</div><div class="label">Messages</div></div>
+            <div class="admin-stat"><div class="num">{{ stats.sondages }}</div><div class="label">Sondages</div></div>
+            <div class="admin-stat"><div class="num">{{ stats.groupes }}</div><div class="label">Groupes</div></div>
+            <div class="admin-stat"><div class="num">{{ stats.evenements }}</div><div class="label">Événements</div></div>
+        </div>
+        <div class="admin-section">
+            <h3>Derniers inscrits</h3>
+            <table class="admin-table">
+                <tr><th>Nom</th><th>Email</th><th>Université</th><th>Date</th></tr>
+                {% for u in derniers_inscrits %}
+                <tr><td><a href="/profil/{{ u.id }}">{{ u.prenom }} {{ u.nom }}</a></td><td>{{ u.email }}</td><td>{{ u.universite or '-' }}</td><td>{{ u.date_inscription[:10] }}</td></tr>
+                {% endfor %}
+            </table>
+        </div>
+        <div class="admin-section">
+            <h3>Dernières publications</h3>
+            <table class="admin-table">
+                <tr><th>Auteur</th><th>Contenu</th><th>Date</th></tr>
+                {% for p in derniers_posts %}
+                <tr><td>{{ p.prenom }} {{ p.nom }}</td><td>{{ p.contenu[:100] }}{% if p.contenu|length > 100 %}...{% endif %}</td><td>{{ p.date_post[:10] }}</td></tr>
+                {% endfor %}
+            </table>
+        </div>
+        <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin-bottom:1rem;">
+            <a href="/sondage/export" class="btn btn-orange btn-sm">📤 Export sondages CSV</a>
+            <a href="/bourses/export" class="btn btn-orange btn-sm">📤 Export bourses CSV</a>
+            <a href="/admin/backup" class="btn btn-sm" style="padding:0.4rem 0.8rem;background:#E8F5E9;color:#2E7D32;border-radius:8px;text-decoration:none;font-size:0.8rem;font-weight:600;">💾 Backup complet (ZIP)</a>
+        </div>
+        <div class="card" style="padding:1rem;font-size:0.8rem;color:var(--text-light);">
+            💡 Le backup inclut la base de données, les fichiers uploadés et les avatars.
+            Tu peux aussi utiliser <code>python backup.py</code> en local.
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ajouter une bourse — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
+            <div class="nav-links">
+                <a href="/feed" class="nav-link">Fil</a>
+                <a href="/bourses" class="nav-link active">Bourses</a>
+                <a href="/calendrier" class="nav-link">Calendrier</a>
+                <a href="/groupes" class="nav-link">Groupes</a>
+                <a href="/messagerie" class="nav-link">Messages</a>
+                <a href="/documents" class="nav-link">Cours</a>
+                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
+                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container" style="max-width:600px;">
+        <a href="/bourses" style="color:var(--primary);text-decoration:none;font-weight:600;">← Retour aux bourses</a>
+        <div class="card" style="margin-top:1rem;">
+            <h2>Proposer une bourse</h2>
+            <p class="text-muted" style="margin-bottom:1.5rem;">Partage une opportunité de financement avec la communauté</p>
+
+            <form method="POST" class="auth-form">
+                <div class="form-group">
+                    <label>Titre de la bourse *</label>
+                    <input type="text" name="titre" placeholder="Ex: Bourse d'excellence UFHB 2026" required>
+                </div>
+                <div class="form-group">
+                    <label>Organisme *</label>
+                    <input type="text" name="organisme" placeholder="Ex: Ambassade de France, AUF, État de CI" required>
+                </div>
+                <div class="form-group">
+                    <label>Description *</label>
+                    <textarea name="description" placeholder="Décris la bourse : conditions, avantages, procédure..." required style="width:100%;padding:0.75rem;border:2px solid var(--border);border-radius:10px;font-family:inherit;font-size:0.9rem;min-height:100px;background:var(--bg);"></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Montant (optionnel)</label>
+                        <input type="text" name="montant" placeholder="Ex: 500 000 FCFA/an">
+                    </div>
+                    <div class="form-group">
+                        <label>Type *</label>
+                        <select name="type" required>
+                            <option value="">Choisis</option>
+                            <option value="Bourse d'État">Bourse d'État</option>
+                            <option value="Bourse internationale">Bourse internationale</option>
+                            <option value="Bourse d'excellence">Bourse d'excellence</option>
+                            <option value="Stage rémunéré">Stage rémunéré</option>
+                            <option value="Aide financière">Aide financière</option>
+                            <option value="Concours">Concours</option>
+                            <option value="Autre">Autre</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Cible (optionnel)</label>
+                        <input type="text" name="cible" placeholder="Ex: Licence 3, Master, Toutes filières">
+                    </div>
+                    <div class="form-group">
+                        <label>Date limite (optionnel)</label>
+                        <input type="date" name="deadline">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Lien (optionnel)</label>
+                        <input type="url" name="lien" placeholder="https://...">
+                    </div>
+                    <div class="form-group">
+                        <label>Pays</label>
+                        <input type="text" name="pays" value="Côte d'Ivoire">
+                    </div>
+                </div>
+                <button type="submit" class="btn-primary btn-full">Publier la bourse</button>
+            </form>
+        </div>
+    </div>
+</body>
+</html>

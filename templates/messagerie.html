@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Messagerie — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+    <script src="/static/js/main.js" defer></script>
+    <style>
+        .messagerie-layout { display: grid; grid-template-columns: 300px 1fr; gap: 0; min-height: calc(100vh - 80px); background: white; border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+        .msg-sidebar { display: flex; flex-direction: column; border-right: 1px solid var(--border); background: #FAFAF8; }
+        .msg-sidebar-header { padding: 1rem; border-bottom: 1px solid var(--border); }
+        .msg-sidebar-header h2 { font-size: 1.1rem; margin: 0 0 0.75rem 0; }
+        .msg-search { width: 100%; padding: 0.55rem 0.85rem; border: 1.5px solid var(--border); border-radius: 50px; font-size: 0.85rem; font-family: inherit; background: white; }
+        .msg-search:focus { outline: none; border-color: var(--orange); }
+        .msg-conv-list { flex: 1; overflow-y: auto; }
+        .msg-conv-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1rem; cursor: pointer; transition: all 0.15s; text-decoration: none; color: inherit; border-bottom: 1px solid var(--border); position: relative; }
+        .msg-conv-item:hover { background: var(--orange-light); }
+        .msg-conv-item.active { background: white; border-left: 3px solid var(--orange); }
+        .msg-conv-avatar { width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem; color: white; flex-shrink: 0; }
+        .msg-conv-info { flex: 1; min-width: 0; }
+        .msg-conv-name { font-weight: 600; font-size: 0.9rem; display: flex; justify-content: space-between; align-items: center; }
+        .msg-conv-date { font-size: 0.65rem; color: var(--text-muted); font-weight: 400; }
+        .msg-conv-preview { font-size: 0.78rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 0.15rem; }
+        .msg-conv-preview.unread { color: var(--text); font-weight: 600; }
+        .msg-conv-badge { background: var(--orange); color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 0.6rem; font-weight: 700; flex-shrink: 0; margin-left: auto; }
+        .msg-main { display: flex; flex-direction: column; }
+        .msg-main-header { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); background: white; }
+        .msg-main-avatar { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; color: white; flex-shrink: 0; }
+        .msg-main-header h3 { margin: 0; font-size: 1rem; }
+        .msg-main-header .status { font-size: 0.7rem; color: var(--text-muted); }
+        .msg-body { flex: 1; overflow-y: auto; padding: 1.25rem; display: flex; flex-direction: column; gap: 0.5rem; }
+        .msg-date-sep { text-align: center; font-size: 0.7rem; color: var(--text-muted); padding: 0.5rem 0; position: relative; }
+        .msg-date-sep span { background: var(--bg); padding: 0.2rem 0.75rem; border-radius: 50px; }
+        .msg-bubble-row { display: flex; margin-bottom: 0.25rem; }
+        .msg-bubble-row.moi { justify-content: flex-end; }
+        .msg-bubble { max-width: 70%; padding: 0.6rem 1rem; border-radius: 18px; font-size: 0.875rem; line-height: 1.5; position: relative; word-wrap: break-word; }
+        .msg-bubble-row.autre .msg-bubble { background: #F0F0EE; border-bottom-left-radius: 4px; }
+        .msg-bubble-row.moi .msg-bubble { background: var(--orange-grad); color: white; border-bottom-right-radius: 4px; }
+        .msg-bubble-time { font-size: 0.6rem; opacity: 0.6; margin-top: 0.25rem; display: block; }
+        .msg-bubble-row.moi .msg-bubble-time { text-align: right; }
+        .msg-input-area { padding: 0.75rem 1.25rem; border-top: 1px solid var(--border); display: flex; gap: 0.5rem; background: white; }
+        .msg-input-area input { flex: 1; padding: 0.65rem 1rem; border: 1.5px solid var(--border); border-radius: 50px; font-size: 0.875rem; font-family: inherit; }
+        .msg-input-area input:focus { outline: none; border-color: var(--orange); }
+        .msg-input-area button { padding: 0.65rem 1.25rem; border: none; border-radius: 50px; background: var(--orange-grad); color: white; font-weight: 600; cursor: pointer; font-size: 0.875rem; white-space: nowrap; }
+        .msg-input-area button:hover { box-shadow: 0 4px 14px rgba(255,107,53,0.25); }
+        .msg-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--text-muted); padding: 2rem; text-align: center; }
+        .msg-empty .icon { font-size: 4rem; margin-bottom: 1rem; }
+        .msg-empty p { margin: 0.25rem 0; }
+        .msg-new-btn { width: 100%; padding: 0.55rem; border: 2px dashed var(--border); border-radius: var(--radius-sm); background: transparent; cursor: pointer; font-size: 0.85rem; color: var(--text-muted); transition: all 0.15s; margin-top: 0.5rem; font-family: inherit; }
+        .msg-new-btn:hover { border-color: var(--orange); color: var(--orange); background: var(--orange-light); }
+        .msg-new-section { display: none; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); background: white; }
+        .msg-new-section.open { display: block; }
+        .msg-new-search { width: 100%; padding: 0.5rem 0.75rem; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-size: 0.85rem; font-family: inherit; margin-bottom: 0.5rem; }
+        .msg-new-search:focus { outline: none; border-color: var(--orange); }
+        .msg-user-item { display: flex; align-items: center; gap: 0.65rem; padding: 0.55rem 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+        .msg-user-item:hover { color: var(--orange); }
+        .msg-user-item:last-child { border-bottom: none; }
+        .msg-user-avatar { width: 34px; height: 34px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.75rem; color: white; flex-shrink: 0; }
+        .msg-user-info { flex: 1; }
+        .msg-user-name { font-weight: 600; font-size: 0.85rem; }
+        .msg-user-detail { font-size: 0.75rem; color: var(--text-muted); }
+        @media (max-width: 768px) {
+            .messagerie-layout { grid-template-columns: 1fr; border-radius: 0; box-shadow: none; min-height: auto; }
+            .msg-sidebar { display: none; }
+            .msg-sidebar.show { display: flex; }
+            .msg-main { display: none; }
+            .msg-main.show { display: flex; }
+        }
+    </style>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+<nav class="navbar">
+    <div class="nav-container">
+        <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
+        <div class="nav-links">
+                <a href="/feed" class="nav-link">Fil</a>
+                <a href="/bourses" class="nav-link">Bourses</a>
+                <a href="/calendrier" class="nav-link">Calendrier</a>
+                <a href="/groupes" class="nav-link">Groupes</a>
+                <a href="/notifications" class="nav-link" id="notif-link">Alerts <span id="notif-count" style="background:var(--primary);color:white;border-radius:50%;padding:0.1rem 0.4rem;font-size:0.7rem;display:none;"></span></a>
+                <a href="/messagerie" class="nav-link active">Messages</a>
+                <a href="/documents" class="nav-link">Cours</a>
+                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
+                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
+        </div>
+    </div>
+</nav>
+
+<div class="container" style="padding-top:1rem;">
+    <div class="messagerie-layout">
+        <!-- Sidebar -->
+        <div class="msg-sidebar" id="msgSidebar">
+            <div class="msg-sidebar-header">
+                <h2>💬 Messages</h2>
+                <input type="text" class="msg-search" placeholder="Rechercher une conversation..." oninput="filterConversations(this.value)">
+                <button class="msg-new-btn" onclick="toggleNewMessage()">+ Nouvelle conversation</button>
+            </div>
+            <div class="msg-new-section" id="newMsgSection">
+                <input type="text" class="msg-new-search" placeholder="Rechercher un étudiant..." oninput="filterUsers(this.value)">
+                <div id="userList">
+                    {% for user in utilisateurs %}
+                    <a href="/conversation/{{ user.id }}" class="msg-user-item" style="text-decoration:none;color:inherit;">
+                        <div class="msg-user-avatar" style="background:{{ user.id|avatar_color }};">{{ user.prenom[:1] }}{{ user.nom[:1] }}</div>
+                        <div class="msg-user-info">
+                            <div class="msg-user-name">{{ user.prenom }} {{ user.nom }}</div>
+                            <div class="msg-user-detail">{{ user.filiere or user.universite or 'Étudiant' }}</div>
+                        </div>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            <div class="msg-conv-list" id="convList">
+                {% if conversations|length == 0 %}
+                <div style="padding:2rem 1rem;text-align:center;color:var(--text-muted);font-size:0.85rem;">
+                    Aucune conversation. Clique sur "Nouvelle conversation" pour démarrer !
+                </div>
+                {% endif %}
+                {% for conv in conversations %}
+                <a href="/conversation/{{ conv.autre_id }}" class="msg-conv-item {% if conversation_avec and conversation_avec.id == conv.autre_id %}active{% endif %}" data-name="{{ (conv.prenom ~ ' ' ~ conv.nom)|lower }}">
+                    <div class="msg-conv-avatar" style="background:{{ conv.autre_id|avatar_color }};">{{ conv.prenom[:1] }}{{ conv.nom[:1] }}</div>
+                    <div class="msg-conv-info">
+                        <div class="msg-conv-name">
+                            {{ conv.prenom }} {{ conv.nom }}
+                            {% if conv.date_dernier %}
+                            <span class="msg-conv-date">{{ conv.date_dernier|format_date }}</span>
+                            {% endif %}
+                        </div>
+                        <div class="msg-conv-preview {% if conv.non_lu > 0 %}unread{% endif %}">{{ conv.dernier_message[:60] if conv.dernier_message else '...' }}</div>
+                    </div>
+                    {% if conv.non_lu > 0 %}
+                    <div class="msg-conv-badge">{{ conv.non_lu }}</div>
+                    {% endif %}
+                </a>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Main -->
+        <div class="msg-main" id="msgMain">
+            {% if conversation_avec %}
+            <div class="msg-main-header">
+                <div class="msg-main-avatar" style="background:{{ conversation_avec.id|avatar_color }};">{{ conversation_avec.prenom[:1] }}{{ conversation_avec.nom[:1] }}</div>
+                <div>
+                    <h3>{{ conversation_avec.prenom }} {{ conversation_avec.nom }}</h3>
+                    <span class="status">{{ conversation_avec.filiere or conversation_avec.universite or 'Étudiant' }}</span>
+                </div>
+            </div>
+
+            <div class="msg-body" id="msgBody">
+                {% if messages|length == 0 %}
+                <div class="msg-empty">
+                    <div class="icon">👋</div>
+                    <p>Démarrez la conversation avec <strong>{{ conversation_avec.prenom }}</strong></p>
+                    <p style="font-size:0.85rem;">Envoyez votre premier message ci-dessous</p>
+                </div>
+                {% else %}
+                    {% set ns = namespace(last_date='') %}
+                    {% for msg in messages %}
+                        {% set msg_date = msg.date_envoi[:10] %}
+                        {% if msg_date != ns.last_date %}
+                            {% set ns.last_date = msg_date %}
+                            <div class="msg-date-sep"><span>{{ msg.date_envoi|format_date(full=true) }}</span></div>
+                        {% endif %}
+                        <div class="msg-bubble-row {{ 'moi' if msg.expediteur_id == session.user_id else 'autre' }}">
+                            <div class="msg-bubble">
+                                {{ msg.contenu }}
+                                <span class="msg-bubble-time">{{ msg.date_envoi[11:16] }}</span>
+                            </div>
+                        </div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+
+            <div id="typingIndicator" style="display:none;padding:0.25rem 1.25rem;font-size:0.75rem;color:var(--text-muted);font-style:italic;"></div>
+
+            <form method="POST" action="/envoyer_message/{{ conversation_avec.id }}" class="msg-input-area" onsubmit="return sendMessage(this)">
+                <input type="text" name="contenu" placeholder="Ecris un message..." required autofocus onkeyup="onTyping()">
+                <button type="submit">Envoyer</button>
+            </form>
+            {% else %}
+            <div class="msg-empty">
+                <div class="icon">💬</div>
+                <p>Sélectionne une conversation</p>
+                <p style="font-size:0.85rem;">ou démarres-en une nouvelle avec le bouton +</p>
+                <div style="display:none;" class="mobile-back">
+                    <a href="#" onclick="showSidebar();return false;" style="color:var(--orange);font-weight:600;text-decoration:none;">← Voir les conversations</a>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+var socket = io('', { transports: ['polling', 'websocket'] });
+
+socket.on('connect', function() {
+    console.log('SocketIO connecte');
+    {% if conversation_avec %}
+    socket.emit('join_conversation', { autre_id: {{ conversation_avec.id }} });
+    {% endif %}
+});
+
+socket.on('new_message', function(data) {
+    var body = document.getElementById('msgBody');
+    if (body && data.expediteur_id != {{ session.user_id }}) {
+        // Check if we're in the right conversation
+        var currentOtherId = {{ conversation_avec.id if conversation_avec else 'null' }};
+        if (currentOtherId && data.expediteur_id == currentOtherId) {
+            var div = document.createElement('div');
+            div.className = 'msg-bubble-row autre';
+            div.innerHTML = '<div class="msg-bubble">' + escapeHtml(data.contenu) + '<span class="msg-bubble-time">a l\'instant</span></div>';
+            body.appendChild(div);
+            body.scrollTop = body.scrollHeight;
+        }
+        // Update notification badge
+        updateNotifCount();
+    }
+});
+
+socket.on('typing_indicator', function(data) {
+    var typingDiv = document.getElementById('typingIndicator');
+    if (typingDiv) {
+        typingDiv.textContent = data.prenom + ' ecrit...';
+        typingDiv.style.display = 'block';
+        clearTimeout(typingDiv._timeout);
+        typingDiv._timeout = setTimeout(function() {
+            typingDiv.style.display = 'none';
+        }, 2000);
+    }
+});
+
+socket.on('notification_update', function(data) {
+    updateNotifCount();
+});
+
+function escapeHtml(text) {
+    var div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function updateNotifCount() {
+    fetch('/api/notifications/non_lu').then(function(r) { return r.json(); }).then(function(d) {
+        var badge = document.getElementById('notif-count');
+        if (badge) {
+            if (d.nb > 0) {
+                badge.textContent = d.nb;
+                badge.style.display = 'inline';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+    }).catch(function() {});
+}
+
+function filterConversations(q) {
+    q = q.toLowerCase();
+    document.querySelectorAll('.msg-conv-item').forEach(function(el) {
+        el.style.display = el.getAttribute('data-name').includes(q) ? '' : 'none';
+    });
+}
+
+function filterUsers(q) {
+    q = q.toLowerCase();
+    document.querySelectorAll('.msg-user-item').forEach(function(el) {
+        var name = el.querySelector('.msg-user-name')?.textContent?.toLowerCase() || '';
+        el.style.display = name.includes(q) ? '' : 'none';
+    });
+}
+
+function toggleNewMessage() {
+    var section = document.getElementById('newMsgSection');
+    section.classList.toggle('open');
+}
+
+// Typing indicator
+var typingTimeout;
+function onTyping() {
+    var input = document.querySelector('.msg-input-area input');
+    if (input && input.value.trim()) {
+        socket.emit('typing', { destinataire_id: {{ conversation_avec.id if conversation_avec else 'null' }} });
+    }
+}
+
+// Send message via SocketIO
+function sendMessage(form) {
+    var input = form.querySelector('input[name="contenu"]');
+    var text = input.value.trim();
+    if (!text) return false;
+    
+    var body = document.getElementById('msgBody');
+    var div = document.createElement('div');
+    div.className = 'msg-bubble-row moi';
+    div.innerHTML = '<div class="msg-bubble">' + escapeHtml(text) + '<span class="msg-bubble-time">a l\'instant</span></div>';
+    body.appendChild(div);
+    body.scrollTop = body.scrollHeight;
+    input.value = '';
+    
+    // Send via SocketIO
+    socket.emit('send_message', {
+        destinataire_id: {{ conversation_avec.id if conversation_avec else 'null' }},
+        contenu: text
+    });
+    
+    return false;
+}
+
+// Scroll to bottom
+var body = document.getElementById('msgBody');
+if (body) body.scrollTop = body.scrollHeight;
+</script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>

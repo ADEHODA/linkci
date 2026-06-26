@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Partager un document — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+    <style>
+        .upload-page { max-width: 600px; margin: 0 auto; padding: 2rem 1rem; }
+        .upload-page h2 { margin-bottom: 1.5rem; }
+        .upload-page label { font-size: 0.825rem; font-weight: 600; margin-bottom: 0.35rem; color: var(--text-secondary); display: block; }
+        .upload-page input, .upload-page textarea, .upload-page select { width: 100%; padding: 0.65rem 0.85rem; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-size: 0.9rem; font-family: inherit; background: #FAFAF8; margin-bottom: 1rem; }
+        .upload-page input:focus, .upload-page textarea:focus, .upload-page select:focus { outline: none; border-color: var(--orange); }
+        .upload-page input[type="file"] { padding: 0.5rem; background: white; }
+        .upload-page .btn-primary { width: 100%; padding: 0.75rem; font-size: 1rem; }
+    </style>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
+            <div class="nav-links">
+                <a href="/feed" class="nav-link">Fil</a>
+                <a href="/bourses" class="nav-link">Bourses</a>
+                <a href="/calendrier" class="nav-link">Calendrier</a>
+                <a href="/groupes" class="nav-link">Groupes</a>
+                <a href="/notifications" class="nav-link" id="notif-link">Alerts <span id="notif-count" style="background:var(--primary);color:white;border-radius:50%;padding:0.1rem 0.4rem;font-size:0.7rem;display:none;"></span></a>
+                <a href="/messagerie" class="nav-link">Messages</a>
+                <a href="/documents" class="nav-link">Cours</a>
+                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
+                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="upload-page">
+        <h2>📤 Partager un document</h2>
+        <form method="POST" enctype="multipart/form-data">
+            <label>Titre du document *</label>
+            <input type="text" name="titre" required placeholder="ex: Cours de maths S1">
+
+            <label>Description</label>
+            <textarea name="description" rows="3" placeholder="Description du document..."></textarea>
+
+            <label>Matière</label>
+            <input type="text" name="matiere" placeholder="ex: Mathématiques, Physique...">
+
+            <label>Université</label>
+            <input type="text" name="universite" placeholder="ex: UFHB, INPHB...">
+
+            <label>Fichier * (PDF, Word, PowerPoint, TXT, ZIP, images)</label>
+            <input type="file" name="fichier" required accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.zip,.rar,.png,.jpg,.jpeg">
+
+            <button type="submit" class="btn-primary">Publier le document</button>
+        </form>
+        <p style="margin-top:1rem;font-size:0.85rem;color:var(--text-muted);">En partageant, tu aides d'autres étudiants ivoiriens à réussir !</p>
+    </div>
+</body>
+</html>

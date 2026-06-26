@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fil d'actu — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
+            <div class="nav-search">
+                <input type="text" id="searchInput" placeholder="Rechercher un étudiant..." onkeyup="searchUsers(this.value)">
+                <div id="searchResults" class="search-results"></div>
+            </div>
+            <div class="nav-links">
+                <a href="/feed" class="nav-link active">Fil</a>
+                <a href="/bourses" class="nav-link">Bourses</a>
+                <a href="/formations" class="nav-link">Formations</a>
+                <a href="/calendrier" class="nav-link">Calendrier</a>
+                <a href="/groupes" class="nav-link">Groupes</a>
+                <a href="/notifications" class="nav-link" id="notif-link">Alerts <span id="notif-count" style="background:var(--primary);color:white;border-radius:50%;padding:0.1rem 0.4rem;font-size:0.7rem;display:none;"></span></a>
+                <a href="/messagerie" class="nav-link">Messages</a>
+                <a href="/documents" class="nav-link">Cours</a>
+                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
+                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container feed-container">
+        <div class="feed-main">
+            <div class="post-form card">
+                <div class="post-form-header">
+                    <div class="avatar-sm">{{ session.user_nom[:1] }}</div>
+                    <span>{{ session.user_nom }}</span>
+                </div>
+                <form method="POST" action="/publier">
+                    <textarea name="contenu" placeholder="Quoi de neuf sur le campus ?" required></textarea>
+                    <button type="submit" class="btn btn-orange btn-round" style="align-self:flex-end;">Publier</button>
+                </form>
+            </div>
+
+            <div class="feed-posts">
+                {% for post in posts %}
+                <div class="post card">
+                    <div class="post-header">
+                        <a href="/profil/{{ post.user_id }}" style="text-decoration:none;color:inherit;display:flex;align-items:center;gap:0.75rem;flex:1;">
+                            <div class="avatar">{{ post.prenom[:1] }}{{ post.nom[:1] }}</div>
+                            <div class="post-user">
+                                <span class="post-name">{{ post.prenom }} {{ post.nom }}</span>
+                                <span class="post-date">{{ post.date_post[:10] }}</span>
+                            </div>
+                        </a>
+                        {% if post.user_id == session.user_id %}
+                        <form method="POST" action="/supprimer_post/{{ post.id }}" onsubmit="return confirm('Supprimer cette publication ?')">
+                            <button type="submit" class="btn-danger btn-sm">&times;</button>
+                        </form>
+                        {% endif %}
+                    </div>
+                    <div class="post-content">
+                        <p>{{ post.contenu }}</p>
+                    </div>
+                    <div class="post-actions">
+                        <form method="POST" action="/liker/{{ post.id }}" class="like-form">
+                            <button type="submit" class="btn-action {{ 'liked' if post.a_like else '' }}">
+                                ❤️ {{ post.nb_likes }}
+                            </button>
+                        </form>
+                        <button class="btn-action" onclick="toggleComments({{ post.id }})">
+                            💬 {{ post.nb_commentaires }}
+                        </button>
+                    </div>
+                    <div class="post-comments" id="comments-{{ post.id }}" style="display:none;">
+                        <form method="POST" action="/commenter/{{ post.id }}" class="comment-form">
+                            <input type="text" name="contenu" placeholder="Écris un commentaire..." required>
+                            <button type="submit">Envoyer</button>
+                        </form>
+                    </div>
+                </div>
+                {% endfor %}
+
+                {% if posts|length == 0 %}
+                <div class="card empty-state">
+                    <p>Aucun post pour le moment. Sois le premier à publier !</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <aside class="feed-sidebar">
+            <div class="card sidebar-card">
+                <h3>Bienvenue 👋</h3>
+                <p>{{ session.user_nom }}</p>
+                <hr>
+                <p><strong>Étudiants en ligne</strong></p>
+                <p class="text-muted">Bientôt disponible</p>
+            </div>
+            <div class="card sidebar-card">
+                <h3>Top universités</h3>
+                <ul class="uni-list">
+                    <li>UFHB</li>
+                    <li>INP-HB</li>
+                    <li>UNA</li>
+                    <li>UCAO</li>
+                    <li>UVCI</li>
+                </ul>
+            </div>
+        </aside>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

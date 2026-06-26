@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calendrier — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+    <style>
+        .event-card { border-left:4px solid var(--orange); }
+        .event-card.passed { opacity:0.5;border-left-color:var(--text-muted); }
+        .event-date-badge { background:var(--orange);color:white;border-radius:8px;padding:0.5rem;text-align:center;min-width:60px; }
+        .event-date-badge .day { font-size:1.3rem;font-weight:800;display:block; }
+        .event-date-badge .month { font-size:0.65rem;text-transform:uppercase; }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
+            <div class="nav-links">
+                <a href="/feed" class="nav-link">Fil</a>
+                <a href="/bourses" class="nav-link">Bourses</a>
+                <a href="/calendrier" class="nav-link active">Calendrier</a>
+                <a href="/groupes" class="nav-link">Groupes</a>
+                <a href="/notifications" class="nav-link">Alerts</a>
+                <a href="/messagerie" class="nav-link">Messages</a>
+                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
+                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+    <div class="container" style="max-width:700px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;margin-bottom:1.5rem;">
+            <h2> Calendrier campus</h2>
+            <button class="btn btn-orange btn-round" onclick="document.getElementById('eventForm').style.display='block'">+ Ajouter</button>
+        </div>
+        <div class="card" id="eventForm" style="display:none;margin-bottom:1.5rem;">
+            <form method="POST" action="/calendrier/ajouter" class="auth-form">
+                <div class="form-group"><label>Titre</label><input type="text" name="titre" required></div>
+                <div class="form-group"><label>Description</label><textarea name="description" rows="2"></textarea></div>
+                <div class="form-row">
+                    <div class="form-group"><label>Date</label><input type="date" name="date_event" required></div>
+                    <div class="form-group"><label>Lieu</label><input type="text" name="lieu" placeholder="Salle, campus..."></div>
+                </div>
+                <button type="submit" class="btn-primary-solid" style="width:100%;padding:0.7rem;">Ajouter l'événement</button>
+            </form>
+        </div>
+        {% if events|length == 0 %}
+        <div class="card empty-state"><p>Aucun événement prévu.</p><p class="text-muted">Ajoute le premier événement campus !</p></div>
+        {% endif %}
+        {% for e in events %}
+        {% set cls = 'passed' if e.date_event < aujourdhui else '' %}
+        <div class="card event-card {{ cls }}" style="display:flex;gap:1rem;align-items:flex-start;">
+            <div class="event-date-badge">
+                <span class="day">{{ e.date_event[8:10] }}</span>
+                <span class="month">
+                    {% set m = e.date_event[5:7]|int %}
+                    {% if m == 1 %}Jan{% elif m == 2 %}Fév{% elif m == 3 %}Mar{% elif m == 4 %}Avr{% elif m == 5 %}Mai{% elif m == 6 %}Jun{% elif m == 7 %}Jul{% elif m == 8 %}Aoû{% elif m == 9 %}Sep{% elif m == 10 %}Oct{% elif m == 11 %}Nov{% else %}Déc{% endif %}
+                </span>
+            </div>
+            <div style="flex:1;">
+                <h4 style="margin-bottom:0.25rem;">{{ e.titre }}</h4>
+                {% if e.description %}<p style="font-size:0.85rem;color:var(--text-light);margin-bottom:0.25rem;">{{ e.description }}</p>{% endif %}
+                {% if e.lieu %}<p style="font-size:0.8rem;color:var(--text-muted);"> {{ e.lieu }}</p>{% endif %}
+            </div>
+            <form method="POST" action="/calendrier/supprimer/{{ e.id }}" onsubmit="return confirm('Supprimer ?')">
+                <button style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--text-light);">×</button>
+            </form>
+        </div>
+        {% endfor %}
+    </div>
+</body>
+</html>

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Connexion — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+    <div class="auth-page">
+        <div class="auth-card">
+            <a href="/" class="auth-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="40"></a>
+            <h2>Content de te revoir</h2>
+            <p class="auth-subtitle">Connecte-toi pour rejoindre le fil</p>
+
+            {% if erreur %}
+            <div class="alert alert-error">{{ erreur }}</div>
+            {% endif %}
+
+            <form method="POST" class="auth-form">
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" name="email" placeholder="ton.email@example.com" required>
+                </div>
+                <div class="form-group">
+                    <label>Mot de passe</label>
+                    <input type="password" name="mot_de_passe" placeholder="••••••" required>
+                </div>
+                <button type="submit" class="btn-primary btn-full">Se connecter</button>
+                <p style="text-align:center;margin-top:0.75rem;"><a href="/mot_de_passe_oublie" style="font-size:0.8rem;color:var(--text-muted);text-decoration:none;">Mot de passe oublié ?</a></p>
+            </form>
+            <p class="auth-footer">Pas encore inscrit ? <a href="/inscription">Créer un compte</a></p>
+        </div>
+    </div>
+</body>
+</html>

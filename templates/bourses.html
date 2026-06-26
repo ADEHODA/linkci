@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bourses & Aides — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
+            <div class="nav-links">
+                <a href="/feed" class="nav-link">Fil</a>
+                <a href="/bourses" class="nav-link active">Bourses</a>
+                <a href="/calendrier" class="nav-link">Calendrier</a>
+                <a href="/groupes" class="nav-link">Groupes</a>
+                <a href="/notifications" class="nav-link" id="notif-link">Alerts <span id="notif-count" style="background:var(--primary);color:white;border-radius:50%;padding:0.1rem 0.4rem;font-size:0.7rem;display:none;"></span></a>
+                <a href="/messagerie" class="nav-link">Messages</a>
+                <a href="/documents" class="nav-link">Cours</a>
+                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
+                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="documents-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;">
+            <div>
+                <h2> Bourses & Aides financières</h2>
+                <p>Trouve des financements pour tes études</p>
+            </div>
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                <a href="/bourses/ajouter" class="btn btn-orange btn-round">+ Proposer une bourse</a>
+                <a href="/bourses/export" class="btn btn-round" style="padding:0.5rem 1rem;background:var(--bg);border:1px solid var(--border);border-radius:8px;text-decoration:none;font-size:0.85rem;color:var(--text);">📤 CSV</a>
+            </div>
+        </div>
+
+        {% if bourses|length == 0 %}
+        <div class="card empty-state">
+            <p>Aucune bourse publiée pour le moment.</p>
+            <p class="text-muted">Sois le premier à partager une opportunité !</p>
+        </div>
+        {% endif %}
+
+        <div class="bourses-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:1rem;">
+            {% for b in bourses %}
+            <div class="card" style="position:relative;{{ 'opacity:0.5;' if b.expiree else '' }}">
+                {% if b.expiree %}
+                <div style="position:absolute;top:1rem;right:1rem;background:#D32F2F;color:white;padding:0.2rem 0.6rem;border-radius:6px;font-size:0.7rem;font-weight:700;">EXPIRÉ</div>
+                {% endif %}
+
+                <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.75rem;">
+                    <div>
+                        <span style="background:var(--primary-light);color:var(--primary);padding:0.25rem 0.6rem;border-radius:6px;font-size:0.75rem;font-weight:700;">{{ b.type }}</span>
+                        {% if b.montant %}
+                        <span style="background:#E8F5E9;color:#2E7D32;padding:0.25rem 0.6rem;border-radius:6px;font-size:0.75rem;font-weight:700;margin-left:0.5rem;">{{ b.montant }}</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <h3 style="font-size:1.1rem;margin-bottom:0.5rem;">{{ b.titre }}</h3>
+                <p style="font-size:0.85rem;color:var(--text-light);margin-bottom:0.5rem;"> {{ b.organisme }}</p>
+                <p style="font-size:0.9rem;margin-bottom:0.75rem;">{{ b.description }}</p>
+
+                <div style="display:flex;flex-wrap:wrap;gap:0.5rem;font-size:0.8rem;color:var(--text-light);margin-bottom:0.75rem;">
+                    {% if b.cible %}<span> {{ b.cible }}</span>{% endif %}
+                    {% if b.pays %}<span> {{ b.pays }}</span>{% endif %}
+                    {% if b.deadline %}
+                        {% set jours = b.deadline[:10]|days_until %}
+                        {% if jours is not none and jours < 0 %}
+                            <span style="color:#D32F2F;font-weight:600;"> Passée le {{ b.deadline[:10] }}</span>
+                        {% elif jours is not none %}
+                            <span style="color:var(--primary);font-weight:600;">
+                                J-{{ jours }} — {{ b.deadline[:10] }}
+                            </span>
+                        {% endif %}
+                    {% endif %}
+                </div>
+
+                <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                    {% if b.lien and not b.expiree %}
+                    <a href="{{ b.lien }}" target="_blank" rel="noopener noreferrer" style="flex:1;text-align:center;padding:0.5rem 1rem;background:var(--primary);color:white;border-radius:8px;text-decoration:none;font-size:0.85rem;font-weight:600;">Postuler</a>
+                    {% endif %}
+                    {% if not b.expiree %}
+                    <form method="POST" action="/bourses/signaler/{{ b.id }}" style="flex:0;">
+                        <button style="padding:0.5rem 0.75rem;background:var(--bg);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:0.8rem;color:var(--text-light);">Signaler expiré</button>
+                    </form>
+                    {% endif %}
+                    <form method="POST" action="/bourses/supprimer/{{ b.id }}" style="flex:0;" onsubmit="return confirm('Supprimer ?')">
+                        <button style="padding:0.5rem 0.75rem;background:transparent;border:none;cursor:pointer;font-size:1.1rem;color:var(--text-light);">×</button>
+                    </form>
+                </div>
+
+                <div style="margin-top:0.75rem;font-size:0.75rem;color:var(--text-light);">Publié le {{ b.date_publication[:10] }}</div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</body>
+</html>

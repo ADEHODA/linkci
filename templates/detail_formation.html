@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ formation.nom }} — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
+            <div class="nav-links">
+                <a href="/feed" class="nav-link">Fil</a>
+                <a href="/bourses" class="nav-link">Bourses</a>
+                <a href="/formations" class="nav-link active">Formations</a>
+                <a href="/calendrier" class="nav-link">Calendrier</a>
+                <a href="/groupes" class="nav-link">Groupes</a>
+                <a href="/notifications" class="nav-link" id="notif-link">Alerts <span id="notif-count" style="background:var(--primary);color:white;border-radius:50%;padding:0.1rem 0.4rem;font-size:0.7rem;display:none;"></span></a>
+                <a href="/messagerie" class="nav-link">Messages</a>
+                <a href="/documents" class="nav-link">Cours</a>
+                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
+                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container" style="max-width:700px;">
+        <a href="/formations" style="color:var(--primary);text-decoration:none;font-size:0.9rem;">&larr; Retour aux formations</a>
+        
+        <div class="card" style="margin-top:1rem;">
+            <span style="background:var(--primary);color:white;padding:0.2rem 0.8rem;border-radius:20px;font-size:0.8rem;">{{ formation.niveau }}</span>
+            <h1 style="margin:0.75rem 0 0.3rem;">{{ formation.nom }}</h1>
+            <p style="color:var(--text-light);font-size:1rem;margin:0 0 1.5rem;">{{ formation.universite }}</p>
+
+            {% if formation.description %}
+            <div style="margin-bottom:1.5rem;">
+                <h3>Description</h3>
+                <p>{{ formation.description }}</p>
+            </div>
+            {% endif %}
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;">
+                {% if formation.duree %}
+                <div>
+                    <strong>Duree</strong>
+                    <p style="margin:0.3rem 0;">{{ formation.duree }}</p>
+                </div>
+                {% endif %}
+                {% if formation.frais %}
+                <div>
+                    <strong>Frais de scolarite</strong>
+                    <p style="margin:0.3rem 0;">{{ formation.frais }}</p>
+                </div>
+                {% endif %}
+            </div>
+
+            {% if formation.debouches %}
+            <div style="margin-bottom:1.5rem;">
+                <h3>Debouches professionnels</h3>
+                <p>{{ formation.debouches }}</p>
+            </div>
+            {% endif %}
+
+            {% if formation.site_web %}
+            <a href="{{ formation.site_web }}" target="_blank" rel="noopener noreferrer" class="btn btn-orange">Site officiel &rarr;</a>
+            {% endif %}
+        </div>
+    </div>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Réinitialiser — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+<div class="auth-page">
+    <div class="auth-card">
+        <a href="/" class="auth-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="40"></a>
+        <h1 class="auth-title">Nouveau mot de passe</h1>
+        <p class="auth-subtitle">Choisis un nouveau mot de passe pour ton compte</p>
+        <form method="POST" class="auth-form">
+            <div class="form-group">
+                <label>Nouveau mot de passe (min 6 caractères)</label>
+                <input type="password" name="mot_de_passe" required minlength="6" placeholder="••••••">
+            </div>
+            <button type="submit" class="btn-primary auth-btn">Réinitialiser</button>
+        </form>
+    </div>
+</div>
+</body>
+</html>

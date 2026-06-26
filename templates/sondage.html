@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sondage — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+    <style>
+        .sondage-page {
+            min-height: 100vh;
+            background: linear-gradient(135deg, #FF6600 0%, #009D54 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem 1rem;
+        }
+        .sondage-card {
+            background: white;
+            border-radius: 20px;
+            padding: 2.5rem;
+            width: 100%;
+            max-width: 600px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.15);
+        }
+        .sondage-card h1 {
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+            color: var(--text);
+        }
+        .sondage-card .subtitle {
+            color: var(--text-light);
+            margin-bottom: 1.5rem;
+            font-size: 0.95rem;
+        }
+        .sondage-card .badge {
+            display: inline-block;
+            background: var(--primary-light);
+            color: var(--primary);
+            padding: 0.25rem 0.75rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+        }
+        .sondage-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1.25rem;
+        }
+        .sondage-form .form-group label {
+            font-size: 0.9rem;
+            font-weight: 600;
+            margin-bottom: 0.4rem;
+            display: block;
+        }
+        .sondage-form .form-group label .required {
+            color: #E91E63;
+        }
+        .radio-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .radio-group label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 400 !important;
+            font-size: 0.9rem !important;
+            cursor: pointer;
+            padding: 0.5rem 0.75rem;
+            border-radius: 10px;
+            border: 2px solid var(--border);
+            transition: all 0.2s;
+        }
+        .radio-group label:hover {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+        .radio-group input[type="radio"] {
+            accent-color: var(--primary);
+            width: 18px;
+            height: 18px;
+        }
+        .checkbox-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .checkbox-group label {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 400 !important;
+            font-size: 0.9rem !important;
+            cursor: pointer;
+            padding: 0.5rem 0.75rem;
+            border-radius: 10px;
+            border: 2px solid var(--border);
+            transition: all 0.2s;
+        }
+        .checkbox-group label:hover {
+            border-color: var(--primary);
+            background: var(--primary-light);
+        }
+        .checkbox-group input[type="checkbox"] {
+            accent-color: var(--primary);
+            width: 18px;
+            height: 18px;
+        }
+        .sondage-card textarea {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            resize: vertical;
+            min-height: 80px;
+            background: var(--bg);
+        }
+        .sondage-card textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        .sondage-card input[type="text"] {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            background: var(--bg);
+        }
+        .sondage-card input[type="text"]:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        .sondage-card select {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            font-family: inherit;
+            font-size: 0.9rem;
+            background: var(--bg);
+        }
+        .sondage-card select:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        .sondage-card .btn-primary {
+            width: 100%;
+            text-align: center;
+            font-size: 1.05rem;
+            padding: 1rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            font-family: inherit;
+            transition: all 0.2s;
+        }
+        .sondage-card .btn-primary:hover {
+            background: var(--primary-dark);
+            transform: translateY(-1px);
+        }
+        .thank-you {
+            text-align: center;
+            padding: 2rem;
+        }
+        .thank-you .emoji {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+        .thank-you h2 {
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+        }
+        .thank-you p {
+            color: var(--text-light);
+            margin-bottom: 1.5rem;
+        }
+        .sondage-footer {
+            text-align: center;
+            margin-top: 1.5rem;
+            font-size: 0.85rem;
+            color: var(--text-light);
+        }
+        .sondage-footer a {
+            color: var(--primary);
+            text-decoration: none;
+            font-weight: 600;
+        }
+        @media (max-width: 480px) {
+            .sondage-card {
+                padding: 1.5rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="sondage-page">
+        <div class="sondage-card">
+            {% if merci %}
+                <div class="thank-you">
+                    <div class="emoji">🎉</div>
+                    <h2>Merci pour ta réponse !</h2>
+                    <p>Ton avis va nous aider à construire LINK CI, le réseau social des étudiants ivoiriens.</p>
+                    <p style="font-size:0.9rem;color:var(--text-light);">Partage ce lien avec tes potes pour qu'ils répondent aussi ! 🙏</p>
+                    <a href="/sondage" class="btn btn-orange" style="display:inline-block;padding:0.75rem 2rem;margin-top:0.5rem;">Répondre à nouveau</a>
+                </div>
+            {% else %}
+                <div class="badge">📋 SONDAGE ÉTUDIANT</div>
+                <h1>LINK CI, tu en penses ?</h1>
+                <p class="subtitle">On veut créer un réseau social rien que pour les étudiants ivoiriens. Donne ton avis, ça prend 2 minutes.</p>
+
+                <form method="POST" class="sondage-form" action="/sondage">
+                    <div class="form-group">
+                        <label>1. Serais-tu intéressé par un réseau social exclusif pour étudiants ivoiriens ? <span class="required">*</span></label>
+                        <div class="radio-group">
+                            <label><input type="radio" name="interesse" value="Oui, carrément" required> Oui, carrément ! 🔥</label>
+                            <label><input type="radio" name="interesse" value="Peut-être, ça dépend"> Peut-être, ça dépend</label>
+                            <label><input type="radio" name="interesse" value="Pas vraiment"> Pas vraiment 🙅</label>
+                            <label><input type="radio" name="interesse" value="Non"> Non</label>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>2. Quelle fonctionnalité te parle le plus ? <span class="required">*</span></label>
+                        <div class="radio-group">
+                            <label><input type="radio" name="fonction_preferee" value="Fil d'actualité" required> 📱 Fil d'actualité (posts, likes, commentaires)</label>
+                            <label><input type="radio" name="fonction_preferee" value="Messagerie"> 💬 Messagerie entre étudiants</label>
+                            <label><input type="radio" name="fonction_preferee" value="Bibliothèque de cours"> 📚 Bibliothèque de cours et examens</label>
+                            <label><input type="radio" name="fonction_preferee" value="Offres de stage"> 💼 Offres de stage et jobs étudiants</label>
+                            <label><input type="radio" name="fonction_preferee" value="Événements campus"> 🎉 Événements et soirées campus</label>
+                            <label><input type="radio" name="fonction_preferee" value="Tout"> 🔥 Tout !</label>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>3. Quelle est ton université ? <span class="required">*</span></label>
+                        <select name="universite" required>
+                            <option value="">Sélectionne ton université</option>
+                            <option value="UFHB">UFHB — Félix Houphouët-Boigny</option>
+                            <option value="INP-HB">INP-HB — Yamoussoukro</option>
+                            <option value="UNA">UNA — Nangui Abrogoua</option>
+                            <option value="UCAO">UCAO — Abidjan</option>
+                            <option value="UVCI">UVCI — Abidjan</option>
+                            <option value="UJLoG">UJLoG — Jean Lorougnon Guédé</option>
+                            <option value="PIGIER">Pigier CI</option>
+                            <option value="GROUPE_ITC">Groupe ITC</option>
+                            <option value="AUTRE">Autre université</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>4. Quel est le plus grand problème que tu rencontres en tant qu'étudiant ? <span class="required">*</span></label>
+                        <div class="radio-group">
+                            <label><input type="radio" name="probleme" value="Transport" required> 🚌 Transport</label>
+                            <label><input type="radio" name="probleme" value="Accès aux cours"> 📖 Accès aux cours et documents</label>
+                            <label><input type="radio" name="probleme" value="Finance"> 💰 Problèmes financiers</label>
+                            <label><input type="radio" name="probleme" value="Logement"> 🏠 Logement</label>
+                            <label><input type="radio" name="probleme" value="Orientation"> 🎯 Orientation et débouchés</label>
+                            <label><input type="radio" name="probleme" value="Autre"> Autre</label>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>5. Une idée ou suggestion pour LINK CI ?</label>
+                        <textarea name="suggestion" placeholder="Dis-nous tout ! Fonctionnalités, nom, design, tout ce que tu veux..."></textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label>6. Ton contact (WhatsApp ou email) si tu veux participer au projet</label>
+                        <input type="text" name="contact" placeholder="+225 XX XX XX XX ou ton.email@example.com">
+                        <small style="color:var(--text-light);font-size:0.8rem;">Optionnel — on te contactera pour tester l'app en avant-première</small>
+                    </div>
+
+                    <button type="submit" class="btn btn-orange btn-block">Envoyer mon avis</button>
+                </form>
+
+                <div class="sondage-footer">
+                    🔥 <a href="/">LINK CI</a> — Le réseau social des étudiants ivoiriens
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

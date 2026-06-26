@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ajouter une formation — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
+            <div class="nav-links">
+                <a href="/feed" class="nav-link">Fil</a>
+                <a href="/bourses" class="nav-link">Bourses</a>
+                <a href="/formations" class="nav-link">Formations</a>
+                <a href="/calendrier" class="nav-link">Calendrier</a>
+                <a href="/groupes" class="nav-link">Groupes</a>
+                <a href="/notifications" class="nav-link" id="notif-link">Alerts <span id="notif-count" style="background:var(--primary);color:white;border-radius:50%;padding:0.1rem 0.4rem;font-size:0.7rem;display:none;"></span></a>
+                <a href="/messagerie" class="nav-link">Messages</a>
+                <a href="/documents" class="nav-link">Cours</a>
+                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
+                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container" style="max-width:600px;">
+        <h2>Ajouter une formation</h2>
+        <form method="POST" class="card">
+            <div style="margin-bottom:0.75rem;">
+                <label>Nom de la formation *</label>
+                <input type="text" name="nom" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:8px;">
+            </div>
+            <div style="margin-bottom:0.75rem;">
+                <label>Universite *</label>
+                <input type="text" name="universite" list="universites" required placeholder="UFHB, INPHB, etc." style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:8px;">
+                <datalist id="universites">
+                    <option value="UFHB (Universite Felix Houphouet-Boigny)">
+                    <option value="INPHB (Institut National Polytechnique)">
+                    <option value="Universite Nangui Abrogoua">
+                    <option value="Universite Alassane Ouattara">
+                    <option value="Universite Peleforo Gon Coulibaly">
+                    <option value="Universite Jean Lorougnon Guede">
+                    <option value="Universite de Man">
+                    <option value="Universite de San Pedro">
+                    <option value="ESMIC (Ecole Superieure Multinationale)">
+                    <option value="ESATIC (Ecole Superieire Africaine des TIC)">
+                </datalist>
+            </div>
+            <div style="margin-bottom:0.75rem;">
+                <label>Niveau *</label>
+                <select name="niveau" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:8px;">
+                    <option value="">Selectionner</option>
+                    <option value="Licence 1">Licence 1</option>
+                    <option value="Licence 2">Licence 2</option>
+                    <option value="Licence 3">Licence 3</option>
+                    <option value="Master 1">Master 1</option>
+                    <option value="Master 2">Master 2</option>
+                    <option value="Doctorat">Doctorat</option>
+                    <option value="BTS">BTS</option>
+                    <option value="DUT">DUT</option>
+                    <option value="Cycle Ingenieur">Cycle Ingenieur</option>
+                </select>
+            </div>
+            <div style="margin-bottom:0.75rem;">
+                <label>Duree</label>
+                <input type="text" name="duree" placeholder="3 ans, 2 ans, etc." style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:8px;">
+            </div>
+            <div style="margin-bottom:0.75rem;">
+                <label>Frais de scolarite</label>
+                <input type="text" name="frais" placeholder="Gratuit / 500 000 FCFA / an" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:8px;">
+            </div>
+            <div style="margin-bottom:0.75rem;">
+                <label>Site web</label>
+                <input type="url" name="site_web" placeholder="https://..." style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:8px;">
+            </div>
+            <div style="margin-bottom:0.75rem;">
+                <label>Description</label>
+                <textarea name="description" rows="4" placeholder="Decrivez la formation..." style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:8px;"></textarea>
+            </div>
+            <div style="margin-bottom:0.75rem;">
+                <label>Debouches</label>
+                <textarea name="debouches" rows="3" placeholder="Quels metiers apres cette formation ?" style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:8px;"></textarea>
+            </div>
+            <button type="submit" style="width:100%;padding:0.7rem;background:var(--primary);color:white;border:none;border-radius:8px;font-weight:600;cursor:pointer;">Publier la formation</button>
+        </form>
+    </div>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

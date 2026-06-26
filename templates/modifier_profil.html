@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modifier profil — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
+            <div class="nav-links">
+                <a href="/feed" class="nav-link">Fil</a>
+                <a href="/bourses" class="nav-link">Bourses</a>
+                <a href="/calendrier" class="nav-link">Calendrier</a>
+                <a href="/groupes" class="nav-link">Groupes</a>
+                <a href="/notifications" class="nav-link" id="notif-link">Alerts <span id="notif-count" style="background:var(--primary);color:white;border-radius:50%;padding:0.1rem 0.4rem;font-size:0.7rem;display:none;"></span></a>
+                <a href="/messagerie" class="nav-link">Messages</a>
+                <a href="/documents" class="nav-link">Cours</a>
+                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
+                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container" style="max-width:600px;">
+        <div class="card">
+            <h2 style="margin-bottom:1.5rem;">Modifier mon profil</h2>
+            <form method="POST" class="auth-form" enctype="multipart/form-data">
+                <div style="text-align:center;margin-bottom:1.5rem;">
+                    <div style="width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,var(--orange),var(--green));color:white;display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:800;margin:0 auto 0.5rem;">{{ user.prenom[:1] }}{{ user.nom[:1] }}</div>
+                    <label style="font-size:0.8rem;color:var(--orange);cursor:pointer;text-decoration:underline;">
+                        Changer la photo
+                        <input type="file" name="avatar" accept="image/png,image/jpeg,image/jpg,image/gif" style="display:none;" onchange="this.form.submit()">
+                    </label>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Prenom</label>
+                        <input type="text" name="prenom" value="{{ user.prenom }}" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Nom</label>
+                        <input type="text" name="nom" value="{{ user.nom }}" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Universite</label>
+                    <input type="text" name="universite" value="{{ user.universite or '' }}" list="universites">
+                    <datalist id="universites">
+                        <option value="UFHB (Universite Felix Houphouet-Boigny)">
+                        <option value="INPHB (Institut National Polytechnique)">
+                        <option value="Universite Nangui Abrogoua">
+                        <option value="Universite Alassane Ouattara">
+                        <option value="Universite Peleforo Gon Coulibaly">
+                        <option value="Universite Jean Lorougnon Guede">
+                        <option value="Universite de Man">
+                        <option value="Universite de San Pedro">
+                        <option value="ESMIC">
+                        <option value="ESATIC">
+                    </datalist>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Filiere</label>
+                        <input type="text" name="filiere" value="{{ user.filiere or '' }}" placeholder="Informatique, Droit, Medecine...">
+                    </div>
+                    <div class="form-group">
+                        <label>Annee</label>
+                        <select name="annee">
+                            <option value="">Selectionner</option>
+                            <option value="Licence 1" {% if user.annee == 'Licence 1' %}selected{% endif %}>Licence 1</option>
+                            <option value="Licence 2" {% if user.annee == 'Licence 2' %}selected{% endif %}>Licence 2</option>
+                            <option value="Licence 3" {% if user.annee == 'Licence 3' %}selected{% endif %}>Licence 3</option>
+                            <option value="Master 1" {% if user.annee == 'Master 1' %}selected{% endif %}>Master 1</option>
+                            <option value="Master 2" {% if user.annee == 'Master 2' %}selected{% endif %}>Master 2</option>
+                            <option value="Doctorat" {% if user.annee == 'Doctorat' %}selected{% endif %}>Doctorat</option>
+                            <option value="BTS" {% if user.annee == 'BTS' %}selected{% endif %}>BTS</option>
+                            <option value="Cycle Ingenieur" {% if user.annee == 'Cycle Ingenieur' %}selected{% endif %}>Cycle Ingenieur</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Bio</label>
+                    <textarea name="bio" rows="3" placeholder="Parle un peu de toi...">{{ user.bio or '' }}</textarea>
+                </div>
+                <button type="submit" class="btn-primary-solid" style="width:100%;padding:0.8rem;">Enregistrer</button>
+            </form>
+            <div style="margin-top:1rem;text-align:center;">
+                <a href="/profil/{{ user.id }}" style="color:var(--text-light);font-size:0.9rem;">&larr; Retour au profil</a>
+            </div>
+        </div>
+    </div>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

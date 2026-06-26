@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notifications — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
+            <div class="nav-links">
+                <a href="/feed" class="nav-link">Fil</a>
+                <a href="/bourses" class="nav-link">Bourses</a>
+                <a href="/calendrier" class="nav-link">Calendrier</a>
+                <a href="/groupes" class="nav-link">Groupes</a>
+                <a href="/notifications" class="nav-link active">Notifications</a>
+                <a href="/messagerie" class="nav-link">Messages</a>
+                <a href="/documents" class="nav-link">Cours</a>
+                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
+                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container" style="max-width:700px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+            <h2>Notifications</h2>
+            {% if non_lu > 0 %}
+            <form method="POST" action="/notifications/tout_lire">
+                <button style="padding:0.5rem 1rem;background:var(--primary);color:white;border:none;border-radius:8px;cursor:pointer;font-weight:600;">Tout marquer comme lu</button>
+            </form>
+            {% endif %}
+        </div>
+
+        {% if notifications|length == 0 %}
+        <div class="card empty-state">
+            <p>Aucune notification pour le moment.</p>
+            <p class="text-muted">Les alertes de nouvelles bourses apparaitront ici.</p>
+        </div>
+        {% endif %}
+
+        <div class="notifs-list">
+            {% for n in notifications %}
+            <div class="card" style="margin-bottom:0.5rem;{{ 'background:#FFF8F0;' if not n.lu else '' }}">
+                <form method="POST" action="/notifications/lire/{{ n.id }}" style="cursor:pointer;display:flex;gap:0.75rem;align-items:flex-start;">
+                    <div style="font-size:1.5rem;flex-shrink:0;">
+                        {% if n.type == 'bourse' %} {% elif n.type == 'like' %} ❤️ {% elif n.type == 'commentaire' %} 💬 {% elif n.type == 'message' %} 💌 {% else %} 🔔 {% endif %}
+                    </div>
+                    <div style="flex:1;">
+                        <p style="font-size:0.9rem;{% if not n.lu %}font-weight:600;{% endif %}">{{ n.message }}</p>
+                        <p style="font-size:0.75rem;color:var(--text-light);margin-top:0.25rem;">{{ n.date_notification[:19] }}</p>
+                    </div>
+                    {% if not n.lu %}
+                    <div style="width:8px;height:8px;border-radius:50%;background:var(--primary);flex-shrink:0;margin-top:0.5rem;"></div>
+                    {% endif %}
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Groupes — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
+            <div class="nav-links">
+                <a href="/feed" class="nav-link">Fil</a>
+                <a href="/bourses" class="nav-link">Bourses</a>
+                <a href="/calendrier" class="nav-link">Calendrier</a>
+                <a href="/groupes" class="nav-link active">Groupes</a>
+                <a href="/notifications" class="nav-link">Alerts</a>
+                <a href="/messagerie" class="nav-link">Messages</a>
+                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
+                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+    <div class="container" style="max-width:800px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;margin-bottom:1.5rem;">
+            <h2> Groupes de discussion</h2>
+            <button class="btn btn-orange btn-round" onclick="document.getElementById('groupeForm').style.display='block'">+ Créer un groupe</button>
+        </div>
+        <div class="card" id="groupeForm" style="display:none;margin-bottom:1.5rem;">
+            <form method="POST" action="/groupes/creer" class="auth-form">
+                <div class="form-group"><label>Nom du groupe</label><input type="text" name="nom" required placeholder="Ex: INP-HB 2026"></div>
+                <div class="form-group"><label>Description</label><textarea name="description" rows="2" placeholder="Sujet du groupe..."></textarea></div>
+                <div class="form-group"><label>Université (optionnel)</label><input type="text" name="universite" placeholder="Ex: UFHB"></div>
+                <button type="submit" class="btn-primary-solid" style="width:100%;padding:0.7rem;">Créer le groupe</button>
+            </form>
+        </div>
+        <h3 style="margin-bottom:1rem;">Mes groupes</h3>
+        {% if mes_groupes|length == 0 %}
+        <div class="card empty-state" style="margin-bottom:2rem;"><p>Tu n'es encore dans aucun groupe.</p></div>
+        {% endif %}
+        <div style="display:grid;gap:0.75rem;margin-bottom:2rem;">
+            {% for g in mes_groupes %}
+            <a href="/groupes/{{ g.id }}" class="card" style="text-decoration:none;color:inherit;display:flex;justify-content:space-between;align-items:center;padding:1rem 1.25rem;">
+                <div>
+                    <strong>{{ g.nom }}</strong>
+                    {% if g.description %}<p style="font-size:0.8rem;color:var(--text-light);margin-top:0.2rem;">{{ g.description[:80] }}</p>{% endif %}
+                </div>
+                <div style="text-align:right;">
+                    <span style="font-size:0.8rem;color:var(--text-muted);">{{ membres_count[g.id] }} membres</span>
+                    <span style="display:block;font-size:0.7rem;color:var(--orange);font-weight:600;">{{ g.role }}</span>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+        <h3 style="margin-bottom:1rem;">Tous les groupes</h3>
+        {% if tous_groupes|length == 0 %}
+        <div class="card empty-state"><p>Aucun autre groupe disponible.</p></div>
+        {% endif %}
+        <div style="display:grid;gap:0.75rem;">
+            {% for g in tous_groupes %}
+            <div class="card" style="display:flex;justify-content:space-between;align-items:center;padding:1rem 1.25rem;">
+                <div>
+                    <strong>{{ g.nom }}</strong>
+                    {% if g.description %}<p style="font-size:0.8rem;color:var(--text-light);margin-top:0.2rem;">{{ g.description[:100] }}</p>{% endif %}
+                    {% if g.universite %}<span style="font-size:0.75rem;color:var(--text-muted);"> {{ g.universite }}</span>{% endif %}
+                    <span style="font-size:0.75rem;color:var(--text-muted);margin-left:0.5rem;">{{ membres_count[g.id] }} membres</span>
+                </div>
+                <form method="POST" action="/groupes/rejoindre/{{ g.id }}">
+                    <button class="btn btn-orange btn-sm">Rejoindre</button>
+                </form>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</body>
+</html>

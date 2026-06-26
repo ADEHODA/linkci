@@ -1,0 +1,9 @@
+*.db
+*.pyc
+__pycache__/
+node_modules/
+.expo/
+*.exe
+*.iso
+uploads/
+.env

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mot de passe oublié — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+<div class="auth-page">
+    <div class="auth-card">
+        <a href="/" class="auth-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="40"></a>
+        <h1 class="auth-title">Mot de passe oublié</h1>
+        <p class="auth-subtitle">Entre ton email pour recevoir un lien de réinitialisation</p>
+        <form method="POST" class="auth-form">
+            <div class="form-group">
+                <label>Email</label>
+                <input type="email" name="email" required placeholder="ton@email.com">
+            </div>
+            <button type="submit" class="btn-primary auth-btn">Envoyer le lien</button>
+        </form>
+        <div class="auth-footer">
+            <a href="/connexion">← Retour à la connexion</a>
+        </div>
+    </div>
+</div>
+</body>
+</html>

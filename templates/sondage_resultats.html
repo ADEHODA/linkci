@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Résultats du sondage — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+    <style>
+        .results-page {
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 2rem 1rem;
+        }
+        .results-header {
+            text-align: center;
+            margin-bottom: 2rem;
+        }
+        .results-header h1 {
+            font-size: 2rem;
+        }
+        .results-header .total {
+            font-size: 3rem;
+            font-weight: 900;
+            color: var(--orange);
+        }
+        .results-grid {
+            display: grid;
+            gap: 1.5rem;
+        }
+        .result-card {
+            background: white;
+            border-radius: 16px;
+            padding: 1.5rem;
+            box-shadow: var(--shadow);
+            border-top: 4px solid var(--orange);
+        }
+        .result-card:nth-child(1) { border-top-color: #FF6B35; }
+        .result-card:nth-child(2) { border-top-color: #7C3AED; }
+        .result-card:nth-child(3) { border-top-color: #059669; }
+        .result-card:nth-child(4) { border-top-color: #DC2626; }
+        .result-card:nth-child(5) { border-top-color: #2563EB; }
+        .result-card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+        }
+        .bar-item {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+        .bar-label {
+            width: 200px;
+            font-size: 0.9rem;
+            flex-shrink: 0;
+            font-weight: 500;
+        }
+        .bar-track {
+            flex: 1;
+            height: 28px;
+            background: var(--bg);
+            border-radius: 14px;
+            overflow: hidden;
+            position: relative;
+        }
+        .bar-fill {
+            height: 100%;
+            border-radius: 14px;
+            transition: width 0.5s;
+            display: flex;
+            align-items: center;
+            padding-left: 10px;
+            color: white;
+            font-size: 0.8rem;
+            font-weight: 600;
+            min-width: fit-content;
+        }
+        .bar-fill.c1 { background: linear-gradient(90deg, #FF6B35, #FF8F65); }
+        .bar-fill.c2 { background: linear-gradient(90deg, #7C3AED, #A78BFA); }
+        .bar-fill.c3 { background: linear-gradient(90deg, #059669, #34D399); }
+        .bar-fill.c4 { background: linear-gradient(90deg, #DC2626, #F87171); }
+        .bar-fill.c5 { background: linear-gradient(90deg, #2563EB, #60A5FA); }
+        .bar-fill.c6 { background: linear-gradient(90deg, #D97706, #FBBF24); }
+        .bar-fill.c7 { background: linear-gradient(90deg, #DB2777, #F472B6); }
+        .bar-count {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            width: 40px;
+            text-align: right;
+            font-weight: 600;
+        }
+        .reponses-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.85rem;
+        }
+        .reponses-table th {
+            text-align: left;
+            padding: 0.6rem 0.5rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            border-bottom: 2px solid var(--border);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .reponses-table td {
+            padding: 0.5rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .reponses-table tr:hover td {
+            background: var(--orange-light);
+        }
+        .back-link {
+            display: inline-block;
+            margin-top: 1.5rem;
+            color: var(--orange);
+            text-decoration: none;
+            font-weight: 600;
+            transition: opacity 0.2s;
+        }
+        .back-link:hover { opacity: 0.7; }
+    </style>
+</head>
+<body>
+    <div class="results-page">
+        <div class="results-header">
+            <h1>📊 Résultats du sondage</h1>
+            <div class="total">{{ total }}</div>
+            <p>étudiants ont répondu</p>
+        </div>
+
+        <div class="results-grid">
+            <div class="result-card">
+                <h3>🔥 Intérêt pour LINK CI</h3>
+                {% for item in interesses %}
+                <div class="bar-item">
+                    <span class="bar-label">{{ item.interesse }}</span>
+                    <div class="bar-track">
+                        <div class="bar-fill c{{ loop.index % 7 + 1 }}" style="width: {{ ((item.nb / total * 100)|round) if total > 0 else 0 }}%;">{{ ((item.nb / total * 100)|round) if total > 0 else 0 }}%</div>
+                    </div>
+                    <span class="bar-count">{{ item.nb }}</span>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="result-card">
+                <h3>⭐ Fonctionnalité préférée</h3>
+                {% for item in fonctions %}
+                <div class="bar-item">
+                    <span class="bar-label">{{ item.fonction_preferee }}</span>
+                    <div class="bar-track">
+                        <div class="bar-fill c{{ loop.index % 7 + 1 }}" style="width: {{ ((item.nb / total * 100)|round) if total > 0 else 0 }}%;">{{ ((item.nb / total * 100)|round) if total > 0 else 0 }}%</div>
+                    </div>
+                    <span class="bar-count">{{ item.nb }}</span>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="result-card">
+                <h3>🏛️ Universités représentées</h3>
+                {% for item in universites %}
+                <div class="bar-item">
+                    <span class="bar-label">{{ item.universite }}</span>
+                    <div class="bar-track">
+                        <div class="bar-fill c{{ loop.index % 7 + 1 }}" style="width: {{ ((item.nb / total * 100)|round) if total > 0 else 0 }}%;">{{ ((item.nb / total * 100)|round) if total > 0 else 0 }}%</div>
+                    </div>
+                    <span class="bar-count">{{ item.nb }}</span>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="result-card">
+                <h3>😫 Plus grand problème étudiant</h3>
+                {% for item in problemes %}
+                <div class="bar-item">
+                    <span class="bar-label">{{ item.probleme }}</span>
+                    <div class="bar-track">
+                        <div class="bar-fill c{{ loop.index % 7 + 1 }}" style="width: {{ ((item.nb / total * 100)|round) if total > 0 else 0 }}%;">{{ ((item.nb / total * 100)|round) if total > 0 else 0 }}%</div>
+                    </div>
+                    <span class="bar-count">{{ item.nb }}</span>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="result-card">
+                <h3>💬 Témoignages et suggestions</h3>
+                {% if reponses|length == 0 %}
+                    <p class="text-muted">Aucune réponse pour le moment.</p>
+                {% else %}
+                    <table class="reponses-table">
+                        <tr>
+                            <th>Date</th>
+                            <th>Intérêt</th>
+                            <th>Fonction</th>
+                            <th>Université</th>
+                            <th>Problème</th>
+                            <th>Suggestion</th>
+                        </tr>
+                        {% for r in reponses %}
+                        <tr>
+                            <td>{{ r.date_reponse[:10] }}</td>
+                            <td>{{ r.interesse }}</td>
+                            <td>{{ r.fonction_preferee }}</td>
+                            <td>{{ r.universite }}</td>
+                            <td>{{ r.probleme }}</td>
+                            <td>{{ r.suggestion or '-' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </table>
+                {% endif %}
+            </div>
+        </div>
+
+            <div style="margin-top:1.5rem;display:flex;gap:0.75rem;flex-wrap:wrap;">
+                <a href="/sondage" class="back-link">← Retour au sondage</a>
+                <a href="/" class="back-link">← LINK CI</a>
+                <a href="/sondage/export" class="btn btn-orange btn-sm" style="font-size:0.8rem;padding:0.4rem 0.8rem;">📤 Exporter CSV</a>
+            </div>
+    </div>
+</body>
+</html>

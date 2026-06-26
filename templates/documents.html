@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bibliothèque de cours — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
+            <div class="nav-links">
+                <a href="/feed" class="nav-link">Fil</a>
+                <a href="/bourses" class="nav-link">Bourses</a>
+                <a href="/calendrier" class="nav-link">Calendrier</a>
+                <a href="/groupes" class="nav-link">Groupes</a>
+                <a href="/notifications" class="nav-link" id="notif-link">Alerts <span id="notif-count" style="background:var(--primary);color:white;border-radius:50%;padding:0.1rem 0.4rem;font-size:0.7rem;display:none;"></span></a>
+                <a href="/messagerie" class="nav-link">Messages</a>
+                <a href="/documents" class="nav-link active">Cours</a>
+                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
+                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="documents-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:0.75rem;">
+            <div>
+                <h2>📚 Bibliothèque de cours</h2>
+                <p>Partage et trouve des cours, examens et fiches de révision</p>
+            </div>
+            <a href="/documents/ajouter" class="btn-primary" style="text-decoration:none;padding:0.5rem 1.25rem;font-size:0.85rem;">+ Partager</a>
+        </div>
+
+        {% if matieres %}
+        <div class="filters-bar">
+            <input type="text" id="searchDoc" placeholder="Rechercher un document..." oninput="filterDocs()">
+            <select id="filterMatiere" onchange="filterDocs()">
+                <option value="">Toutes les matières</option>
+                {% for m in matieres %}
+                <option value="{{ m.matiere }}">{{ m.matiere }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
+
+        <div class="documents-grid" id="docsGrid">
+            {% for doc in docs %}
+            <a href="/documents/{{ doc.id }}/telecharger" class="doc-card card" style="text-decoration:none;color:inherit;">
+                <div class="doc-icon">📄</div>
+                <h4>{{ doc.titre }}</h4>
+                <p>{{ (doc.description[:120] ~ '...') if doc.description and doc.description|length > 120 else doc.description or '' }}</p>
+                {% if doc.matiere %}<span class="formation-badge">{{ doc.matiere }}</span>{% endif %}
+                <div class="doc-meta">
+                    <span>{{ doc.prenom }} {{ doc.nom }}</span>
+                    <span>{{ doc.telechargements }} téléchargement{% if doc.telechargements > 1 %}s{% endif %}</span>
+                </div>
+            </a>
+            {% endfor %}
+
+            {% if docs|length == 0 %}
+            <div class="card empty-state full-width">
+                <p>Aucun document partagé pour le moment.</p>
+                <p class="text-muted">Sois le premier à partager tes cours avec la communauté !</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+    function filterDocs() {
+        const q = (document.getElementById('searchDoc')?.value || '').toLowerCase();
+        const m = document.getElementById('filterMatiere')?.value || '';
+        document.querySelectorAll('#docsGrid .doc-card').forEach(card => {
+            const titre = card.querySelector('h4')?.textContent.toLowerCase() || '';
+            const desc = card.querySelector('p')?.textContent.toLowerCase() || '';
+            const badge = card.querySelector('.formation-badge');
+            const mat = badge ? badge.textContent : '';
+            const matchText = titre.includes(q) || desc.includes(q);
+            const matchMatiere = !m || mat === m;
+            card.style.display = (matchText && matchMatiere) ? '' : 'none';
+        });
+    }
+    </script>
+</body>
+</html>

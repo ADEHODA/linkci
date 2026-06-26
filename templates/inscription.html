@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Inscription — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+    <div class="auth-page">
+        <div class="auth-card">
+            <a href="/" class="auth-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="40"></a>
+            <h2>Rejoins la communauté</h2>
+            <p class="auth-subtitle">Trouve tes potes d'université en un clic</p>
+
+            {% if erreur %}
+            <div class="alert alert-error">{{ erreur }}</div>
+            {% endif %}
+
+            <form method="POST" class="auth-form">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Nom</label>
+                        <input type="text" name="nom" placeholder="Koné" required>
+                    </div>
+                    <div class="form-group">
+                        <label>Prénom</label>
+                        <input type="text" name="prenom" placeholder="Moussa" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Email</label>
+                    <input type="email" name="email" placeholder="moussa.kone@example.ci" required>
+                </div>
+                <div class="form-group">
+                    <label>Mot de passe</label>
+                    <input type="password" name="mot_de_passe" placeholder="Min 6 caractères" minlength="6" required>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Université</label>
+                        <select name="universite">
+                            <option value="">Choisis</option>
+                            <option value="UFHB">UFHB — Félix Houphouët-Boigny</option>
+                            <option value="INP-HB">INP-HB — Yamoussoukro</option>
+                            <option value="UNA">UNA — Nangui Abrogoua</option>
+                            <option value="UCAO">UCAO — Abidjan</option>
+                            <option value="UVCI">UVCI — Abidjan</option>
+                            <option value="UJLoG">UJLoG — Jean Lorougnon Guédé</option>
+                            <option value="PIGIER">Pigier CI</option>
+                            <option value="GROUPE_ITC">Groupe ITC</option>
+                            <option value="AUTRE">Autre</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Filière</label>
+                        <input type="text" name="filiere" placeholder="Informatique, Droit...">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Année</label>
+                    <select name="annee">
+                        <option value="">Choisis</option>
+                        <option value="Licence 1">Licence 1</option>
+                        <option value="Licence 2">Licence 2</option>
+                        <option value="Licence 3">Licence 3</option>
+                        <option value="Master 1">Master 1</option>
+                        <option value="Master 2">Master 2</option>
+                        <option value="Doctorat">Doctorat</option>
+                        <option value="BTS 1">BTS 1</option>
+                        <option value="BTS 2">BTS 2</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn-primary btn-full">Créer mon compte</button>
+            </form>
+            <p class="auth-footer">Déjà inscrit ? <a href="/connexion">Connecte-toi</a></p>
+        </div>
+    </div>
+</body>
+</html>
