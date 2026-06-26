@@ -41,6 +41,7 @@
             <h2>Notifications</h2>
             {% if non_lu > 0 %}
             <form method="POST" action="/notifications/tout_lire">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <button style="padding:0.5rem 1rem;background:var(--primary);color:white;border:none;border-radius:8px;cursor:pointer;font-weight:600;">Tout marquer comme lu</button>
             </form>
             {% endif %}
@@ -57,6 +58,7 @@
             {% for n in notifications %}
             <div class="card" style="margin-bottom:0.5rem;{{ 'background:#FFF8F0;' if not n.lu else '' }}">
                 <form method="POST" action="/notifications/lire/{{ n.id }}" style="cursor:pointer;display:flex;gap:0.75rem;align-items:flex-start;">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <div style="font-size:1.5rem;flex-shrink:0;">
                         {% if n.type == 'bourse' %} {% elif n.type == 'like' %} ❤️ {% elif n.type == 'commentaire' %} 💬 {% elif n.type == 'message' %} 💌 {% else %} 🔔 {% endif %}
                     </div>

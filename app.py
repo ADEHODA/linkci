@@ -28,6 +28,7 @@ def check_password(mdp, hashed):
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24).hex()
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload
 socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Rate limiting (in-memory)
@@ -40,12 +41,53 @@ RATE_MAX = 10     # max requests per window
 def check_rate_limit(key, max_reqs=RATE_MAX, window=RATE_WINDOW):
     now = time.time()
     timestamps = rate_limits[key]
-    # Clean old entries
     rate_limits[key] = [t for t in timestamps if now - t < window]
     if len(rate_limits[key]) >= max_reqs:
         return False
     rate_limits[key].append(now)
     return True
+
+# CSRF Protection
+import secrets
+csrf_exempt_routes = {'/api/register', '/api/login'}
+
+def generate_csrf_token():
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = secrets.token_hex(32)
+    return session['_csrf_token']
+
+def validate_csrf():
+    token = request.form.get('_csrf_token')
+    return token and session.get('_csrf_token') and token == session['_csrf_token']
+
+@app.before_request
+def check_csrf():
+    if request.method == 'POST' and not request.path.startswith('/api/'):
+        if not request.path.startswith('/api') and request.path not in csrf_exempt_routes:
+            if not validate_csrf():
+                flash('Formulaire invalide (CSRF). Reessaie.', 'error')
+                return redirect(request.referrer or url_for('index'))
+
+@app.context_processor
+def inject_csrf():
+    return dict(csrf_token=generate_csrf_token)
+
+# Input validation helpers
+import re
+def validate_email(email):
+    return re.match(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$', email.strip()) is not None
+
+def sanitize_text(text, maxlen=500):
+    return text.strip()[:maxlen] if text else ''
+
+def validate_password(password):
+    return len(password) >= 6
+
+FIELD_MAXLEN = {
+    'nom': 50, 'prenom': 50, 'email': 120, 'universite': 100,
+    'filiere': 100, 'bio': 500, 'titre': 200, 'description': 2000,
+    'contenu': 5000, 'organisme': 200, 'message': 5000,
+}
 
 DB_PATH = os.path.join(os.path.dirname(__file__), 'linkci.db')
 
@@ -240,6 +282,17 @@ def init_db():
         );
     ''')
     conn.commit()
+
+    # Migrate old SHA256 passwords to bcrypt
+    try:
+        old_users = conn.execute('SELECT id, mot_de_passe FROM users').fetchall()
+        for uid, pwd in old_users:
+            if pwd and not pwd.startswith('$2'):
+                new_hash = bcrypt.hashpw(hashlib.sha256(pwd.encode()).hexdigest().encode(), bcrypt.gensalt()).decode()
+                conn.execute('UPDATE users SET mot_de_passe = ? WHERE id = ?', (new_hash, uid))
+    except:
+        pass  # Table may not exist yet
+
     conn.close()
 
 @app.route('/')
@@ -260,13 +313,23 @@ def inscription():
         if not check_rate_limit(f'inscription:{ip}', max_reqs=3, window=300):
             flash('Trop de tentatives. Reessaie dans 5 minutes.', 'error')
             return render_template('inscription.html')
-        nom = request.form['nom']
-        prenom = request.form['prenom']
-        email = request.form['email']
-        mot_de_passe = hash_password(request.form['mot_de_passe'])
-        universite = request.form.get('universite', '')
-        filiere = request.form.get('filiere', '')
-        annee = request.form.get('annee', '')
+        nom = sanitize_text(request.form.get('nom', ''), 50)
+        prenom = sanitize_text(request.form.get('prenom', ''), 50)
+        email = sanitize_text(request.form.get('email', ''), 120)
+        mot_de_passe = request.form.get('mot_de_passe', '')
+        universite = sanitize_text(request.form.get('universite', ''), 100)
+        filiere = sanitize_text(request.form.get('filiere', ''), 100)
+        annee = sanitize_text(request.form.get('annee', ''), 20)
+        if not nom or not prenom or not email:
+            flash('Nom, prenom et email requis.', 'error')
+            return render_template('inscription.html')
+        if not validate_email(email):
+            flash('Email invalide.', 'error')
+            return render_template('inscription.html')
+        if not validate_password(mot_de_passe):
+            flash('Mot de passe trop court (min 6 caracteres).', 'error')
+            return render_template('inscription.html')
+        mot_de_passe = hash_password(mot_de_passe)
 
         conn = get_db()
         try:
@@ -319,7 +382,10 @@ def deconnexion():
 @app.route('/mot_de_passe_oublie', methods=['GET', 'POST'])
 def mot_de_passe_oublie():
     if request.method == 'POST':
-        email = request.form.get('email', '').strip()
+        email = sanitize_text(request.form.get('email', ''), 120)
+        if not validate_email(email):
+            flash('Email invalide.', 'error')
+            return redirect(url_for('connexion'))
         conn = get_db()
         user = conn.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
         if user:
@@ -347,7 +413,7 @@ def reinitialiser(token):
         return redirect(url_for('connexion'))
     if request.method == 'POST':
         mdp = request.form.get('mot_de_passe', '')
-        if len(mdp) < 6:
+        if not validate_password(mdp):
             flash('Mot de passe trop court (min 6 caracteres).', 'error')
             return render_template('reinitialiser.html', token=token)
         nouveau = hash_password(mdp)
@@ -383,8 +449,8 @@ def feed():
 def publier():
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
-    contenu = request.form['contenu']
-    if contenu.strip():
+    contenu = sanitize_text(request.form.get('contenu', ''), 5000)
+    if contenu:
         conn = get_db()
         conn.execute('INSERT INTO posts (user_id, contenu) VALUES (?, ?)',
                      (session['user_id'], contenu))
@@ -413,8 +479,8 @@ def liker(post_id):
 def commenter(post_id):
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
-    contenu = request.form['contenu']
-    if contenu.strip():
+    contenu = sanitize_text(request.form.get('contenu', ''), 2000)
+    if contenu:
         conn = get_db()
         conn.execute('INSERT INTO commentaires (user_id, post_id, contenu) VALUES (?, ?, ?)',
                      (session['user_id'], post_id, contenu))
@@ -475,7 +541,7 @@ def messagerie():
 def envoyer_message(destinataire_id):
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
-    contenu = request.form.get('contenu', '').strip()
+    contenu = sanitize_text(request.form.get('contenu', ''), 5000)
     if contenu:
         conn = get_db()
         conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu) VALUES (?, ?, ?)',
@@ -545,12 +611,12 @@ def modifier_profil():
         return redirect(url_for('connexion'))
     conn = get_db()
     if request.method == 'POST':
-        prenom = request.form.get('prenom', '').strip()
-        nom = request.form.get('nom', '').strip()
-        universite = request.form.get('universite', '')
-        filiere = request.form.get('filiere', '')
-        annee = request.form.get('annee', '')
-        bio = request.form.get('bio', '')
+        prenom = sanitize_text(request.form.get('prenom', ''), 50)
+        nom = sanitize_text(request.form.get('nom', ''), 50)
+        universite = sanitize_text(request.form.get('universite', ''), 100)
+        filiere = sanitize_text(request.form.get('filiere', ''), 100)
+        annee = sanitize_text(request.form.get('annee', ''), 20)
+        bio = sanitize_text(request.form.get('bio', ''), 500)
         avatar = request.files.get('avatar')
         if prenom and nom:
             avatar_nom = None
@@ -592,10 +658,10 @@ def ajouter_document():
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
     if request.method == 'POST':
-        titre = request.form.get('titre', '').strip()
-        description = request.form.get('description', '').strip()
-        matiere = request.form.get('matiere', '').strip()
-        universite = request.form.get('universite', '').strip()
+        titre = sanitize_text(request.form.get('titre', ''), 200)
+        description = sanitize_text(request.form.get('description', ''), 2000)
+        matiere = sanitize_text(request.form.get('matiere', ''), 100)
+        universite = sanitize_text(request.form.get('universite', ''), 100)
         fichier = request.files.get('fichier')
         if not titre or not fichier or fichier.filename == '':
             flash('Titre et fichier requis', 'error')
@@ -739,15 +805,24 @@ def ajouter_bourse():
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
     if request.method == 'POST':
+        titre = sanitize_text(request.form.get('titre', ''), 200)
+        organisme = sanitize_text(request.form.get('organisme', ''), 200)
+        description = sanitize_text(request.form.get('description', ''), 2000)
+        montant = sanitize_text(request.form.get('montant', ''), 100)
+        type_ = sanitize_text(request.form.get('type', ''), 50)
+        cible = sanitize_text(request.form.get('cible', ''), 200)
+        deadline = sanitize_text(request.form.get('deadline', ''), 20)
+        lien = sanitize_text(request.form.get('lien', ''), 500)
+        pays = sanitize_text(request.form.get('pays', "Cote d'Ivoire"), 100)
+        if not titre or not organisme or not type_:
+            flash('Titre, organisme et type requis.', 'error')
+            return render_template('ajouter_bourse.html')
         conn = get_db()
         conn.execute('INSERT INTO bourses (titre, organisme, description, montant, type, cible, deadline, lien, pays) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            (request.form['titre'], request.form['organisme'], request.form['description'],
-             request.form.get('montant', ''), request.form['type'],
-             request.form.get('cible', ''), request.form.get('deadline', ''),
-             request.form.get('lien', ''), request.form.get('pays', "Cote d'Ivoire")))
+            (titre, organisme, description, montant, type_, cible, deadline, lien, pays))
         conn.commit()
         conn.close()
-        notifier_tous('bourse', f"Nouvelle bourse : {request.form['titre']}", "/bourses")
+        notifier_tous('bourse', f"Nouvelle bourse : {titre}", "/bourses")
         return redirect(url_for('bourses'))
     return render_template('ajouter_bourse.html')
 
@@ -871,15 +946,23 @@ def ajouter_formation():
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
     if request.method == 'POST':
+        nom = sanitize_text(request.form.get('nom', ''), 200)
+        universite = sanitize_text(request.form.get('universite', ''), 200)
+        niveau = sanitize_text(request.form.get('niveau', ''), 50)
+        description = sanitize_text(request.form.get('description', ''), 2000)
+        duree = sanitize_text(request.form.get('duree', ''), 100)
+        debouches = sanitize_text(request.form.get('debouches', ''), 500)
+        frais = sanitize_text(request.form.get('frais', ''), 100)
+        site_web = sanitize_text(request.form.get('site_web', ''), 500)
+        if not nom or not universite or not niveau:
+            flash('Nom, universite et niveau requis.', 'error')
+            return render_template('ajouter_formation.html')
         conn = get_db()
         conn.execute('INSERT INTO formations (nom, universite, niveau, description, duree, debouches, frais, site_web) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            (request.form['nom'], request.form['universite'], request.form['niveau'],
-             request.form.get('description', ''), request.form.get('duree', ''),
-             request.form.get('debouches', ''), request.form.get('frais', ''),
-             request.form.get('site_web', '')))
+            (nom, universite, niveau, description, duree, debouches, frais, site_web))
         conn.commit()
         conn.close()
-        notifier_tous('formation', 'Nouvelle formation disponible : ' + request.form['nom'], '/formations')
+        notifier_tous('formation', 'Nouvelle formation disponible : ' + nom, '/formations')
         return redirect(url_for('formations'))
     return render_template('ajouter_formation.html')
 
@@ -969,10 +1052,10 @@ def calendrier():
 def ajouter_evenement():
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
-    titre = request.form.get('titre', '').strip()
-    description = request.form.get('description', '').strip()
-    date_event = request.form.get('date_event', '').strip()
-    lieu = request.form.get('lieu', '').strip()
+    titre = sanitize_text(request.form.get('titre', ''), 200)
+    description = sanitize_text(request.form.get('description', ''), 2000)
+    date_event = sanitize_text(request.form.get('date_event', ''), 20)
+    lieu = sanitize_text(request.form.get('lieu', ''), 200)
     if titre and date_event:
         conn = get_db()
         conn.execute('INSERT INTO evenements (user_id, titre, description, date_event, lieu) VALUES (?, ?, ?, ?, ?)',
@@ -1025,9 +1108,9 @@ def groupes():
 def creer_groupe():
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
-    nom = request.form.get('nom', '').strip()
-    description = request.form.get('description', '').strip()
-    universite = request.form.get('universite', '').strip()
+    nom = sanitize_text(request.form.get('nom', ''), 100)
+    description = sanitize_text(request.form.get('description', ''), 500)
+    universite = sanitize_text(request.form.get('universite', ''), 100)
     if nom:
         conn = get_db()
         c = conn.execute('INSERT INTO groupes (nom, description, universite, createur_id) VALUES (?, ?, ?, ?)',
@@ -1089,7 +1172,7 @@ def discussion_groupe(id):
 def envoyer_message_groupe(id):
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
-    contenu = request.form.get('contenu', '').strip()
+    contenu = sanitize_text(request.form.get('contenu', ''), 5000)
     if contenu:
         conn = get_db()
         conn.execute('INSERT INTO groupe_messages (groupe_id, user_id, contenu) VALUES (?, ?, ?)',

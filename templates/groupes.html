@@ -32,6 +32,7 @@
         </div>
         <div class="card" id="groupeForm" style="display:none;margin-bottom:1.5rem;">
             <form method="POST" action="/groupes/creer" class="auth-form">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group"><label>Nom du groupe</label><input type="text" name="nom" required placeholder="Ex: INP-HB 2026"></div>
                 <div class="form-group"><label>Description</label><textarea name="description" rows="2" placeholder="Sujet du groupe..."></textarea></div>
                 <div class="form-group"><label>Université (optionnel)</label><input type="text" name="universite" placeholder="Ex: UFHB"></div>
@@ -70,6 +71,7 @@
                     <span style="font-size:0.75rem;color:var(--text-muted);margin-left:0.5rem;">{{ membres_count[g.id] }} membres</span>
                 </div>
                 <form method="POST" action="/groupes/rejoindre/{{ g.id }}">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <button class="btn btn-orange btn-sm">Rejoindre</button>
                 </form>
             </div>

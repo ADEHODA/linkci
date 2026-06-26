@@ -42,6 +42,7 @@
                 {% if groupe.description %}<p style="font-size:0.85rem;color:var(--text-light);">{{ groupe.description }}</p>{% endif %}
             </div>
             <form method="POST" action="/groupes/quitter/{{ groupe.id }}" onsubmit="return confirm('Quitter ce groupe ?')">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <button class="btn btn-sm" style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:0.4rem 0.75rem;cursor:pointer;color:var(--text-light);">Quitter</button>
             </form>
         </div>
@@ -60,6 +61,7 @@
                     {% endif %}
                 </div>
                 <form method="POST" action="/groupes/{{ groupe.id }}/envoyer" style="display:flex;gap:0.5rem;">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <input type="text" name="contenu" placeholder="Écris un message..." required style="flex:1;padding:0.7rem 1rem;border-radius:10px;border:1px solid var(--border);font-size:0.9rem;">
                     <button type="submit" class="btn btn-orange" style="padding:0.7rem 1.25rem;">Envoyer</button>
                 </form>

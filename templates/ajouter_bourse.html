@@ -42,6 +42,7 @@
             <p class="text-muted" style="margin-bottom:1.5rem;">Partage une opportunité de financement avec la communauté</p>
 
             <form method="POST" class="auth-form">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group">
                     <label>Titre de la bourse *</label>
                     <input type="text" name="titre" placeholder="Ex: Bourse d'excellence UFHB 2026" required>

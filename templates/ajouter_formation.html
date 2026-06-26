@@ -40,6 +40,7 @@
     <div class="container" style="max-width:600px;">
         <h2>Ajouter une formation</h2>
         <form method="POST" class="card">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div style="margin-bottom:0.75rem;">
                 <label>Nom de la formation *</label>
                 <input type="text" name="nom" required style="width:100%;padding:0.5rem;border:1px solid #ddd;border-radius:8px;">

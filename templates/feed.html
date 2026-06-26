@@ -49,6 +49,7 @@
                     <span>{{ session.user_nom }}</span>
                 </div>
                 <form method="POST" action="/publier">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <textarea name="contenu" placeholder="Quoi de neuf sur le campus ?" required></textarea>
                     <button type="submit" class="btn btn-orange btn-round" style="align-self:flex-end;">Publier</button>
                 </form>
@@ -67,6 +68,7 @@
                         </a>
                         {% if post.user_id == session.user_id %}
                         <form method="POST" action="/supprimer_post/{{ post.id }}" onsubmit="return confirm('Supprimer cette publication ?')">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn-danger btn-sm">&times;</button>
                         </form>
                         {% endif %}
@@ -76,6 +78,7 @@
                     </div>
                     <div class="post-actions">
                         <form method="POST" action="/liker/{{ post.id }}" class="like-form">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                             <button type="submit" class="btn-action {{ 'liked' if post.a_like else '' }}">
                                 ❤️ {{ post.nb_likes }}
                             </button>
@@ -86,6 +89,7 @@
                     </div>
                     <div class="post-comments" id="comments-{{ post.id }}" style="display:none;">
                         <form method="POST" action="/commenter/{{ post.id }}" class="comment-form">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                             <input type="text" name="contenu" placeholder="Écris un commentaire..." required>
                             <button type="submit">Envoyer</button>
                         </form>

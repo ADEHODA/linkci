@@ -39,6 +39,7 @@
         </div>
         <div class="card" id="eventForm" style="display:none;margin-bottom:1.5rem;">
             <form method="POST" action="/calendrier/ajouter" class="auth-form">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <div class="form-group"><label>Titre</label><input type="text" name="titre" required></div>
                 <div class="form-group"><label>Description</label><textarea name="description" rows="2"></textarea></div>
                 <div class="form-row">
@@ -67,6 +68,7 @@
                 {% if e.lieu %}<p style="font-size:0.8rem;color:var(--text-muted);"> {{ e.lieu }}</p>{% endif %}
             </div>
             <form method="POST" action="/calendrier/supprimer/{{ e.id }}" onsubmit="return confirm('Supprimer ?')">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <button style="background:none;border:none;font-size:1.2rem;cursor:pointer;color:var(--text-light);">×</button>
             </form>
         </div>

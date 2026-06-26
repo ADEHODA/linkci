@@ -187,6 +187,7 @@
             <div id="typingIndicator" style="display:none;padding:0.25rem 1.25rem;font-size:0.75rem;color:var(--text-muted);font-style:italic;"></div>
 
             <form method="POST" action="/envoyer_message/{{ conversation_avec.id }}" class="msg-input-area" onsubmit="return sendMessage(this)">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <input type="text" name="contenu" placeholder="Ecris un message..." required autofocus onkeyup="onTyping()">
                 <button type="submit">Envoyer</button>
             </form>

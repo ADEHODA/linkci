@@ -48,6 +48,7 @@
     <div class="upload-page">
         <h2>📤 Partager un document</h2>
         <form method="POST" enctype="multipart/form-data">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <label>Titre du document *</label>
             <input type="text" name="titre" required placeholder="ex: Cours de maths S1">
 

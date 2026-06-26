@@ -221,6 +221,7 @@
                 <p class="subtitle">On veut créer un réseau social rien que pour les étudiants ivoiriens. Donne ton avis, ça prend 2 minutes.</p>
 
                 <form method="POST" class="sondage-form" action="/sondage">
+                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                     <div class="form-group">
                         <label>1. Serais-tu intéressé par un réseau social exclusif pour étudiants ivoiriens ? <span class="required">*</span></label>
                         <div class="radio-group">

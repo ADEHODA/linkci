@@ -40,6 +40,7 @@
         <div class="card">
             <h2 style="margin-bottom:1.5rem;">Modifier mon profil</h2>
             <form method="POST" class="auth-form" enctype="multipart/form-data">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <div style="text-align:center;margin-bottom:1.5rem;">
                     <div style="width:80px;height:80px;border-radius:50%;background:linear-gradient(135deg,var(--orange),var(--green));color:white;display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:800;margin:0 auto 0.5rem;">{{ user.prenom[:1] }}{{ user.nom[:1] }}</div>
                     <label style="font-size:0.8rem;color:var(--orange);cursor:pointer;text-decoration:underline;">
