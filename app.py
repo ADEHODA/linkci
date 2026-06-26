@@ -31,14 +31,36 @@ app.secret_key = os.urandom(24).hex()
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Rate limiting (in-memory)
+# Rate limiting (in-memory with periodic cleanup)
 from collections import defaultdict
 import time
+import threading
 rate_limits = defaultdict(list)
-RATE_WINDOW = 60  # seconds
-RATE_MAX = 10     # max requests per window
+RATE_WINDOW = 60
+RATE_MAX = 10
 
-def check_rate_limit(key, max_reqs=RATE_MAX, window=RATE_WINDOW):
+RATE_LIMITS = {
+    'inscription': {'max': 3, 'window': 300},
+    'connexion': {'max': 5, 'window': 60},
+    'publication': {'max': 10, 'window': 60},
+    'commentaire': {'max': 20, 'window': 60},
+    'message': {'max': 30, 'window': 60},
+    'api_login': {'max': 10, 'window': 60},
+    'api_register': {'max': 3, 'window': 300},
+    'default': {'max': 30, 'window': 60},
+}
+
+def get_rate_limit(key):
+    for k, v in RATE_LIMITS.items():
+        if k in key:
+            return v
+    return RATE_LIMITS['default']
+
+def check_rate_limit(key, max_reqs=None, window=None):
+    if max_reqs is None or window is None:
+        cfg = get_rate_limit(key)
+        max_reqs = cfg['max']
+        window = cfg['window']
     now = time.time()
     timestamps = rate_limits[key]
     rate_limits[key] = [t for t in timestamps if now - t < window]
@@ -46,6 +68,16 @@ def check_rate_limit(key, max_reqs=RATE_MAX, window=RATE_WINDOW):
         return False
     rate_limits[key].append(now)
     return True
+
+def cleanup_rate_limits():
+    now = time.time()
+    for key in list(rate_limits.keys()):
+        rate_limits[key] = [t for t in rate_limits[key] if now - t < 3600]
+        if not rate_limits[key]:
+            del rate_limits[key]
+    threading.Timer(300, cleanup_rate_limits).start()
+
+cleanup_rate_limits()
 
 # CSRF Protection
 import secrets
@@ -1308,6 +1340,9 @@ def api_token(user_id):
 
 @app.route('/api/register', methods=['POST'])
 def api_register():
+    ip = request.remote_addr or 'unknown'
+    if not check_rate_limit(f'api_register:{ip}'):
+        return jsonify({'error': 'Trop de tentatives. Reessaie dans 5 minutes.'}), 429
     data = request.json
     if not data:
         return jsonify({'error': 'JSON requis'}), 400
@@ -1332,6 +1367,9 @@ def api_register():
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
+    ip = request.remote_addr or 'unknown'
+    if not check_rate_limit(f'api_login:{ip}'):
+        return jsonify({'error': 'Trop de tentatives. Reessaie dans 1 minute.'}), 429
     data = request.json
     if not data:
         return jsonify({'error': 'JSON requis'}), 400
@@ -1386,6 +1424,9 @@ def api_create_post():
     user_id = api_require_auth()
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
+    ip = request.remote_addr or 'unknown'
+    if not check_rate_limit(f'publication:{user_id}', max_reqs=10, window=60):
+        return jsonify({'error': 'Trop de publications. Ralentis.'}), 429
     data = request.json
     if not data or not data.get('contenu', '').strip():
         return jsonify({'error': 'Contenu requis'}), 400
