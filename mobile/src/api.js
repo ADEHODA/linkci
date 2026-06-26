@@ -73,3 +73,32 @@ export const getNotifications = () => request('/api/notifications');
 
 // Profil
 export const getProfile = (userId) => request(`/api/profil/${userId}`);
+
+// Calendrier
+export const getEvenements = () => request('/api/evenements');
+export const createEvenement = (data) =>
+  request('/api/evenements', { method: 'POST', body: JSON.stringify(data) });
+export const deleteEvenement = (id) =>
+  request(`/api/evenements/${id}`, { method: 'DELETE' });
+
+// Groupes
+export const getGroupes = () => request('/api/groupes');
+export const createGroupe = (data) =>
+  request('/api/groupes', { method: 'POST', body: JSON.stringify(data) });
+export const rejoindreGroupe = (id) =>
+  request(`/api/groupes/${id}/rejoindre`, { method: 'POST' });
+export const getGroupeMessages = (id) =>
+  request(`/api/groupes/${id}/messages`);
+export const sendGroupeMessage = (id, contenu) =>
+  request(`/api/groupes/${id}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ contenu }),
+  });
+export const quitterGroupe = (id) =>
+  request(`/api/groupes/${id}/quitter`, { method: 'POST' });
+
+// Documents
+export const getDocuments = () => request('/api/documents');
+
+// Recherche
+export const searchAll = (q) => request(`/api/recherche?q=${encodeURIComponent(q)}`);

@@ -1501,6 +1501,143 @@ def api_documents():
     conn.close()
     return jsonify([dict(d) for d in docs])
 
+@app.route('/api/evenements')
+def api_evenements():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    from datetime import date
+    aujourdhui = date.today().isoformat()
+    conn = get_db()
+    events = conn.execute('SELECT * FROM evenements ORDER BY date_event ASC').fetchall()
+    conn.close()
+    return jsonify([dict(e) for e in events])
+
+@app.route('/api/evenements', methods=['POST'])
+def api_ajouter_evenement():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    data = request.json
+    if not data or not data.get('titre') or not data.get('date_event'):
+        return jsonify({'error': 'titre et date_event requis'}), 400
+    conn = get_db()
+    conn.execute('INSERT INTO evenements (user_id, titre, description, date_event, lieu) VALUES (?, ?, ?, ?, ?)',
+                 (user_id, data['titre'], data.get('description', ''), data['date_event'], data.get('lieu', '')))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Cree'}), 201
+
+@app.route('/api/evenements/<int:id>', methods=['DELETE'])
+def api_supprimer_evenement(id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    conn.execute('DELETE FROM evenements WHERE id = ?', (id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Supprime'})
+
+@app.route('/api/groupes')
+def api_groupes():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    mes_groupes = conn.execute('''
+        SELECT g.*, gm.role FROM groupes g
+        JOIN groupe_membres gm ON gm.groupe_id = g.id
+        WHERE gm.user_id = ? ORDER BY g.nom
+    ''', (user_id,)).fetchall()
+    tous_groupes = conn.execute('''
+        SELECT g.*,
+            (SELECT COUNT(*) FROM groupe_membres WHERE groupe_id = g.id) as nb_membres
+        FROM groupes g WHERE g.id NOT IN (
+            SELECT groupe_id FROM groupe_membres WHERE user_id = ?
+        ) ORDER BY g.nom
+    ''', (user_id,)).fetchall()
+    conn.close()
+    return jsonify({'mes_groupes': [dict(g) for g in mes_groupes], 'tous_groupes': [dict(g) for g in tous_groupes]})
+
+@app.route('/api/groupes', methods=['POST'])
+def api_creer_groupe():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    data = request.json
+    if not data or not data.get('nom', '').strip():
+        return jsonify({'error': 'Nom du groupe requis'}), 400
+    conn = get_db()
+    c = conn.execute('INSERT INTO groupes (nom, description, universite, createur_id) VALUES (?, ?, ?, ?)',
+                     (data['nom'].strip(), data.get('description', ''), data.get('universite', ''), user_id))
+    gid = c.lastrowid
+    conn.execute('INSERT INTO groupe_membres (groupe_id, user_id, role) VALUES (?, ?, ?)', (gid, user_id, 'admin'))
+    conn.commit()
+    conn.close()
+    return jsonify({'id': gid, 'message': 'Groupe cree'}), 201
+
+@app.route('/api/groupes/<int:id>/rejoindre', methods=['POST'])
+def api_rejoindre_groupe(id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    exists = conn.execute('SELECT id FROM groupe_membres WHERE groupe_id = ? AND user_id = ?', (id, user_id)).fetchone()
+    if not exists:
+        conn.execute('INSERT INTO groupe_membres (groupe_id, user_id, role) VALUES (?, ?, ?)', (id, user_id, 'membre'))
+        conn.commit()
+    conn.close()
+    return jsonify({'message': 'Rejoint'})
+
+@app.route('/api/groupes/<int:id>/messages')
+def api_groupe_messages(id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    membre = conn.execute('SELECT id FROM groupe_membres WHERE groupe_id = ? AND user_id = ?', (id, user_id)).fetchone()
+    if not membre:
+        conn.close()
+        return jsonify({'error': 'Tu n\'es pas membre'}), 403
+    messages = conn.execute('''
+        SELECT gm.*, users.prenom, users.nom
+        FROM groupe_messages gm JOIN users ON gm.user_id = users.id
+        WHERE gm.groupe_id = ? ORDER BY gm.date_envoi ASC
+    ''', (id,)).fetchall()
+    conn.close()
+    return jsonify([dict(m) for m in messages])
+
+@app.route('/api/groupes/<int:id>/messages', methods=['POST'])
+def api_envoyer_message_groupe(id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    data = request.json
+    if not data or not data.get('contenu', '').strip():
+        return jsonify({'error': 'Contenu requis'}), 400
+    conn = get_db()
+    membre = conn.execute('SELECT id FROM groupe_membres WHERE groupe_id = ? AND user_id = ?', (id, user_id)).fetchone()
+    if not membre:
+        conn.close()
+        return jsonify({'error': 'Tu n\'es pas membre'}), 403
+    conn.execute('INSERT INTO groupe_messages (groupe_id, user_id, contenu) VALUES (?, ?, ?)',
+                 (id, user_id, data['contenu'].strip()))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Envoye'}), 201
+
+@app.route('/api/groupes/<int:id>/quitter', methods=['POST'])
+def api_quitter_groupe(id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    conn.execute('DELETE FROM groupe_membres WHERE groupe_id = ? AND user_id = ?', (id, user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Quitte'})
+
 AVATAR_COLORS = ['#FF6B35','#7C3AED','#059669','#DC2626','#2563EB','#D97706','#DB2777','#0891B2','#65A30D','#9333EA']
 
 @app.template_filter('format_date')
