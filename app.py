@@ -2,7 +2,10 @@ import os, uuid, io
 import sqlite3
 import hashlib
 import bcrypt
+from dotenv import load_dotenv
 from datetime import datetime, date, timedelta
+
+load_dotenv()
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_file
 try:
     from flask_socketio import SocketIO, emit, join_room, leave_room
@@ -27,7 +30,7 @@ def check_password(mdp, hashed):
     return hashlib.sha256(mdp.encode()).hexdigest() == hashed
 
 app = Flask(__name__)
-app.secret_key = os.urandom(24).hex()
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24).hex())
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload
 socketio = SocketIO(app, cors_allowed_origins="*")
 
@@ -57,6 +60,8 @@ def get_rate_limit(key):
     return RATE_LIMITS['default']
 
 def check_rate_limit(key, max_reqs=None, window=None):
+    if app.config.get('TESTING'):
+        return True
     if max_reqs is None or window is None:
         cfg = get_rate_limit(key)
         max_reqs = cfg['max']
@@ -94,11 +99,25 @@ def validate_csrf():
 
 @app.before_request
 def check_csrf():
+    if app.config.get('TESTING'):
+        return
     if request.method == 'POST' and not request.path.startswith('/api/'):
         if not request.path.startswith('/api') and request.path not in csrf_exempt_routes:
             if not validate_csrf():
                 flash('Formulaire invalide (CSRF). Reessaie.', 'error')
                 return redirect(request.referrer or url_for('index'))
+    # Ban check for authenticated users
+    if 'user_id' in session:
+        try:
+            conn = get_db()
+            banni = conn.execute('SELECT banni FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+            conn.close()
+            if banni and banni['banni']:
+                session.clear()
+                flash('Votre compte a ete suspendu. Contactez l\'administration.', 'error')
+                return redirect(url_for('connexion'))
+        except Exception:
+            pass
 
 @app.context_processor
 def inject_csrf():
@@ -148,6 +167,7 @@ def init_db():
             annee TEXT,
             bio TEXT DEFAULT '',
             avatar TEXT DEFAULT 'default.png',
+            banni INTEGER DEFAULT 0,
             date_inscription TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -312,7 +332,99 @@ def init_db():
             FOREIGN KEY (groupe_id) REFERENCES groupes(id),
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
+
+        CREATE TABLE IF NOT EXISTS badges (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT UNIQUE NOT NULL,
+            description TEXT NOT NULL,
+            icone TEXT DEFAULT '⭐',
+            critere_type TEXT NOT NULL,
+            critere_seuil INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS user_badges (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            badge_id INTEGER NOT NULL,
+            date_obtention TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (user_id) REFERENCES users(id),
+            FOREIGN KEY (badge_id) REFERENCES badges(id),
+            UNIQUE(user_id, badge_id)
+        );
     ''')
+
+    # FTS5 full-text search tables
+    try:
+        conn.executescript('''
+            CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(contenu, content=posts, content_rowid=id);
+            CREATE VIRTUAL TABLE IF NOT EXISTS users_fts USING fts5(prenom, nom, email, universite, filiere, content=users, content_rowid=id);
+            CREATE VIRTUAL TABLE IF NOT EXISTS bourses_fts USING fts5(titre, description, organisme, content=bourses, content_rowid=id);
+            CREATE VIRTUAL TABLE IF NOT EXISTS formations_fts USING fts5(nom, description, universite, content=formations, content_rowid=id);
+        ''')
+    except Exception:
+        pass  # FTS5 may not be available
+
+    # FTS triggers to keep indexes in sync
+    try:
+        conn.executescript('''
+            DROP TRIGGER IF EXISTS posts_ai; CREATE TRIGGER posts_ai AFTER INSERT ON posts BEGIN INSERT INTO posts_fts(rowid, contenu) VALUES (new.id, new.contenu); END;
+            DROP TRIGGER IF EXISTS posts_ad; CREATE TRIGGER posts_ad AFTER DELETE ON posts BEGIN INSERT INTO posts_fts(posts_fts, rowid, contenu) VALUES('delete', old.id, old.contenu); END;
+            DROP TRIGGER IF EXISTS posts_au; CREATE TRIGGER posts_au AFTER UPDATE ON posts BEGIN INSERT INTO posts_fts(posts_fts, rowid, contenu) VALUES('delete', old.id, old.contenu); INSERT INTO posts_fts(rowid, contenu) VALUES (new.id, new.contenu); END;
+            DROP TRIGGER IF EXISTS users_ai; CREATE TRIGGER users_ai AFTER INSERT ON users BEGIN INSERT INTO users_fts(rowid, prenom, nom, email, universite, filiere) VALUES (new.id, new.prenom, new.nom, new.email, new.universite, new.filiere); END;
+            DROP TRIGGER IF EXISTS users_ad; CREATE TRIGGER users_ad AFTER DELETE ON users BEGIN INSERT INTO users_fts(users_fts, rowid, prenom, nom, email, universite, filiere) VALUES('delete', old.id, old.prenom, old.nom, old.email, old.universite, old.filiere); END;
+            DROP TRIGGER IF EXISTS users_au; CREATE TRIGGER users_au AFTER UPDATE ON users BEGIN INSERT INTO users_fts(users_fts, rowid, prenom, nom, email, universite, filiere) VALUES('delete', old.id, old.prenom, old.nom, old.email, old.universite, old.filiere); INSERT INTO users_fts(rowid, prenom, nom, email, universite, filiere) VALUES (new.id, new.prenom, new.nom, new.email, new.universite, new.filiere); END;
+            DROP TRIGGER IF EXISTS bourses_ai; CREATE TRIGGER bourses_ai AFTER INSERT ON bourses BEGIN INSERT INTO bourses_fts(rowid, titre, description, organisme) VALUES (new.id, new.titre, new.description, new.organisme); END;
+            DROP TRIGGER IF EXISTS bourses_ad; CREATE TRIGGER bourses_ad AFTER DELETE ON bourses BEGIN INSERT INTO bourses_fts(bourses_fts, rowid, titre, description, organisme) VALUES('delete', old.id, old.titre, old.description, old.organisme); END;
+            DROP TRIGGER IF EXISTS bourses_au; CREATE TRIGGER bourses_au AFTER UPDATE ON bourses BEGIN INSERT INTO bourses_fts(bourses_fts, rowid, titre, description, organisme) VALUES('delete', old.id, old.titre, old.description, old.organisme); INSERT INTO bourses_fts(rowid, titre, description, organisme) VALUES (new.id, new.titre, new.description, new.organisme); END;
+            DROP TRIGGER IF EXISTS formations_ai; CREATE TRIGGER formations_ai AFTER INSERT ON formations BEGIN INSERT INTO formations_fts(rowid, nom, description, universite) VALUES (new.id, new.nom, new.description, new.universite); END;
+            DROP TRIGGER IF EXISTS formations_ad; CREATE TRIGGER formations_ad AFTER DELETE ON formations BEGIN INSERT INTO formations_fts(formations_fts, rowid, nom, description, universite) VALUES('delete', old.id, old.nom, old.description, old.universite); END;
+            DROP TRIGGER IF EXISTS formations_au; CREATE TRIGGER formations_au AFTER UPDATE ON formations BEGIN INSERT INTO formations_fts(formations_fts, rowid, nom, description, universite) VALUES('delete', old.id, old.nom, old.description, old.universite); INSERT INTO formations_fts(rowid, nom, description, universite) VALUES (new.id, new.nom, new.description, new.universite); END;
+        ''')
+    except Exception:
+        pass
+
+    # Follows table
+    try:
+        conn.executescript('''
+            CREATE TABLE IF NOT EXISTS follows (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                follower_id INTEGER NOT NULL,
+                followed_id INTEGER NOT NULL,
+                date_follow TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (follower_id) REFERENCES users(id),
+                FOREIGN KEY (followed_id) REFERENCES users(id),
+                UNIQUE(follower_id, followed_id)
+            );
+        ''')
+    except Exception:
+        pass
+
+    # Expo push tokens table
+    try:
+        conn.executescript('''
+            CREATE TABLE IF NOT EXISTS expo_push_tokens (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                token TEXT NOT NULL,
+                date_ajout TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                UNIQUE(user_id, token)
+            );
+        ''')
+    except Exception:
+        pass
+
+    # Rebuild FTS indexes from existing data
+    try:
+        conn.executescript('''
+            INSERT INTO posts_fts(rowid, contenu) SELECT id, contenu FROM posts WHERE id NOT IN (SELECT rowid FROM posts_fts);
+            INSERT INTO users_fts(rowid, prenom, nom, email, universite, filiere) SELECT id, prenom, nom, email, universite, filiere FROM users WHERE id NOT IN (SELECT rowid FROM users_fts);
+            INSERT INTO bourses_fts(rowid, titre, description, organisme) SELECT id, titre, description, organisme FROM bourses WHERE id NOT IN (SELECT rowid FROM bourses_fts);
+            INSERT INTO formations_fts(rowid, nom, description, universite) SELECT id, nom, description, universite FROM formations WHERE id NOT IN (SELECT rowid FROM formations_fts);
+        ''')
+    except Exception:
+        pass
+
     conn.commit()
 
     # Migrate old SHA256 passwords to bcrypt
@@ -326,6 +438,123 @@ def init_db():
         pass  # Table may not exist yet
 
     conn.close()
+
+# Badge definitions (auto-seeded)
+BADGES = [
+    ('Premier pas', 'Inscrit depuis 30 jours', '🌟', 'age', 30),
+    ('Habitué', 'Inscrit depuis 90 jours', '🔥', 'age', 90),
+    ('Vétéran', 'Inscrit depuis 180 jours', '💎', 'age', 180),
+    ('Causeur', 'A publié 10 posts', '💬', 'posts', 10),
+    ('Influenceur', 'A publié 50 posts', '📢', 'posts', 50),
+    ('Aimé', 'A recu 25 likes', '❤️', 'likes_recus', 25),
+    ('Star', 'A recu 100 likes', '⭐', 'likes_recus', 100),
+    ('Solidaire', 'A commenté 20 fois', '🤝', 'commentaires', 20),
+    ('Bibliotheque', 'A partagé 5 documents', '📚', 'documents', 5),
+    ('Networker', 'A envoyé 50 messages', '🌐', 'messages', 50),
+]
+
+def seed_badges():
+    conn = get_db()
+    existing = conn.execute('SELECT COUNT(*) FROM badges').fetchone()[0]
+    if existing == 0:
+        for b in BADGES:
+            try:
+                conn.execute('INSERT INTO badges (nom, description, icone, critere_type, critere_seuil) VALUES (?, ?, ?, ?, ?)', b)
+            except:
+                pass
+        conn.commit()
+    conn.close()
+
+def check_and_award_badges(user_id):
+    conn = get_db()
+    badges = conn.execute('SELECT * FROM badges').fetchall()
+    stats = {
+        'age': 0,
+        'posts': 0,
+        'likes_recus': 0,
+        'commentaires': 0,
+        'documents': 0,
+        'messages': 0,
+    }
+
+    # Calculate stats
+    user = conn.execute('SELECT date_inscription FROM users WHERE id = ?', (user_id,)).fetchone()
+    if user and user['date_inscription']:
+        try:
+            d = datetime.strptime(user['date_inscription'][:10], '%Y-%m-%d')
+            stats['age'] = (date.today() - d.date()).days
+        except:
+            pass
+
+    stats['posts'] = conn.execute('SELECT COUNT(*) as nb FROM posts WHERE user_id = ?', (user_id,)).fetchone()['nb']
+    stats['likes_recus'] = conn.execute('SELECT COUNT(*) as nb FROM likes JOIN posts ON likes.post_id = posts.id WHERE posts.user_id = ?', (user_id,)).fetchone()['nb']
+    stats['commentaires'] = conn.execute('SELECT COUNT(*) as nb FROM commentaires WHERE user_id = ?', (user_id,)).fetchone()['nb']
+    stats['documents'] = conn.execute('SELECT COUNT(*) as nb FROM documents WHERE user_id = ?', (user_id,)).fetchone()['nb']
+    stats['messages'] = conn.execute('SELECT COUNT(*) as nb FROM messages WHERE expediteur_id = ?', (user_id,)).fetchone()['nb']
+
+    awarded = []
+    for badge in badges:
+        val = stats.get(badge['critere_type'], 0)
+        if val >= badge['critere_seuil']:
+            try:
+                conn.execute('INSERT OR IGNORE INTO user_badges (user_id, badge_id) VALUES (?, ?)', (user_id, badge['id']))
+                if conn.total_changes > 0:
+                    awarded.append(badge['nom'])
+            except:
+                pass
+    conn.commit()
+    conn.close()
+    return awarded
+
+# Mention parsing
+import re
+MENTION_RE = re.compile(r'@([a-zA-Z0-9._-]+)')
+
+def parse_mentions(text):
+    if not text:
+        return []
+    return MENTION_RE.findall(text)
+
+def process_mentions(text, post_id=None, commentaire_id=None, expediteur_id=None, auteur_nom=None):
+    mentions = parse_mentions(text)
+    if not mentions:
+        return
+    if auteur_nom is None:
+        auteur_nom = session.get('user_nom', 'Quelqu\'un')
+    conn = get_db()
+    for username in mentions:
+        parts = username.replace('.', ' ').split()
+        if len(parts) == 1:
+            user = conn.execute('SELECT id, prenom, nom FROM users WHERE prenom LIKE ? LIMIT 1', (f'{parts[0]}%',)).fetchone()
+        else:
+            user = conn.execute('SELECT id, prenom, nom FROM users WHERE prenom LIKE ? AND nom LIKE ? LIMIT 1', (f'{parts[0]}%', f'{parts[-1]}%')).fetchone()
+        if user:
+            lien = f"/profil/{user['id']}"
+            if post_id:
+                lien = f"/feed#post-{post_id}"
+            elif commentaire_id:
+                lien = f"/feed#comment-{commentaire_id}"
+            creer_notification(user['id'], 'mention', f"{auteur_nom} t'a mentionne dans une publication", lien)
+    conn.close()
+
+def render_mentions(text):
+    if not text:
+        return ''
+    def replace_mention(m):
+        username = m.group(1)
+        parts = username.replace('.', ' ').split()
+        name = ' '.join(parts).title()
+        return f'<a href="/recherche?q={username}" class="mention">@{name}</a>'
+    return MENTION_RE.sub(replace_mention, text)
+
+@app.template_filter('render_mentions')
+def render_mentions_filter(text):
+    return render_mentions(text)
+
+try:
+    seed_badges()
+except Exception:
+    pass  # DB may not be initialized yet
 
 @app.route('/')
 def index():
@@ -427,7 +656,28 @@ def mot_de_passe_oublie():
                          (user['id'], token, expire.strftime('%Y-%m-%d %H:%M:%S')))
             conn.commit()
             lien = url_for('reinitialiser', token=token, _external=True)
-            flash(f"Un lien de réinitialisation a ete genere. Clique ici : {lien}", 'success')
+            smtp_host = os.environ.get('SMTP_HOST', '')
+            smtp_port = int(os.environ.get('SMTP_PORT', '587'))
+            smtp_user = os.environ.get('SMTP_USER', '')
+            smtp_pass = os.environ.get('SMTP_PASS', '')
+            smtp_from = os.environ.get('SMTP_FROM', 'noreply@linkci.ci')
+            if smtp_host and smtp_user and smtp_pass:
+                try:
+                    import smtplib
+                    from email.mime.text import MIMEText
+                    msg = MIMEText(f"Bonjour,\n\nClique sur ce lien pour reinitialiser ton mot de passe :\n{lien}\n\nCe lien expire dans 1 heure.\n\nL'equipe LINK CI", 'plain', 'utf-8')
+                    msg['Subject'] = 'Reinitialisation de mot de passe - LINK CI'
+                    msg['From'] = smtp_from
+                    msg['To'] = email
+                    with smtplib.SMTP(smtp_host, smtp_port) as server:
+                        server.starttls()
+                        server.login(smtp_user, smtp_pass)
+                        server.send_message(msg)
+                    flash('Un email de reinitialisation a ete envoye.', 'success')
+                except Exception as e:
+                    flash(f"Erreur d'envoi : {e}. Lien : {lien}", 'warning')
+            else:
+                flash(f"SMTP non configure. Lien : {lien}", 'success')
         else:
             flash('Aucun compte trouve avec cet email.', 'error')
         conn.close()
@@ -473,9 +723,10 @@ def feed():
         JOIN users ON posts.user_id = users.id
         ORDER BY posts.date_post DESC
     ''', (session['user_id'],)).fetchall()
+    nb_abonnements = conn.execute('SELECT COUNT(*) as nb FROM follows WHERE follower_id = ?', (session['user_id'],)).fetchone()['nb']
     conn.close()
 
-    return render_template('feed.html', posts=posts)
+    return render_template('feed.html', posts=posts, nb_abonnements=nb_abonnements)
 
 @app.route('/publier', methods=['POST'])
 def publier():
@@ -484,10 +735,22 @@ def publier():
     contenu = sanitize_text(request.form.get('contenu', ''), 5000)
     if contenu:
         conn = get_db()
-        conn.execute('INSERT INTO posts (user_id, contenu) VALUES (?, ?)',
-                     (session['user_id'], contenu))
+        image = request.files.get('image')
+        image_nom = None
+        if image and image.filename:
+            ext = os.path.splitext(image.filename)[1].lower()
+            if ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp'):
+                uploads = os.path.join(app.root_path, 'static', 'uploads')
+                os.makedirs(uploads, exist_ok=True)
+                image_nom = f"{uuid.uuid4().hex}{ext}"
+                image.save(os.path.join(uploads, image_nom))
+        cur = conn.execute('INSERT INTO posts (user_id, contenu, image) VALUES (?, ?, ?)',
+                     (session['user_id'], contenu, image_nom))
+        post_id = cur.lastrowid
         conn.commit()
         conn.close()
+        process_mentions(contenu, post_id=post_id, expediteur_id=session['user_id'])
+        check_and_award_badges(session['user_id'])
         flash('Publie !', 'success')
     return redirect(url_for('feed'))
 
@@ -514,10 +777,13 @@ def commenter(post_id):
     contenu = sanitize_text(request.form.get('contenu', ''), 2000)
     if contenu:
         conn = get_db()
-        conn.execute('INSERT INTO commentaires (user_id, post_id, contenu) VALUES (?, ?, ?)',
+        cur = conn.execute('INSERT INTO commentaires (user_id, post_id, contenu) VALUES (?, ?, ?)',
                      (session['user_id'], post_id, contenu))
+        cmt_id = cur.lastrowid
         conn.commit()
         conn.close()
+        process_mentions(contenu, commentaire_id=cmt_id, expediteur_id=session['user_id'])
+        check_and_award_badges(session['user_id'])
     return redirect(url_for('feed'))
 
 @app.route('/profil/<int:user_id>')
@@ -545,8 +811,49 @@ def profil(user_id):
     ''', (user_id,)).fetchone()['nb']
     nb_bourses = conn.execute('SELECT COUNT(*) as nb FROM bourses').fetchone()['nb']
     nb_docs = conn.execute('SELECT COUNT(*) as nb FROM documents').fetchone()['nb']
+    badges = conn.execute('''
+        SELECT b.*, ub.date_obtention FROM user_badges ub
+        JOIN badges b ON ub.badge_id = b.id
+        WHERE ub.user_id = ? ORDER BY ub.date_obtention DESC
+    ''', (user_id,)).fetchall()
+    est_abonne = bool(conn.execute('SELECT 1 FROM follows WHERE follower_id = ? AND followed_id = ?',
+                                    (session['user_id'], user_id)).fetchone())
+    nb_abonnes = conn.execute('SELECT COUNT(*) as nb FROM follows WHERE followed_id = ?', (user_id,)).fetchone()['nb']
+    nb_abonnements = conn.execute('SELECT COUNT(*) as nb FROM follows WHERE follower_id = ?', (user_id,)).fetchone()['nb']
     conn.close()
-    return render_template('profil.html', user=user, posts=posts, nb_posts=nb_posts, nb_likes_recus=nb_likes_recus, nb_commentaires_recus=nb_commentaires_recus, nb_bourses=nb_bourses, nb_docs=nb_docs)
+    return render_template('profil.html', user=user, posts=posts, nb_posts=nb_posts, nb_likes_recus=nb_likes_recus, nb_commentaires_recus=nb_commentaires_recus, nb_bourses=nb_bourses, nb_docs=nb_docs, badges=badges, est_abonne=est_abonne, nb_abonnes=nb_abonnes, nb_abonnements=nb_abonnements)
+
+# ===================== USER STATS =====================
+@app.route('/stats')
+def stats():
+    if 'user_id' not in session:
+        return redirect(url_for('connexion'))
+    conn = get_db()
+    user_id = session['user_id']
+    # Daily post stats (last 30 days)
+    today = date.today()
+    daily_posts = []
+    for i in range(30, -1, -1):
+        d = today - timedelta(days=i)
+        ds = d.strftime('%Y-%m-%d')
+        cnt = conn.execute('SELECT COUNT(*) as nb FROM posts WHERE user_id = ? AND date_post LIKE ?', (user_id, ds + '%')).fetchone()['nb']
+        daily_posts.append({'date': ds, 'nb': cnt})
+    # Top domains
+    universites = [dict(r) for r in conn.execute('SELECT universite, COUNT(*) as nb FROM users WHERE universite IS NOT NULL GROUP BY universite ORDER BY nb DESC LIMIT 10').fetchall()]
+    filieres = [dict(r) for r in conn.execute('SELECT filiere, COUNT(*) as nb FROM users WHERE filiere IS NOT NULL GROUP BY filiere ORDER BY nb DESC LIMIT 10').fetchall()]
+    # Top posters
+    top_posters = [dict(r) for r in conn.execute('''
+        SELECT users.prenom, users.nom, COUNT(posts.id) as nb
+        FROM posts JOIN users ON posts.user_id = users.id
+        GROUP BY posts.user_id ORDER BY nb DESC LIMIT 10
+    ''').fetchall()]
+    # User's own stats
+    nb_posts = conn.execute('SELECT COUNT(*) as nb FROM posts WHERE user_id = ?', (user_id,)).fetchone()['nb']
+    nb_likes_recus = conn.execute('SELECT COUNT(*) as nb FROM likes JOIN posts ON likes.post_id = posts.id WHERE posts.user_id = ?', (user_id,)).fetchone()['nb']
+    nb_commentaires = conn.execute('SELECT COUNT(*) as nb FROM commentaires WHERE user_id = ?', (user_id,)).fetchone()['nb']
+    nb_jours = conn.execute("SELECT CAST(julianday('now') - julianday(date_inscription) AS INTEGER) as nb FROM users WHERE id = ?", (user_id,)).fetchone()['nb']
+    conn.close()
+    return render_template('stats.html', daily_posts=daily_posts, universites=universites, filieres=filieres, top_posters=top_posters, nb_posts=nb_posts, nb_likes_recus=nb_likes_recus, nb_commentaires=nb_commentaires, nb_jours=nb_jours)
 
 @app.route('/messagerie')
 def messagerie():
@@ -580,6 +887,8 @@ def envoyer_message(destinataire_id):
                      (session['user_id'], destinataire_id, contenu))
         conn.commit()
         conn.close()
+        process_mentions(contenu, auteur_nom=session.get('user_nom', 'Quelqu\'un'))
+        check_and_award_badges(session['user_id'])
         creer_notification(destinataire_id, 'message', f"Nouveau message de {session['user_nom']}", f"/conversation/{session['user_id']}")
     return redirect(url_for('conversation', autre_id=destinataire_id))
 
@@ -637,6 +946,79 @@ def supprimer_post(post_id):
     conn.close()
     return redirect(url_for('feed'))
 
+# ===================== FOLLOW / UNFOLLOW =====================
+@app.route('/suivre/<int:user_id>', methods=['POST'])
+def suivre(user_id):
+    if 'user_id' not in session:
+        return redirect(url_for('connexion'))
+    if user_id == session['user_id']:
+        flash('Tu ne peux pas te suivre toi-meme', 'error')
+        return redirect(url_for('profil', user_id=user_id))
+    conn = get_db()
+    try:
+        conn.execute('INSERT INTO follows (follower_id, followed_id) VALUES (?, ?)',
+                     (session['user_id'], user_id))
+        conn.commit()
+        creer_notification(user_id, 'suivi', f"{session['user_nom']} a commence a te suivre",
+                           url_for('profil', user_id=session['user_id']))
+        flash('Abonne !', 'success')
+    except sqlite3.IntegrityError:
+        conn.execute('DELETE FROM follows WHERE follower_id = ? AND followed_id = ?',
+                     (session['user_id'], user_id))
+        conn.commit()
+        flash('Desabonne', 'success')
+    conn.close()
+    return redirect(url_for('profil', user_id=user_id))
+
+# ===================== EXPO PUSH NOTIFICATIONS =====================
+@app.route('/api/expo_push_token', methods=['POST'])
+def api_expo_push_token():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    data = request.json
+    if not data or not data.get('token'):
+        return jsonify({'error': 'Token requis'}), 400
+    conn = get_db()
+    conn.execute('INSERT OR REPLACE INTO expo_push_tokens (user_id, token) VALUES (?, ?)',
+                 (user_id, data['token']))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Token enregistre'})
+
+@app.route('/api/send_push', methods=['POST'])
+def api_send_push():
+    """Send push notification to a user via Expo Push API"""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    data = request.json
+    if not data or not data.get('destinataire_id') or not data.get('message'):
+        return jsonify({'error': 'destinataire_id et message requis'}), 400
+    try:
+        import requests as http_req
+    except ImportError:
+        return jsonify({'error': 'requests not installed'}), 500
+    conn = get_db()
+    tokens = conn.execute('SELECT token FROM expo_push_tokens WHERE user_id = ?',
+                          (data['destinataire_id'],)).fetchall()
+    conn.close()
+    if not tokens:
+        return jsonify({'message': 'Aucun token trouve'})
+    messages = [{
+        'to': t['token'],
+        'sound': 'default',
+        'title': 'LINK CI',
+        'body': data['message'],
+        'data': data.get('data', {})
+    } for t in tokens]
+    try:
+        http_req.post('https://exp.host/--/api/v2/push/send', json=messages,
+                      timeout=5, headers={'Accept': 'application/json'})
+    except Exception:
+        pass
+    return jsonify({'message': 'Notification envoyee'})
+
 @app.route('/profil/modifier', methods=['GET', 'POST'])
 def modifier_profil():
     if 'user_id' not in session:
@@ -654,7 +1036,7 @@ def modifier_profil():
             avatar_nom = None
             if avatar and avatar.filename:
                 ext = os.path.splitext(avatar.filename)[1].lower()
-                if ext in ('.png', '.jpg', '.jpeg', '.gif'):
+                if ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp'):
                     uploads = os.path.join(app.root_path, 'static', 'avatars')
                     os.makedirs(uploads, exist_ok=True)
                     avatar_nom = f"user_{session['user_id']}{ext}"
@@ -674,6 +1056,19 @@ def modifier_profil():
     user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
     conn.close()
     return render_template('modifier_profil.html', user=user)
+
+@app.route('/api/mentions')
+def api_mentions():
+    q = request.args.get('q', '').strip()
+    if len(q) < 1:
+        return jsonify([])
+    conn = get_db()
+    users = conn.execute('''
+        SELECT id, prenom, nom, filiere FROM users
+        WHERE (prenom || ' ' || nom) LIKE ? LIMIT 8
+    ''', (f'%{q}%',)).fetchall()
+    conn.close()
+    return jsonify([{'id': u['id'], 'prenom': u['prenom'], 'nom': u['nom'], 'filiere': u['filiere'], 'label': f"{u['prenom']} {u['nom']}"} for u in users])
 
 @app.route('/documents')
 def documents():
@@ -758,26 +1153,55 @@ def recherche():
     resultats = {'posts': [], 'bourses': [], 'formations': [], 'utilisateurs': [], 'documents': []}
     if q:
         conn = get_db()
-        resultats['posts'] = [dict(r) for r in conn.execute('''
-            SELECT posts.id, posts.contenu, posts.date_post, users.prenom, users.nom
-            FROM posts JOIN users ON posts.user_id = users.id
-            WHERE posts.contenu LIKE ? ORDER BY posts.date_post DESC LIMIT 10
-        ''', ('%' + q + '%',)).fetchall()]
-        resultats['bourses'] = [dict(r) for r in conn.execute('''
-            SELECT id, titre, organisme, type FROM bourses
-            WHERE titre LIKE ? OR description LIKE ? OR organisme LIKE ?
-            ORDER BY date_publication DESC LIMIT 10
-        ''', ('%' + q + '%', '%' + q + '%', '%' + q + '%')).fetchall()]
-        resultats['formations'] = [dict(r) for r in conn.execute('''
-            SELECT id, nom, universite, niveau FROM formations
-            WHERE nom LIKE ? OR description LIKE ? OR universite LIKE ?
-            LIMIT 10
-        ''', ('%' + q + '%', '%' + q + '%', '%' + q + '%')).fetchall()]
-        resultats['utilisateurs'] = [dict(r) for r in conn.execute('''
-            SELECT id, prenom, nom, filiere, universite FROM users
-            WHERE (prenom || ' ' || nom LIKE ?) AND id != ?
-            LIMIT 10
-        ''', ('%' + q + '%', session['user_id'])).fetchall()]
+        try:
+            safe = q.replace("'", "''")
+            resultats['posts'] = [dict(r) for r in conn.execute('''
+                SELECT posts.id, posts.contenu, posts.date_post, users.prenom, users.nom
+                FROM posts_fts JOIN posts ON posts_fts.rowid = posts.id JOIN users ON posts.user_id = users.id
+                WHERE posts_fts MATCH ? ORDER BY rank LIMIT 10
+            ''', (safe,)).fetchall()]
+        except Exception:
+            resultats['posts'] = [dict(r) for r in conn.execute('''
+                SELECT posts.id, posts.contenu, posts.date_post, users.prenom, users.nom
+                FROM posts JOIN users ON posts.user_id = users.id
+                WHERE posts.contenu LIKE ? ORDER BY posts.date_post DESC LIMIT 10
+            ''', ('%' + q + '%',)).fetchall()]
+        try:
+            safe = q.replace("'", "''")
+            resultats['bourses'] = [dict(r) for r in conn.execute('''
+                SELECT bourses.id, titre, organisme, type FROM bourses_fts JOIN bourses ON bourses_fts.rowid = bourses.id
+                WHERE bourses_fts MATCH ? ORDER BY rank LIMIT 10
+            ''', (safe,)).fetchall()]
+        except Exception:
+            resultats['bourses'] = [dict(r) for r in conn.execute('''
+                SELECT id, titre, organisme, type FROM bourses
+                WHERE titre LIKE ? OR description LIKE ? OR organisme LIKE ?
+                ORDER BY date_publication DESC LIMIT 10
+            ''', ('%' + q + '%', '%' + q + '%', '%' + q + '%')).fetchall()]
+        try:
+            safe = q.replace("'", "''")
+            resultats['formations'] = [dict(r) for r in conn.execute('''
+                SELECT formations.id, nom, universite, niveau FROM formations_fts JOIN formations ON formations_fts.rowid = formations.id
+                WHERE formations_fts MATCH ? ORDER BY rank LIMIT 10
+            ''', (safe,)).fetchall()]
+        except Exception:
+            resultats['formations'] = [dict(r) for r in conn.execute('''
+                SELECT id, nom, universite, niveau FROM formations
+                WHERE nom LIKE ? OR description LIKE ? OR universite LIKE ?
+                LIMIT 10
+            ''', ('%' + q + '%', '%' + q + '%', '%' + q + '%')).fetchall()]
+        try:
+            safe = q.replace("'", "''")
+            resultats['utilisateurs'] = [dict(r) for r in conn.execute('''
+                SELECT users.id, prenom, nom, filiere, universite FROM users_fts JOIN users ON users_fts.rowid = users.id
+                WHERE users_fts MATCH ? AND users.id != ? ORDER BY rank LIMIT 10
+            ''', (safe, session['user_id'])).fetchall()]
+        except Exception:
+            resultats['utilisateurs'] = [dict(r) for r in conn.execute('''
+                SELECT id, prenom, nom, filiere, universite FROM users
+                WHERE (prenom || ' ' || nom LIKE ?) AND id != ?
+                LIMIT 10
+            ''', ('%' + q + '%', session['user_id'])).fetchall()]
         resultats['documents'] = [dict(r) for r in conn.execute('''
             SELECT id, titre, matiere FROM documents
             WHERE titre LIKE ? OR description LIKE ? OR matiere LIKE ?
@@ -795,23 +1219,49 @@ def api_recherche():
     resultats = {'posts': [], 'bourses': [], 'formations': [], 'users': []}
     if q:
         conn = get_db()
-        resultats['posts'] = [dict(r) for r in conn.execute('''
-            SELECT posts.id, posts.contenu, posts.date_post, users.prenom, users.nom
-            FROM posts JOIN users ON posts.user_id = users.id
-            WHERE posts.contenu LIKE ? ORDER BY posts.date_post DESC LIMIT 5
-        ''', ('%' + q + '%',)).fetchall()]
-        resultats['bourses'] = [dict(r) for r in conn.execute('''
-            SELECT id, titre, organisme, type FROM bourses
-            WHERE titre LIKE ? OR description LIKE ? LIMIT 5
-        ''', ('%' + q + '%', '%' + q + '%')).fetchall()]
-        resultats['formations'] = [dict(r) for r in conn.execute('''
-            SELECT id, nom, universite, niveau FROM formations
-            WHERE nom LIKE ? OR description LIKE ? LIMIT 5
-        ''', ('%' + q + '%', '%' + q + '%')).fetchall()]
-        resultats['users'] = [dict(r) for r in conn.execute('''
-            SELECT id, prenom, nom, filiere FROM users
-            WHERE (prenom || ' ' || nom LIKE ?) AND id != ? LIMIT 5
-        ''', ('%' + q + '%', user_id)).fetchall()]
+        safe = q.replace("'", "''")
+        try:
+            resultats['posts'] = [dict(r) for r in conn.execute('''
+                SELECT posts.id, posts.contenu, posts.date_post, users.prenom, users.nom
+                FROM posts_fts JOIN posts ON posts_fts.rowid = posts.id JOIN users ON posts.user_id = users.id
+                WHERE posts_fts MATCH ? ORDER BY rank LIMIT 5
+            ''', (safe,)).fetchall()]
+        except Exception:
+            resultats['posts'] = [dict(r) for r in conn.execute('''
+                SELECT posts.id, posts.contenu, posts.date_post, users.prenom, users.nom
+                FROM posts JOIN users ON posts.user_id = users.id
+                WHERE posts.contenu LIKE ? ORDER BY posts.date_post DESC LIMIT 5
+            ''', ('%' + q + '%',)).fetchall()]
+        try:
+            resultats['bourses'] = [dict(r) for r in conn.execute('''
+                SELECT bourses.id, titre, organisme, type FROM bourses_fts JOIN bourses ON bourses_fts.rowid = bourses.id
+                WHERE bourses_fts MATCH ? ORDER BY rank LIMIT 5
+            ''', (safe,)).fetchall()]
+        except Exception:
+            resultats['bourses'] = [dict(r) for r in conn.execute('''
+                SELECT id, titre, organisme, type FROM bourses
+                WHERE titre LIKE ? OR description LIKE ? LIMIT 5
+            ''', ('%' + q + '%', '%' + q + '%')).fetchall()]
+        try:
+            resultats['formations'] = [dict(r) for r in conn.execute('''
+                SELECT formations.id, nom, universite, niveau FROM formations_fts JOIN formations ON formations_fts.rowid = formations.id
+                WHERE formations_fts MATCH ? ORDER BY rank LIMIT 5
+            ''', (safe,)).fetchall()]
+        except Exception:
+            resultats['formations'] = [dict(r) for r in conn.execute('''
+                SELECT id, nom, universite, niveau FROM formations
+                WHERE nom LIKE ? OR description LIKE ? LIMIT 5
+            ''', ('%' + q + '%', '%' + q + '%')).fetchall()]
+        try:
+            resultats['users'] = [dict(r) for r in conn.execute('''
+                SELECT users.id, prenom, nom, filiere FROM users_fts JOIN users ON users_fts.rowid = users.id
+                WHERE users_fts MATCH ? AND users.id != ? ORDER BY rank LIMIT 5
+            ''', (safe, user_id)).fetchall()]
+        except Exception:
+            resultats['users'] = [dict(r) for r in conn.execute('''
+                SELECT id, prenom, nom, filiere FROM users
+                WHERE (prenom || ' ' || nom LIKE ?) AND id != ? LIMIT 5
+            ''', ('%' + q + '%', user_id)).fetchall()]
         conn.close()
     return jsonify(resultats)
 
@@ -1211,6 +1661,8 @@ def envoyer_message_groupe(id):
                      (id, session['user_id'], contenu))
         conn.commit()
         conn.close()
+        process_mentions(contenu, auteur_nom=session.get('user_nom', 'Quelqu\'un'))
+        check_and_award_badges(session['user_id'])
     return redirect(url_for('discussion_groupe', id=id))
 
 @app.route('/groupes/quitter/<int:id>', methods=['POST'])
@@ -1286,6 +1738,112 @@ def admin_dashboard():
     conn.close()
     return render_template('admin.html', stats=stats, derniers_inscrits=derniers_inscrits, derniers_posts=derniers_posts)
 
+# ===================== ADMIN MODERATION =====================
+
+def admin_required():
+    if 'user_id' not in session:
+        return None
+    conn = get_db()
+    user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+    conn.close()
+    if not user or user['email'] not in ('admin@linkci.ci', 'qasade@gmail.com'):
+        return None
+    return user
+
+@app.route('/admin/utilisateurs')
+def admin_utilisateurs():
+    u = admin_required()
+    if not u:
+        flash('Acces reserve', 'error')
+        return redirect(url_for('feed'))
+    conn = get_db()
+    utilisateurs = conn.execute('SELECT id, prenom, nom, email, universite, banni, date_inscription FROM users ORDER BY date_inscription DESC').fetchall()
+    conn.close()
+    return render_template('admin_utilisateurs.html', utilisateurs=utilisateurs)
+
+@app.route('/admin/bannir/<int:user_id>', methods=['POST'])
+def admin_bannir(user_id):
+    u = admin_required()
+    if not u:
+        flash('Acces reserve', 'error')
+        return redirect(url_for('feed'))
+    conn = get_db()
+    cible = conn.execute('SELECT id, email, banni FROM users WHERE id = ?', (user_id,)).fetchone()
+    if not cible:
+        conn.close()
+        flash('Utilisateur introuvable', 'error')
+        return redirect(url_for('admin_utilisateurs'))
+    if cible['email'] in ('admin@linkci.ci', 'qasade@gmail.com'):
+        conn.close()
+        flash('Impossible de bannir un administrateur', 'error')
+        return redirect(url_for('admin_utilisateurs'))
+    nouvel_etat = 0 if cible['banni'] else 1
+    conn.execute('UPDATE users SET banni = ? WHERE id = ?', (nouvel_etat, user_id))
+    conn.commit()
+    conn.close()
+    action = 'debanni' if nouvel_etat == 0 else 'banni'
+    flash(f'Utilisateur {action} avec succes', 'success')
+    return redirect(url_for('admin_utilisateurs'))
+
+@app.route('/admin/supprimer_post/<int:post_id>', methods=['POST'])
+def admin_supprimer_post(post_id):
+    u = admin_required()
+    if not u:
+        return jsonify({'error': 'Acces reserve'}), 403
+    conn = get_db()
+    post = conn.execute('SELECT * FROM posts WHERE id = ?', (post_id,)).fetchone()
+    if not post:
+        conn.close()
+        return jsonify({'error': 'Post introuvable'}), 404
+    conn.execute('DELETE FROM likes WHERE post_id = ?', (post_id,))
+    conn.execute('DELETE FROM commentaires WHERE post_id = ?', (post_id,))
+    conn.execute('DELETE FROM posts WHERE id = ?', (post_id,))
+    # Delete post image if any
+    if post.get('image'):
+        chemin = os.path.join(app.root_path, 'static', 'uploads', post['image'])
+        try:
+            if os.path.exists(chemin): os.remove(chemin)
+        except: pass
+    conn.commit()
+    conn.close()
+    flash('Publication supprimee', 'success')
+    return redirect(request.referrer or url_for('admin_dashboard'))
+
+@app.route('/admin/supprimer_document/<int:doc_id>', methods=['POST'])
+def admin_supprimer_document(doc_id):
+    u = admin_required()
+    if not u:
+        flash('Acces reserve', 'error')
+        return redirect(url_for('feed'))
+    conn = get_db()
+    doc = conn.execute('SELECT * FROM documents WHERE id = ?', (doc_id,)).fetchone()
+    if not doc:
+        conn.close()
+        flash('Document introuvable', 'error')
+        return redirect(url_for('admin_dashboard'))
+    chemin = os.path.join(app.root_path, 'uploads', doc['fichier'])
+    try:
+        if os.path.exists(chemin): os.remove(chemin)
+    except: pass
+    conn.execute('DELETE FROM documents WHERE id = ?', (doc_id,))
+    conn.commit()
+    conn.close()
+    flash('Document supprime', 'success')
+    return redirect(url_for('admin_dashboard'))
+
+@app.route('/admin/supprimer_bourse/<int:bourse_id>', methods=['POST'])
+def admin_supprimer_bourse(bourse_id):
+    u = admin_required()
+    if not u:
+        flash('Acces reserve', 'error')
+        return redirect(url_for('feed'))
+    conn = get_db()
+    conn.execute('DELETE FROM bourses WHERE id = ?', (bourse_id,))
+    conn.commit()
+    conn.close()
+    flash('Bourse supprimee', 'success')
+    return redirect(url_for('admin_dashboard'))
+
 # ===================== EXPORT CSV =====================
 @app.route('/sondage/export')
 def export_sondage_csv():
@@ -1352,6 +1910,10 @@ def api_register():
     mot_de_passe = data.get('mot_de_passe', '')
     if not all([nom, prenom, email, mot_de_passe]):
         return jsonify({'error': 'Champs requis : nom, prenom, email, mot_de_passe'}), 400
+    if not validate_email(email):
+        return jsonify({'error': 'Email invalide'}), 400
+    if not validate_password(mot_de_passe):
+        return jsonify({'error': 'Mot de passe trop court (min 6 caracteres)'}), 400
     conn = get_db()
     try:
         conn.execute('INSERT INTO users (nom, prenom, email, mot_de_passe, universite, filiere, annee) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -1393,10 +1955,17 @@ def api_me():
         return jsonify({'error': 'Non authentifie'}), 401
     conn = get_db()
     user = conn.execute('SELECT id, nom, prenom, email, universite, filiere, annee, bio, date_inscription FROM users WHERE id = ?', (user_id,)).fetchone()
+    badges = conn.execute('''
+        SELECT b.* FROM user_badges ub
+        JOIN badges b ON ub.badge_id = b.id
+        WHERE ub.user_id = ? ORDER BY ub.date_obtention DESC
+    ''', (user_id,)).fetchall()
     conn.close()
     if not user:
         return jsonify({'error': 'Utilisateur introuvable'}), 404
-    return jsonify(dict(user))
+    result = dict(user)
+    result['badges'] = [dict(b) for b in badges]
+    return jsonify(result)
 
 @app.route('/api/posts', methods=['GET'])
 def api_posts():
@@ -1408,7 +1977,7 @@ def api_posts():
     offset = (page - 1) * per_page
     conn = get_db()
     posts = conn.execute('''
-        SELECT posts.id, posts.user_id, posts.contenu, posts.date_post,
+        SELECT posts.id, posts.user_id, posts.contenu, posts.image, posts.date_post,
                users.prenom, users.nom, users.universite,
                (SELECT COUNT(*) FROM likes WHERE likes.post_id = posts.id) as nb_likes,
                (SELECT COUNT(*) FROM commentaires WHERE commentaires.post_id = posts.id) as nb_commentaires,
@@ -1430,10 +1999,36 @@ def api_create_post():
     data = request.json
     if not data or not data.get('contenu', '').strip():
         return jsonify({'error': 'Contenu requis'}), 400
+    contenu = sanitize_text(data['contenu'].strip())
+    if len(contenu) > FIELD_MAXLEN.get('contenu', 5000):
+        return jsonify({'error': f'Maximum {FIELD_MAXLEN.get("contenu", 5000)} caracteres'}), 400
     conn = get_db()
-    conn.execute('INSERT INTO posts (user_id, contenu) VALUES (?, ?)', (user_id, data['contenu'].strip()))
+    image_nom = None
+    image_b64 = data.get('image')
+    if image_b64 and len(image_b64) > 100:
+        try:
+            import base64
+            img_data = base64.b64decode(image_b64)
+            ext = '.png'
+            import imghdr
+            detected = imghdr.what(None, h=img_data[:32])
+            if detected in ('jpeg', 'jpg'): ext = '.jpg'
+            elif detected == 'gif': ext = '.gif'
+            elif detected == 'webp': ext = '.webp'
+            uploads = os.path.join(app.root_path, 'static', 'uploads')
+            os.makedirs(uploads, exist_ok=True)
+            image_nom = f"{uuid.uuid4().hex}{ext}"
+            with open(os.path.join(uploads, image_nom), 'wb') as f:
+                f.write(img_data)
+        except Exception:
+            pass
+    conn.execute('INSERT INTO posts (user_id, contenu, image) VALUES (?, ?, ?)', (user_id, contenu, image_nom))
     conn.commit()
     post_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+    auteur = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (user_id,)).fetchone()
+    auteur_nom = f"{auteur['prenom']} {auteur['nom']}" if auteur else 'Quelqu\'un'
+    process_mentions(contenu, post_id=post_id, auteur_nom=auteur_nom)
+    check_and_award_badges(user_id)
     conn.close()
     return jsonify({'id': post_id, 'message': 'Publie'}), 201
 
@@ -1478,12 +2073,20 @@ def api_add_comment(post_id):
     data = request.json
     if not data or not data.get('contenu', '').strip():
         return jsonify({'error': 'Contenu requis'}), 400
+    contenu = sanitize_text(data['contenu'].strip())
+    if len(contenu) > FIELD_MAXLEN.get('contenu', 5000):
+        return jsonify({'error': f'Maximum {FIELD_MAXLEN.get("contenu", 5000)} caracteres'}), 400
     conn = get_db()
     conn.execute('INSERT INTO commentaires (user_id, post_id, contenu) VALUES (?, ?, ?)',
-                 (user_id, post_id, data['contenu'].strip()))
+                 (user_id, post_id, contenu))
     conn.commit()
+    commentaire_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
+    auteur = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (user_id,)).fetchone()
+    auteur_nom = f"{auteur['prenom']} {auteur['nom']}" if auteur else 'Quelqu\'un'
+    process_mentions(contenu, commentaire_id=commentaire_id, auteur_nom=auteur_nom)
+    check_and_award_badges(user_id)
     conn.close()
-    return jsonify({'message': 'Commente'}), 201
+    return jsonify({'id': commentaire_id, 'message': 'Commente'}), 201
 
 @app.route('/api/posts/<int:post_id>', methods=['DELETE'])
 def api_delete_post(post_id):
@@ -1603,13 +2206,18 @@ def api_profil(autre_id):
         conn.close()
         return jsonify({'error': 'Introuvable'}), 404
     posts = conn.execute('''
-        SELECT id, contenu, date_post,
+        SELECT id, contenu, image, date_post,
                (SELECT COUNT(*) FROM likes WHERE likes.post_id = posts.id) as nb_likes,
                (SELECT COUNT(*) FROM commentaires WHERE commentaires.post_id = posts.id) as nb_commentaires
         FROM posts WHERE user_id = ? ORDER BY date_post DESC
     ''', (autre_id,)).fetchall()
+    badges = conn.execute('''
+        SELECT b.* FROM user_badges ub
+        JOIN badges b ON ub.badge_id = b.id
+        WHERE ub.user_id = ? ORDER BY ub.date_obtention DESC
+    ''', (autre_id,)).fetchall()
     conn.close()
-    return jsonify({'user': dict(user), 'posts': [dict(p) for p in posts]})
+    return jsonify({'user': dict(user), 'posts': [dict(p) for p in posts], 'badges': [dict(b) for b in badges]})
 
 @app.route('/api/documents')
 def api_documents():
@@ -1799,6 +2407,43 @@ def days_until_filter(dt_str):
     except:
         return None
 
+# ===================== API PASSWORD RESET =====================
+@app.route('/api/forgot_password', methods=['POST'])
+def api_forgot_password():
+    data = request.json
+    if not data or not data.get('email', '').strip():
+        return jsonify({'error': 'Email requis'}), 400
+    email = data['email'].strip()
+    conn = get_db()
+    user = conn.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
+    if user:
+        token = uuid.uuid4().hex
+        expire = datetime.now() + timedelta(hours=1)
+        conn.execute('INSERT INTO reset_tokens (user_id, token, expire) VALUES (?, ?, ?)',
+                     (user['id'], token, expire.strftime('%Y-%m-%d %H:%M:%S')))
+    conn.close()
+    return jsonify({'message': 'Si cet email existe, un lien de reinitialisation a ete envoye.'})
+
+@app.route('/api/reset_password', methods=['POST'])
+def api_reset_password():
+    data = request.json
+    if not data or not data.get('token') or not data.get('mot_de_passe'):
+        return jsonify({'error': 'Token et mot de passe requis'}), 400
+    if not validate_password(data['mot_de_passe']):
+        return jsonify({'error': 'Mot de passe trop court (min 6 caracteres)'}), 400
+    conn = get_db()
+    rt = conn.execute('SELECT * FROM reset_tokens WHERE token = ? AND utilise = 0 AND expire > ?',
+                      (data['token'], datetime.now().strftime('%Y-%m-%d %H:%M:%S'))).fetchone()
+    if not rt:
+        conn.close()
+        return jsonify({'error': 'Token invalide ou expire'}), 400
+    nouveau = hash_password(data['mot_de_passe'])
+    conn.execute('UPDATE users SET mot_de_passe = ? WHERE id = ?', (nouveau, rt['user_id']))
+    conn.execute('UPDATE reset_tokens SET utilise = 1 WHERE id = ?', (rt['id'],))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Mot de passe reinitialise'})
+
 # ===================== SOCKETIO (chat temps reel) =====================
 @socketio.on('connect')
 def handle_connect():
@@ -1874,7 +2519,8 @@ def add_security_headers(resp):
     resp.headers['X-Content-Type-Options'] = 'nosniff'
     resp.headers['X-Frame-Options'] = 'DENY'
     resp.headers['X-XSS-Protection'] = '1; mode=block'
-    resp.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    if not app.debug:
+        resp.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     return resp
 
 init_db()

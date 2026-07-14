@@ -45,6 +45,16 @@
                 <p class="profile-email" style="font-size:0.8rem;color:var(--text-muted);">{{ user.email }}</p>
                 <p class="profile-bio" style="background:var(--bg);padding:0.75rem;border-radius:8px;margin:0.5rem 0;">{{ user.bio or "Aucune bio pour le moment" }}</p>
                 <span class="profile-date" style="font-size:0.75rem;color:var(--text-muted);">Inscrit depuis {{ user.date_inscription[:10] }}</span>
+                {% if user.id != session.user_id %}
+                <div style="margin-top:0.75rem;">
+                    <form method="POST" action="/suivre/{{ user.id }}">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <button type="submit" class="btn-modifier" style="{% if est_abonne %}background:#FFEBEE;color:#C62828;border-color:#FFCDD2;{% else %}background:var(--orange);color:white;{% endif %}">
+                            {% if est_abonne %}✓ Abonné{% else %}Suivre{% endif %}
+                        </button>
+                    </form>
+                </div>
+                {% endif %}
                 {% if user.id == session.user_id %}
                 <div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
                     <a href="/profil/modifier" class="btn-modifier">Modifier le profil</a>
@@ -68,10 +78,31 @@
                 <div style="font-size:0.75rem;color:var(--text-light);">Commentaires</div>
             </div>
             <div class="card" style="text-align:center;padding:1rem;">
-                <div style="font-size:1.5rem;font-weight:900;color:#2563EB;">{{ nb_bourses }}</div>
+                <div style="font-size:1.5rem;font-weight:900;color:#2563EB;">{{ nb_abonnements }}</div>
+                <div style="font-size:0.75rem;color:var(--text-light);">Abonnements</div>
+            </div>
+            <div class="card" style="text-align:center;padding:1rem;">
+                <div style="font-size:1.5rem;font-weight:900;color:#E91E63;">{{ nb_abonnes }}</div>
+                <div style="font-size:0.75rem;color:var(--text-light);">Abonnés</div>
+            </div>
+            <div class="card" style="text-align:center;padding:1rem;">
+                <div style="font-size:1.5rem;font-weight:900;color:#009688;">{{ nb_bourses }}</div>
                 <div style="font-size:0.75rem;color:var(--text-light);">Bourses dispo</div>
             </div>
         </div>
+
+        {% if badges %}
+        <div class="card" style="margin-bottom:1.5rem;">
+            <h3 class="section-title" style="margin-bottom:0.75rem;">🏆 Badges</h3>
+            <div style="display:flex;flex-wrap:wrap;gap:0.5rem;">
+                {% for b in badges %}
+                <span style="display:inline-flex;align-items:center;gap:0.35rem;background:var(--orange-light);color:var(--orange);padding:0.35rem 0.75rem;border-radius:50px;font-size:0.8rem;font-weight:600;" title="{{ b.description }}">
+                    {{ b.icone }} {{ b.nom }}
+                </span>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
 
         <h3 class="section-title">Ses publications</h3>
         <div class="feed-posts">
@@ -85,7 +116,10 @@
                     </div>
                 </div>
                 <div class="post-content">
-                    <p>{{ post.contenu }}</p>
+                    <p>{{ post.contenu|render_mentions|safe }}</p>
+                    {% if post.image %}
+                    <img src="/static/uploads/{{ post.image }}" style="max-width:100%;border-radius:8px;margin-top:0.5rem;max-height:400px;object-fit:cover;">
+                    {% endif %}
                 </div>
                 <div class="post-actions">
                     <span class="btn-action">❤️ {{ post.nb_likes }}</span>

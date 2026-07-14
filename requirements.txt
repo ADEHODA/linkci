@@ -2,3 +2,7 @@ flask
 bcrypt
 flask-socketio
 flask-cors
+gunicorn
+eventlet
+python-dotenv
+requests

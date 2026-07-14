@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin — Utilisateurs — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+    <style>
+        .admin-table { width:100%;border-collapse:collapse;font-size:0.85rem; }
+        .admin-table th { text-align:left;padding:0.5rem;border-bottom:2px solid var(--border);color:var(--text-muted);font-size:0.75rem;text-transform:uppercase; }
+        .admin-table td { padding:0.5rem;border-bottom:1px solid var(--border);vertical-align:middle; }
+        .admin-table tr:hover td { background:var(--orange-light); }
+        .badge-banni { background:#FFEBEE;color:#C62828;padding:0.15rem 0.4rem;border-radius:4px;font-size:0.7rem;font-weight:600; }
+        .badge-actif { background:#E8F5E9;color:#2E7D32;padding:0.15rem 0.4rem;border-radius:4px;font-size:0.7rem;font-weight:600; }
+        .btn-toggle { padding:0.3rem 0.6rem;border-radius:6px;font-size:0.75rem;font-weight:600;border:none;cursor:pointer; }
+        .btn-toggle.ban { background:#FFEBEE;color:#C62828; }
+        .btn-toggle.unban { background:#E8F5E9;color:#2E7D32; }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
+            <div class="nav-links">
+                <a href="/feed" class="nav-link">Fil</a>
+                <a href="/admin" class="nav-link">Dashboard</a>
+                <a href="/admin/utilisateurs" class="nav-link active">Utilisateurs</a>
+                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+    <div class="container" style="max-width:1000px;">
+        <h2 style="margin-bottom:1.5rem;">Gestion des utilisateurs</h2>
+        <table class="admin-table">
+            <tr><th>Nom</th><th>Email</th><th>Université</th><th>Statut</th><th>Date</th><th>Action</th></tr>
+            {% for u in utilisateurs %}
+            <tr>
+                <td><a href="/profil/{{ u.id }}">{{ u.prenom }} {{ u.nom }}</a></td>
+                <td>{{ u.email }}</td>
+                <td>{{ u.universite or '-' }}</td>
+                <td>{% if u.banni %}<span class="badge-banni">BANNI</span>{% else %}<span class="badge-actif">Actif</span>{% endif %}</td>
+                <td>{{ u.date_inscription[:10] }}</td>
+                <td>
+                    <form method="POST" action="/admin/bannir/{{ u.id }}" style="display:inline;">
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        {% if u.banni %}
+                        <button type="submit" class="btn-toggle unban" onclick="return confirm('Réactiver {{ u.prenom }} {{ u.nom }} ?')">Réactiver</button>
+                        {% else %}
+                        <button type="submit" class="btn-toggle ban" onclick="return confirm('Bannir {{ u.prenom }} {{ u.nom }} ?')">Bannir</button>
+                        {% endif %}
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</body>
+</html>

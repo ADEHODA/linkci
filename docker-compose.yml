@@ -1,0 +1,19 @@
+version: "3.9"
+services:
+  linkci:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - linkci_data:/app/instance
+      - linkci_avatars:/app/static/avatars
+      - linkci_uploads:/app/static/uploads
+    environment:
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-change-me-in-production}
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped
+
+volumes:
+  linkci_data:
+  linkci_avatars:
+  linkci_uploads:

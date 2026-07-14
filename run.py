@@ -18,7 +18,7 @@ def start_flask():
     import app
     app.init_db()
     log("Flask demarre sur 127.0.0.1:5000")
-    app.socketio.run(app.app, host='127.0.0.1', port=5000, debug=False, allow_unsafe_werkzeug=True)
+    app.socketio.run(app.app, host='127.0.0.1', port=5000, debug=False)
 
 def start_tunnel():
     time.sleep(2)

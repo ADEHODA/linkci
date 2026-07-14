@@ -7,3 +7,8 @@ node_modules/
 *.iso
 uploads/
 .env
+static/avatars/*.png
+static/avatars/*.jpg
+static/uploads/
+.pytest_cache/
+*.log

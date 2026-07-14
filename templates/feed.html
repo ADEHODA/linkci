@@ -8,6 +8,7 @@
     <link rel="stylesheet" href="/static/css/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="/static/js/main.js" defer></script>
+    <script src="/static/js/mentions.js" defer></script>
 </head>
 <body>
 {% with messages = get_flashed_messages(with_categories=true) %}
@@ -48,11 +49,24 @@
                     <div class="avatar-sm">{{ session.user_nom[:1] }}</div>
                     <span>{{ session.user_nom }}</span>
                 </div>
-                <form method="POST" action="/publier">
+                <form method="POST" action="/publier" enctype="multipart/form-data">
                     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                    <textarea name="contenu" placeholder="Quoi de neuf sur le campus ?" required></textarea>
-                    <button type="submit" class="btn btn-orange btn-round" style="align-self:flex-end;">Publier</button>
+                    <textarea name="contenu" placeholder="Quoi de neuf sur le campus ? (tape @ pour mentionner)" required class="mention-input" data-mention="true"></textarea>
+                    <div class="mention-dropdown" id="mentionDropdown" style="display:none;position:absolute;background:white;border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 20px rgba(0,0,0,0.1);max-height:200px;overflow-y:auto;z-index:50;width:280px;"></div>
+                    <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.5rem;">
+                        <label class="btn-upload" style="cursor:pointer;background:var(--bg);padding:0.4rem 0.75rem;border-radius:8px;font-size:0.8rem;display:flex;align-items:center;gap:0.35rem;">
+                            🖼️ Image
+                            <input type="file" name="image" accept="image/*" style="display:none;" onchange="this.parentElement.nextElementSibling.textContent=this.files[0].name">
+                        </label>
+                        <span style="font-size:0.75rem;color:var(--text-muted);"></span>
+                        <button type="submit" class="btn btn-orange btn-round" style="margin-left:auto;">Publier</button>
+                    </div>
                 </form>
+            </div>
+
+            <div style="display:flex;gap:0.5rem;margin-bottom:1rem;">
+                <a href="/feed?mode=all" class="btn-sm" style="padding:0.35rem 0.75rem;border-radius:50px;{% if mode != 'abonnements' %}background:var(--orange);color:white;{% else %}background:var(--bg);color:var(--text);{% endif %}text-decoration:none;font-size:0.8rem;font-weight:600;">Tout</a>
+                <a href="/feed?mode=abonnements" class="btn-sm" style="padding:0.35rem 0.75rem;border-radius:50px;{% if mode == 'abonnements' %}background:var(--orange);color:white;{% else %}background:var(--bg);color:var(--text);{% endif %}text-decoration:none;font-size:0.8rem;font-weight:600;">Abonnements ({{ nb_abonnements }})</a>
             </div>
 
             <div class="feed-posts">
@@ -74,7 +88,10 @@
                         {% endif %}
                     </div>
                     <div class="post-content">
-                        <p>{{ post.contenu }}</p>
+                        <p>{{ post.contenu|render_mentions|safe }}</p>
+                        {% if post.image %}
+                        <img src="/static/uploads/{{ post.image }}" style="max-width:100%;border-radius:8px;margin-top:0.5rem;max-height:400px;object-fit:cover;">
+                        {% endif %}
                     </div>
                     <div class="post-actions">
                         <form method="POST" action="/liker/{{ post.id }}" class="like-form">
