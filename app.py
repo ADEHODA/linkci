@@ -80,7 +80,9 @@ def cleanup_rate_limits():
         rate_limits[key] = [t for t in rate_limits[key] if now - t < 3600]
         if not rate_limits[key]:
             del rate_limits[key]
-    threading.Timer(300, cleanup_rate_limits).start()
+    t = threading.Timer(300, cleanup_rate_limits)
+    t.daemon = True  # ne bloque pas l'arret du processus (tests, scripts)
+    t.start()
 
 cleanup_rate_limits()
 
