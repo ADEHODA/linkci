@@ -1,5 +1,6 @@
 # Sync LINK CI local → PythonAnywhere
-$token = "ce70c0101a10765b13b4ee231ecf8cdb68572f32"
+# Token lu depuis .env (PA_API_TOKEN=...), jamais dans le code
+$token = (Get-Content (Join-Path (Split-Path $MyInvocation.MyCommand.Path) ".env") | Where-Object { $_ -match "^PA_API_TOKEN=" }) -replace "^PA_API_TOKEN=", ""
 $user = "qasade"
 $base = "https://www.pythonanywhere.com/api/v0/user/$user/files/path/home/$user/linkci"
 

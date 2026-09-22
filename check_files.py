@@ -1,5 +1,8 @@
 import requests
-TOKEN = 'ce70c0101a10765b13b4ee231ecf8cdb68572f32'
+import os
+from dotenv import load_dotenv
+load_dotenv()
+TOKEN = os.environ['PA_API_TOKEN']  # dans .env, jamais dans le code
 USER = 'qasade'
 url = f'https://www.pythonanywhere.com/api/v0/user/{USER}/files/path/home/{USER}/linkci/'
 r = requests.get(url, headers={'Authorization': f'Token {TOKEN}'})

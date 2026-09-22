@@ -1,5 +1,8 @@
 import requests
-TOKEN = 'ce70c0101a10765b13b4ee231ecf8cdb68572f32'
+import os
+from dotenv import load_dotenv
+load_dotenv()
+TOKEN = os.environ['PA_API_TOKEN']  # dans .env, jamais dans le code
 USER = 'qasade'
 
 # List all consoles on PythonAnywhere

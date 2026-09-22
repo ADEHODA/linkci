@@ -3,7 +3,9 @@ Usage: python sync.py
 """
 import os, sys, requests
 
-TOKEN = "ce70c0101a10765b13b4ee231ecf8cdb68572f32"
+from dotenv import load_dotenv
+load_dotenv()
+TOKEN = os.environ['PA_API_TOKEN']  # dans .env, jamais dans le code
 USER = "qasade"
 PROJ = os.path.dirname(os.path.abspath(__file__))
 BASE = f"https://www.pythonanywhere.com/api/v0/user/{USER}/files/path/home/{USER}/linkci"
