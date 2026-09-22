@@ -1,8 +1,10 @@
 flask
 bcrypt
 flask-socketio
+simple-websocket
 flask-cors
 gunicorn
-eventlet
 python-dotenv
 requests
+psycopg[binary]
+psycopg_pool>=3.2

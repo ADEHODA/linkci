@@ -3,9 +3,10 @@ import sqlite3
 import hashlib
 import bcrypt
 from dotenv import load_dotenv
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 
 load_dotenv()
+import db  # apres load_dotenv : lit DATABASE_URL
 from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_file
 try:
     from flask_socketio import SocketIO, emit, join_room, leave_room
@@ -32,7 +33,8 @@ def check_password(mdp, hashed):
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24).hex())
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload
-socketio = SocketIO(app, cors_allowed_origins="*")
+# threading (+ simple-websocket) : eventlet est deprecie
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 
 # Rate limiting (in-memory with periodic cleanup)
 from collections import defaultdict
@@ -108,8 +110,8 @@ def check_csrf():
             if not validate_csrf():
                 flash('Formulaire invalide (CSRF). Reessaie.', 'error')
                 return redirect(request.referrer or url_for('index'))
-    # Ban check for authenticated users
-    if 'user_id' in session:
+    # Ban check for authenticated users (pas pour les fichiers statiques : evite une requete SQL par image)
+    if 'user_id' in session and request.endpoint != 'static':
         try:
             conn = get_db()
             banni = conn.execute('SELECT banni FROM users WHERE id = ?', (session['user_id'],)).fetchone()
@@ -145,9 +147,66 @@ FIELD_MAXLEN = {
 DB_PATH = os.path.join(os.path.dirname(__file__), 'linkci.db')
 
 def get_db():
+    if db.IS_PG:
+        return db.connect()
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+# ===================== FICHIERS (images, avatars, documents) =====================
+# Les fichiers sont ecrits sur disque ET dans la table `fichiers`. Le disque
+# n'est qu'un cache : sur Render il est efface a chaque redeploiement, et les
+# fichiers manquants sont restaures depuis la base a la premiere demande.
+# `chemin` est relatif a app.root_path, avec des '/' (ex. 'static/uploads/x.png').
+
+def _chemin_disque(chemin):
+    return os.path.join(app.root_path, *chemin.split('/'))
+
+def stocker_fichier(chemin, data):
+    disque = _chemin_disque(chemin)
+    os.makedirs(os.path.dirname(disque), exist_ok=True)
+    with open(disque, 'wb') as f:
+        f.write(data)
+    conn = get_db()
+    conn.execute('DELETE FROM fichiers WHERE chemin = ?', (chemin,))
+    conn.execute('INSERT INTO fichiers (chemin, contenu) VALUES (?, ?)', (chemin, data))
+    conn.commit()
+    conn.close()
+
+def restaurer_fichier(chemin):
+    """Garantit que le fichier est sur disque. Renvoie False s'il n'existe nulle part."""
+    disque = _chemin_disque(chemin)
+    if os.path.exists(disque):
+        return True
+    conn = get_db()
+    row = conn.execute('SELECT contenu FROM fichiers WHERE chemin = ?', (chemin,)).fetchone()
+    conn.close()
+    if not row:
+        return False
+    os.makedirs(os.path.dirname(disque), exist_ok=True)
+    with open(disque, 'wb') as f:
+        f.write(bytes(row['contenu']))
+    return True
+
+def supprimer_fichier(chemin):
+    try:
+        disque = _chemin_disque(chemin)
+        if os.path.exists(disque):
+            os.remove(disque)
+    except OSError:
+        pass
+    conn = get_db()
+    conn.execute('DELETE FROM fichiers WHERE chemin = ?', (chemin,))
+    conn.commit()
+    conn.close()
+
+@app.before_request
+def restaurer_fichier_statique():
+    if request.method != 'GET':
+        return
+    p = request.path
+    if (p.startswith('/static/uploads/') or p.startswith('/static/avatars/')) and '..' not in p:
+        restaurer_fichier(p.lstrip('/'))
 
 def init_db():
     conn = get_db()
@@ -353,37 +412,46 @@ def init_db():
             FOREIGN KEY (badge_id) REFERENCES badges(id),
             UNIQUE(user_id, badge_id)
         );
+
+        CREATE TABLE IF NOT EXISTS fichiers (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chemin TEXT UNIQUE NOT NULL,
+            contenu BLOB NOT NULL,
+            date_ajout TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
     ''')
 
-    # FTS5 full-text search tables
-    try:
-        conn.executescript('''
-            CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(contenu, content=posts, content_rowid=id);
-            CREATE VIRTUAL TABLE IF NOT EXISTS users_fts USING fts5(prenom, nom, email, universite, filiere, content=users, content_rowid=id);
-            CREATE VIRTUAL TABLE IF NOT EXISTS bourses_fts USING fts5(titre, description, organisme, content=bourses, content_rowid=id);
-            CREATE VIRTUAL TABLE IF NOT EXISTS formations_fts USING fts5(nom, description, universite, content=formations, content_rowid=id);
-        ''')
-    except Exception:
-        pass  # FTS5 may not be available
+    # FTS5 full-text search tables (SQLite uniquement ; sous PostgreSQL la
+    # recherche utilise le repli ILIKE)
+    if not db.IS_PG:
+        try:
+            conn.executescript('''
+                CREATE VIRTUAL TABLE IF NOT EXISTS posts_fts USING fts5(contenu, content=posts, content_rowid=id);
+                CREATE VIRTUAL TABLE IF NOT EXISTS users_fts USING fts5(prenom, nom, email, universite, filiere, content=users, content_rowid=id);
+                CREATE VIRTUAL TABLE IF NOT EXISTS bourses_fts USING fts5(titre, description, organisme, content=bourses, content_rowid=id);
+                CREATE VIRTUAL TABLE IF NOT EXISTS formations_fts USING fts5(nom, description, universite, content=formations, content_rowid=id);
+            ''')
+        except Exception:
+            pass  # FTS5 may not be available
 
-    # FTS triggers to keep indexes in sync
-    try:
-        conn.executescript('''
-            DROP TRIGGER IF EXISTS posts_ai; CREATE TRIGGER posts_ai AFTER INSERT ON posts BEGIN INSERT INTO posts_fts(rowid, contenu) VALUES (new.id, new.contenu); END;
-            DROP TRIGGER IF EXISTS posts_ad; CREATE TRIGGER posts_ad AFTER DELETE ON posts BEGIN INSERT INTO posts_fts(posts_fts, rowid, contenu) VALUES('delete', old.id, old.contenu); END;
-            DROP TRIGGER IF EXISTS posts_au; CREATE TRIGGER posts_au AFTER UPDATE ON posts BEGIN INSERT INTO posts_fts(posts_fts, rowid, contenu) VALUES('delete', old.id, old.contenu); INSERT INTO posts_fts(rowid, contenu) VALUES (new.id, new.contenu); END;
-            DROP TRIGGER IF EXISTS users_ai; CREATE TRIGGER users_ai AFTER INSERT ON users BEGIN INSERT INTO users_fts(rowid, prenom, nom, email, universite, filiere) VALUES (new.id, new.prenom, new.nom, new.email, new.universite, new.filiere); END;
-            DROP TRIGGER IF EXISTS users_ad; CREATE TRIGGER users_ad AFTER DELETE ON users BEGIN INSERT INTO users_fts(users_fts, rowid, prenom, nom, email, universite, filiere) VALUES('delete', old.id, old.prenom, old.nom, old.email, old.universite, old.filiere); END;
-            DROP TRIGGER IF EXISTS users_au; CREATE TRIGGER users_au AFTER UPDATE ON users BEGIN INSERT INTO users_fts(users_fts, rowid, prenom, nom, email, universite, filiere) VALUES('delete', old.id, old.prenom, old.nom, old.email, old.universite, old.filiere); INSERT INTO users_fts(rowid, prenom, nom, email, universite, filiere) VALUES (new.id, new.prenom, new.nom, new.email, new.universite, new.filiere); END;
-            DROP TRIGGER IF EXISTS bourses_ai; CREATE TRIGGER bourses_ai AFTER INSERT ON bourses BEGIN INSERT INTO bourses_fts(rowid, titre, description, organisme) VALUES (new.id, new.titre, new.description, new.organisme); END;
-            DROP TRIGGER IF EXISTS bourses_ad; CREATE TRIGGER bourses_ad AFTER DELETE ON bourses BEGIN INSERT INTO bourses_fts(bourses_fts, rowid, titre, description, organisme) VALUES('delete', old.id, old.titre, old.description, old.organisme); END;
-            DROP TRIGGER IF EXISTS bourses_au; CREATE TRIGGER bourses_au AFTER UPDATE ON bourses BEGIN INSERT INTO bourses_fts(bourses_fts, rowid, titre, description, organisme) VALUES('delete', old.id, old.titre, old.description, old.organisme); INSERT INTO bourses_fts(rowid, titre, description, organisme) VALUES (new.id, new.titre, new.description, new.organisme); END;
-            DROP TRIGGER IF EXISTS formations_ai; CREATE TRIGGER formations_ai AFTER INSERT ON formations BEGIN INSERT INTO formations_fts(rowid, nom, description, universite) VALUES (new.id, new.nom, new.description, new.universite); END;
-            DROP TRIGGER IF EXISTS formations_ad; CREATE TRIGGER formations_ad AFTER DELETE ON formations BEGIN INSERT INTO formations_fts(formations_fts, rowid, nom, description, universite) VALUES('delete', old.id, old.nom, old.description, old.universite); END;
-            DROP TRIGGER IF EXISTS formations_au; CREATE TRIGGER formations_au AFTER UPDATE ON formations BEGIN INSERT INTO formations_fts(formations_fts, rowid, nom, description, universite) VALUES('delete', old.id, old.nom, old.description, old.universite); INSERT INTO formations_fts(rowid, nom, description, universite) VALUES (new.id, new.nom, new.description, new.universite); END;
-        ''')
-    except Exception:
-        pass
+        # FTS triggers to keep indexes in sync
+        try:
+            conn.executescript('''
+                DROP TRIGGER IF EXISTS posts_ai; CREATE TRIGGER posts_ai AFTER INSERT ON posts BEGIN INSERT INTO posts_fts(rowid, contenu) VALUES (new.id, new.contenu); END;
+                DROP TRIGGER IF EXISTS posts_ad; CREATE TRIGGER posts_ad AFTER DELETE ON posts BEGIN INSERT INTO posts_fts(posts_fts, rowid, contenu) VALUES('delete', old.id, old.contenu); END;
+                DROP TRIGGER IF EXISTS posts_au; CREATE TRIGGER posts_au AFTER UPDATE ON posts BEGIN INSERT INTO posts_fts(posts_fts, rowid, contenu) VALUES('delete', old.id, old.contenu); INSERT INTO posts_fts(rowid, contenu) VALUES (new.id, new.contenu); END;
+                DROP TRIGGER IF EXISTS users_ai; CREATE TRIGGER users_ai AFTER INSERT ON users BEGIN INSERT INTO users_fts(rowid, prenom, nom, email, universite, filiere) VALUES (new.id, new.prenom, new.nom, new.email, new.universite, new.filiere); END;
+                DROP TRIGGER IF EXISTS users_ad; CREATE TRIGGER users_ad AFTER DELETE ON users BEGIN INSERT INTO users_fts(users_fts, rowid, prenom, nom, email, universite, filiere) VALUES('delete', old.id, old.prenom, old.nom, old.email, old.universite, old.filiere); END;
+                DROP TRIGGER IF EXISTS users_au; CREATE TRIGGER users_au AFTER UPDATE ON users BEGIN INSERT INTO users_fts(users_fts, rowid, prenom, nom, email, universite, filiere) VALUES('delete', old.id, old.prenom, old.nom, old.email, old.universite, old.filiere); INSERT INTO users_fts(rowid, prenom, nom, email, universite, filiere) VALUES (new.id, new.prenom, new.nom, new.email, new.universite, new.filiere); END;
+                DROP TRIGGER IF EXISTS bourses_ai; CREATE TRIGGER bourses_ai AFTER INSERT ON bourses BEGIN INSERT INTO bourses_fts(rowid, titre, description, organisme) VALUES (new.id, new.titre, new.description, new.organisme); END;
+                DROP TRIGGER IF EXISTS bourses_ad; CREATE TRIGGER bourses_ad AFTER DELETE ON bourses BEGIN INSERT INTO bourses_fts(bourses_fts, rowid, titre, description, organisme) VALUES('delete', old.id, old.titre, old.description, old.organisme); END;
+                DROP TRIGGER IF EXISTS bourses_au; CREATE TRIGGER bourses_au AFTER UPDATE ON bourses BEGIN INSERT INTO bourses_fts(bourses_fts, rowid, titre, description, organisme) VALUES('delete', old.id, old.titre, old.description, old.organisme); INSERT INTO bourses_fts(rowid, titre, description, organisme) VALUES (new.id, new.titre, new.description, new.organisme); END;
+                DROP TRIGGER IF EXISTS formations_ai; CREATE TRIGGER formations_ai AFTER INSERT ON formations BEGIN INSERT INTO formations_fts(rowid, nom, description, universite) VALUES (new.id, new.nom, new.description, new.universite); END;
+                DROP TRIGGER IF EXISTS formations_ad; CREATE TRIGGER formations_ad AFTER DELETE ON formations BEGIN INSERT INTO formations_fts(formations_fts, rowid, nom, description, universite) VALUES('delete', old.id, old.nom, old.description, old.universite); END;
+                DROP TRIGGER IF EXISTS formations_au; CREATE TRIGGER formations_au AFTER UPDATE ON formations BEGIN INSERT INTO formations_fts(formations_fts, rowid, nom, description, universite) VALUES('delete', old.id, old.nom, old.description, old.universite); INSERT INTO formations_fts(rowid, nom, description, universite) VALUES (new.id, new.nom, new.description, new.universite); END;
+            ''')
+        except Exception:
+            pass
 
     # Follows table
     try:
@@ -417,15 +485,16 @@ def init_db():
         pass
 
     # Rebuild FTS indexes from existing data
-    try:
-        conn.executescript('''
-            INSERT INTO posts_fts(rowid, contenu) SELECT id, contenu FROM posts WHERE id NOT IN (SELECT rowid FROM posts_fts);
-            INSERT INTO users_fts(rowid, prenom, nom, email, universite, filiere) SELECT id, prenom, nom, email, universite, filiere FROM users WHERE id NOT IN (SELECT rowid FROM users_fts);
-            INSERT INTO bourses_fts(rowid, titre, description, organisme) SELECT id, titre, description, organisme FROM bourses WHERE id NOT IN (SELECT rowid FROM bourses_fts);
-            INSERT INTO formations_fts(rowid, nom, description, universite) SELECT id, nom, description, universite FROM formations WHERE id NOT IN (SELECT rowid FROM formations_fts);
-        ''')
-    except Exception:
-        pass
+    if not db.IS_PG:
+        try:
+            conn.executescript('''
+                INSERT INTO posts_fts(rowid, contenu) SELECT id, contenu FROM posts WHERE id NOT IN (SELECT rowid FROM posts_fts);
+                INSERT INTO users_fts(rowid, prenom, nom, email, universite, filiere) SELECT id, prenom, nom, email, universite, filiere FROM users WHERE id NOT IN (SELECT rowid FROM users_fts);
+                INSERT INTO bourses_fts(rowid, titre, description, organisme) SELECT id, titre, description, organisme FROM bourses WHERE id NOT IN (SELECT rowid FROM bourses_fts);
+                INSERT INTO formations_fts(rowid, nom, description, universite) SELECT id, nom, description, universite FROM formations WHERE id NOT IN (SELECT rowid FROM formations_fts);
+            ''')
+        except Exception:
+            pass
 
     conn.commit()
 
@@ -601,7 +670,7 @@ def inscription():
             conn.commit()
             flash('Compte cree ! Connecte-toi.', 'success')
             return redirect(url_for('connexion'))
-        except sqlite3.IntegrityError:
+        except db.IntegrityError:
             flash('Cet email est deja utilise.', 'error')
             return render_template('inscription.html')
         finally:
@@ -742,10 +811,8 @@ def publier():
         if image and image.filename:
             ext = os.path.splitext(image.filename)[1].lower()
             if ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp'):
-                uploads = os.path.join(app.root_path, 'static', 'uploads')
-                os.makedirs(uploads, exist_ok=True)
                 image_nom = f"{uuid.uuid4().hex}{ext}"
-                image.save(os.path.join(uploads, image_nom))
+                stocker_fichier('static/uploads/' + image_nom, image.read())
         cur = conn.execute('INSERT INTO posts (user_id, contenu, image) VALUES (?, ?, ?)',
                      (session['user_id'], contenu, image_nom))
         post_id = cur.lastrowid
@@ -765,7 +832,7 @@ def liker(post_id):
         conn.execute('INSERT INTO likes (user_id, post_id) VALUES (?, ?)',
                      (session['user_id'], post_id))
         conn.commit()
-    except sqlite3.IntegrityError:
+    except db.IntegrityError:
         conn.execute('DELETE FROM likes WHERE user_id = ? AND post_id = ?',
                      (session['user_id'], post_id))
         conn.commit()
@@ -847,13 +914,17 @@ def stats():
     top_posters = [dict(r) for r in conn.execute('''
         SELECT users.prenom, users.nom, COUNT(posts.id) as nb
         FROM posts JOIN users ON posts.user_id = users.id
-        GROUP BY posts.user_id ORDER BY nb DESC LIMIT 10
+        GROUP BY posts.user_id, users.prenom, users.nom ORDER BY nb DESC LIMIT 10
     ''').fetchall()]
     # User's own stats
     nb_posts = conn.execute('SELECT COUNT(*) as nb FROM posts WHERE user_id = ?', (user_id,)).fetchone()['nb']
     nb_likes_recus = conn.execute('SELECT COUNT(*) as nb FROM likes JOIN posts ON likes.post_id = posts.id WHERE posts.user_id = ?', (user_id,)).fetchone()['nb']
     nb_commentaires = conn.execute('SELECT COUNT(*) as nb FROM commentaires WHERE user_id = ?', (user_id,)).fetchone()['nb']
-    nb_jours = conn.execute("SELECT CAST(julianday('now') - julianday(date_inscription) AS INTEGER) as nb FROM users WHERE id = ?", (user_id,)).fetchone()['nb']
+    inscrit = conn.execute('SELECT date_inscription FROM users WHERE id = ?', (user_id,)).fetchone()
+    try:
+        nb_jours = (datetime.now(timezone.utc).replace(tzinfo=None) - datetime.strptime(inscrit['date_inscription'][:19], '%Y-%m-%d %H:%M:%S')).days
+    except (TypeError, ValueError):
+        nb_jours = 0
     conn.close()
     return render_template('stats.html', daily_posts=daily_posts, universites=universites, filieres=filieres, top_posters=top_posters, nb_posts=nb_posts, nb_likes_recus=nb_likes_recus, nb_commentaires=nb_commentaires, nb_jours=nb_jours)
 
@@ -964,7 +1035,7 @@ def suivre(user_id):
         creer_notification(user_id, 'suivi', f"{session['user_nom']} a commence a te suivre",
                            url_for('profil', user_id=session['user_id']))
         flash('Abonne !', 'success')
-    except sqlite3.IntegrityError:
+    except db.IntegrityError:
         conn.execute('DELETE FROM follows WHERE follower_id = ? AND followed_id = ?',
                      (session['user_id'], user_id))
         conn.commit()
@@ -982,7 +1053,7 @@ def api_expo_push_token():
     if not data or not data.get('token'):
         return jsonify({'error': 'Token requis'}), 400
     conn = get_db()
-    conn.execute('INSERT OR REPLACE INTO expo_push_tokens (user_id, token) VALUES (?, ?)',
+    conn.execute('INSERT OR IGNORE INTO expo_push_tokens (user_id, token) VALUES (?, ?)',
                  (user_id, data['token']))
     conn.commit()
     conn.close()
@@ -1039,10 +1110,8 @@ def modifier_profil():
             if avatar and avatar.filename:
                 ext = os.path.splitext(avatar.filename)[1].lower()
                 if ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp'):
-                    uploads = os.path.join(app.root_path, 'static', 'avatars')
-                    os.makedirs(uploads, exist_ok=True)
                     avatar_nom = f"user_{session['user_id']}{ext}"
-                    avatar.save(os.path.join(uploads, avatar_nom))
+                    stocker_fichier('static/avatars/' + avatar_nom, avatar.read())
                     conn.execute('UPDATE users SET prenom=?, nom=?, universite=?, filiere=?, annee=?, bio=?, avatar=? WHERE id=?',
                                  (prenom, nom, universite, filiere, annee, bio, avatar_nom, session['user_id']))
                 else:
@@ -1099,10 +1168,8 @@ def ajouter_document():
         if ext not in ('.pdf', '.doc', '.docx', '.ppt', '.pptx', '.txt', '.zip', '.rar', '.png', '.jpg', '.jpeg'):
             flash('Format non autorise (PDF, Word, PowerPoint, TXT, ZIP, images)', 'error')
             return redirect(url_for('ajouter_document'))
-        uploads = os.path.join(app.root_path, 'uploads')
-        os.makedirs(uploads, exist_ok=True)
         nom_fichier = f"{uuid.uuid4().hex}{ext}"
-        fichier.save(os.path.join(uploads, nom_fichier))
+        stocker_fichier('uploads/' + nom_fichier, fichier.read())
         conn = get_db()
         conn.execute('INSERT INTO documents (user_id, titre, description, fichier, matiere, universite) VALUES (?, ?, ?, ?, ?, ?)',
             (session['user_id'], titre, description, nom_fichier, matiere or None, universite or None))
@@ -1124,7 +1191,7 @@ def telecharger_document(doc_id):
         flash('Document introuvable', 'error')
         return redirect(url_for('documents'))
     chemin = os.path.join(app.root_path, 'uploads', doc['fichier'])
-    if not os.path.exists(chemin):
+    if not restaurer_fichier('uploads/' + doc['fichier']):
         conn.close()
         flash('Fichier introuvable', 'error')
         return redirect(url_for('documents'))
@@ -1689,6 +1756,9 @@ def admin_backup():
     if not user or user['email'] not in ('admin@linkci.ci', 'qasade@gmail.com'):
         flash('Acces reserve', 'error')
         return redirect(url_for('feed'))
+    if db.IS_PG:
+        flash('Base PostgreSQL : utilise les sauvegardes / branches de ton hebergeur (Neon).', 'info')
+        return redirect(url_for('admin_dashboard'))
     import subprocess, tempfile, zipfile, shutil
     ts = datetime.now().strftime('%Y%m%d_%H%M%S')
     tmp = tempfile.mkdtemp()
@@ -1801,11 +1871,8 @@ def admin_supprimer_post(post_id):
     conn.execute('DELETE FROM commentaires WHERE post_id = ?', (post_id,))
     conn.execute('DELETE FROM posts WHERE id = ?', (post_id,))
     # Delete post image if any
-    if post.get('image'):
-        chemin = os.path.join(app.root_path, 'static', 'uploads', post['image'])
-        try:
-            if os.path.exists(chemin): os.remove(chemin)
-        except: pass
+    if post['image']:
+        supprimer_fichier('static/uploads/' + post['image'])
     conn.commit()
     conn.close()
     flash('Publication supprimee', 'success')
@@ -1823,10 +1890,7 @@ def admin_supprimer_document(doc_id):
         conn.close()
         flash('Document introuvable', 'error')
         return redirect(url_for('admin_dashboard'))
-    chemin = os.path.join(app.root_path, 'uploads', doc['fichier'])
-    try:
-        if os.path.exists(chemin): os.remove(chemin)
-    except: pass
+    supprimer_fichier('uploads/' + doc['fichier'])
     conn.execute('DELETE FROM documents WHERE id = ?', (doc_id,))
     conn.commit()
     conn.close()
@@ -1925,7 +1989,7 @@ def api_register():
         user = conn.execute('SELECT id, nom, prenom, email, universite, filiere FROM users WHERE email = ?', (email,)).fetchone()
         conn.close()
         return jsonify({'token': api_token(user['id']), 'user': dict(user)}), 201
-    except sqlite3.IntegrityError:
+    except db.IntegrityError:
         conn.close()
         return jsonify({'error': 'Email deja utilise'}), 409
 
@@ -2012,21 +2076,15 @@ def api_create_post():
             import base64
             img_data = base64.b64decode(image_b64)
             ext = '.png'
-            import imghdr
-            detected = imghdr.what(None, h=img_data[:32])
-            if detected in ('jpeg', 'jpg'): ext = '.jpg'
-            elif detected == 'gif': ext = '.gif'
-            elif detected == 'webp': ext = '.webp'
-            uploads = os.path.join(app.root_path, 'static', 'uploads')
-            os.makedirs(uploads, exist_ok=True)
+            if img_data[:3] == b'\xff\xd8\xff': ext = '.jpg'
+            elif img_data[:6] in (b'GIF87a', b'GIF89a'): ext = '.gif'
+            elif img_data[:4] == b'RIFF' and img_data[8:12] == b'WEBP': ext = '.webp'
             image_nom = f"{uuid.uuid4().hex}{ext}"
-            with open(os.path.join(uploads, image_nom), 'wb') as f:
-                f.write(img_data)
+            stocker_fichier('static/uploads/' + image_nom, img_data)
         except Exception:
             pass
-    conn.execute('INSERT INTO posts (user_id, contenu, image) VALUES (?, ?, ?)', (user_id, contenu, image_nom))
+    post_id = conn.execute('INSERT INTO posts (user_id, contenu, image) VALUES (?, ?, ?)', (user_id, contenu, image_nom)).lastrowid
     conn.commit()
-    post_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
     auteur = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (user_id,)).fetchone()
     auteur_nom = f"{auteur['prenom']} {auteur['nom']}" if auteur else 'Quelqu\'un'
     process_mentions(contenu, post_id=post_id, auteur_nom=auteur_nom)
@@ -2044,7 +2102,7 @@ def api_like(post_id):
         conn.execute('INSERT INTO likes (user_id, post_id) VALUES (?, ?)', (user_id, post_id))
         conn.commit()
         liked = True
-    except sqlite3.IntegrityError:
+    except db.IntegrityError:
         conn.execute('DELETE FROM likes WHERE user_id = ? AND post_id = ?', (user_id, post_id))
         conn.commit()
         liked = False
@@ -2079,10 +2137,9 @@ def api_add_comment(post_id):
     if len(contenu) > FIELD_MAXLEN.get('contenu', 5000):
         return jsonify({'error': f'Maximum {FIELD_MAXLEN.get("contenu", 5000)} caracteres'}), 400
     conn = get_db()
-    conn.execute('INSERT INTO commentaires (user_id, post_id, contenu) VALUES (?, ?, ?)',
-                 (user_id, post_id, contenu))
+    commentaire_id = conn.execute('INSERT INTO commentaires (user_id, post_id, contenu) VALUES (?, ?, ?)',
+                 (user_id, post_id, contenu)).lastrowid
     conn.commit()
-    commentaire_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
     auteur = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (user_id,)).fetchone()
     auteur_nom = f"{auteur['prenom']} {auteur['nom']}" if auteur else 'Quelqu\'un'
     process_mentions(contenu, commentaire_id=commentaire_id, auteur_nom=auteur_nom)
@@ -2482,10 +2539,9 @@ def handle_send_message(data):
         return
 
     conn = get_db()
-    conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu) VALUES (?, ?, ?)',
-                 (session['user_id'], destinataire_id, contenu))
+    msg_id = conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu) VALUES (?, ?, ?)',
+                 (session['user_id'], destinataire_id, contenu)).lastrowid
     conn.commit()
-    msg_id = conn.execute('SELECT last_insert_rowid()').fetchone()[0]
     conn.close()
 
     room = str(min(session['user_id'], destinataire_id)) + '_' + str(max(session['user_id'], destinataire_id))

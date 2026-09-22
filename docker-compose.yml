@@ -4,16 +4,22 @@ services:
     build: .
     ports:
       - "5000:5000"
-    volumes:
-      - linkci_data:/app/instance
-      - linkci_avatars:/app/static/avatars
-      - linkci_uploads:/app/static/uploads
     environment:
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-change-me-in-production}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://linkci:linkci@db:5432/linkci}
       - PYTHONUNBUFFERED=1
+    depends_on:
+      - db
+    restart: unless-stopped
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=linkci
+      - POSTGRES_PASSWORD=linkci
+      - POSTGRES_DB=linkci
+    volumes:
+      - linkci_pg:/var/lib/postgresql/data
     restart: unless-stopped
 
 volumes:
-  linkci_data:
-  linkci_avatars:
-  linkci_uploads:
+  linkci_pg:

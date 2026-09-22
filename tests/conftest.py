@@ -1,5 +1,8 @@
 import os, sys, tempfile, atexit
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Jamais la base de production : SQLite temporaire, ou TEST_DATABASE_URL si fourni
+# (load_dotenv ne remplace pas une variable deja definie, meme vide).
+os.environ['DATABASE_URL'] = os.environ.get('TEST_DATABASE_URL', '')
 import app as linkci_app
 
 # Patch DB to a temp file for tests
