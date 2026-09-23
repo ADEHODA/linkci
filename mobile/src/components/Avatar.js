@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
 
-const COLORS = ['#FF6B35', '#E85D26', '#00A85A', '#FFCC00', '#1A1A2E'];
+// Memes couleurs que les avatars du site web
+const COLORS = ['#FF6B35', '#7C3AED', '#009E60', '#DC2626', '#2563EB', '#D97706', '#DB2777', '#0891B2', '#65A30D', '#9333EA'];
 
 export default function Avatar({ name, size = 40, index = 0 }) {
   const initials = name

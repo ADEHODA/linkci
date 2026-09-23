@@ -1,64 +1,59 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, Alert, ActivityIndicator, StyleSheet } from 'react-native';
+import React from 'react';
+import { View, Text, FlatList, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
 import * as api from '../api';
+import useApiList from '../hooks/useApiList';
+import { Loading, EmptyState, pullToRefresh } from '../components/ui';
+import { colors, radius, spacing } from '../theme';
+import { dateRelative } from '../utils';
+
+const ICONS = {
+  bourse: ['cash', '#FF6B35'], formation: ['school', '#009E60'], message: ['chatbubble', '#2563EB'],
+  like: ['heart', '#E11D48'], commentaire: ['chatbox', '#7C3AED'], mention: ['at', '#7C3AED'],
+  suivi: ['person-add', '#009E60'], document: ['document-text', '#2563EB'],
+};
 
 export default function NotificationsScreen() {
-  const [notifs, setNotifs] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { data, loading, refreshing, refresh } = useApiList(async () => (await api.getNotifications()).notifications || []);
 
-  useFocusEffect(useCallback(() => {
-    (async () => {
-      try {
-        const data = await api.getNotifications();
-        setNotifs(data.notifications || []);
-      } catch (e) {}
-      setLoading(false);
-    })();
-  }, []));
-
-  const icons = { bourse: 'cash', formation: 'school', message: 'chatbubble', like: 'heart', commentaire: 'chatbox' };
-
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#FF6B35" /></View>;
+  if (loading) return <Loading />;
 
   return (
-    <View style={styles.container}>
-      <FlatList
-        data={notifs}
-        keyExtractor={(item) => String(item.id)}
-        renderItem={({ item }) => (
+    <FlatList
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      data={data}
+      keyExtractor={(item) => String(item.id)}
+      refreshControl={pullToRefresh(refreshing, refresh)}
+      renderItem={({ item }) => {
+        const [icon, couleur] = ICONS[item.type] || ['notifications', colors.primary];
+        return (
           <View style={[styles.item, !item.lu && styles.unread]}>
-            <View style={styles.iconContainer}>
-              <Ionicons name={icons[item.type] || 'notifications'} size={22} color="#FF6B35" />
+            <View style={[styles.iconBox, { backgroundColor: couleur + '1A' }]}>
+              <Ionicons name={icon} size={20} color={couleur} />
             </View>
-            <View style={styles.content}>
-              <Text style={[styles.message, !item.lu && { fontWeight: '600' }]}>{item.message}</Text>
-              <Text style={styles.time}>{item.date_notification?.slice(0, 16)}</Text>
+            <View style={styles.body}>
+              <Text style={[styles.message, !item.lu && styles.messageUnread]}>{item.message}</Text>
+              <Text style={styles.time}>{dateRelative(item.date_notification)}</Text>
             </View>
             {!item.lu && <View style={styles.dot} />}
           </View>
-        )}
-        ListEmptyComponent={
-          <View style={styles.center}>
-            <Ionicons name="notifications-outline" size={48} color="#ccc" />
-            <Text style={styles.empty}>Aucune notification</Text>
-          </View>
-        }
-      />
-    </View>
+        );
+      }}
+      ListEmptyComponent={<EmptyState icon="notifications-outline" title="Aucune notification" hint="Tu seras prevenu des likes, messages et nouvelles bourses." />}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F7F4' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
-  empty: { color: '#999', fontSize: 14, marginTop: 8 },
-  item: { flexDirection: 'row', alignItems: 'flex-start', padding: 14, borderBottomWidth: 1, borderBottomColor: '#EDEDEA', backgroundColor: 'white', gap: 10 },
-  unread: { backgroundColor: '#FFF0E8' },
-  iconContainer: { marginTop: 2 },
-  content: { flex: 1 },
-  message: { fontSize: 14, lineHeight: 19 },
-  time: { fontSize: 12, color: '#999', marginTop: 4 },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#FF6B35', marginTop: 6 },
+  container: { flex: 1, backgroundColor: colors.bg },
+  content: { padding: spacing.md },
+  item: { flexDirection: 'row', alignItems: 'center', padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.card, marginBottom: spacing.sm, gap: spacing.md },
+  unread: { backgroundColor: colors.primarySoft },
+  iconBox: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  body: { flex: 1 },
+  message: { fontSize: 14, lineHeight: 19, color: colors.text },
+  messageUnread: { fontWeight: '700' },
+  time: { fontSize: 12, color: colors.textFaint, marginTop: 3 },
+  dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.primary },
 });

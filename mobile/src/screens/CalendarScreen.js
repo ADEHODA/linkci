@@ -1,38 +1,32 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, FlatList, TextInput, TouchableOpacity, Alert, ActivityIndicator, Modal, StyleSheet } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, FlatList, TextInput, TouchableOpacity, Alert, Modal, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
 import * as api from '../api';
+import useApiList from '../hooks/useApiList';
+import { Card, Loading, EmptyState, PrimaryButton, Fab, pullToRefresh } from '../components/ui';
+import { colors, radius, spacing, font } from '../theme';
+
+const MOIS = ['Janvier', 'Fevrier', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Aout', 'Septembre', 'Octobre', 'Novembre', 'Decembre'];
+const JOURS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 
 export default function CalendarScreen() {
-  const [events, setEvents] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { data: events, loading, refreshing, refresh, reload } = useApiList(api.getEvenements);
   const [showAdd, setShowAdd] = useState(false);
   const [title, setTitle] = useState('');
   const [desc, setDesc] = useState('');
   const [date, setDate] = useState('');
   const [lieu, setLieu] = useState('');
 
-  const load = async () => {
-    try {
-      const data = await api.getEvenements();
-      setEvents(data);
-    } catch (e) { Alert.alert('Erreur', e.message); }
-    setLoading(false);
-  };
-
-  useFocusEffect(useCallback(() => { load(); }, []));
-
   const handleAdd = async () => {
-    if (!title.trim() || !date.trim()) {
-      Alert.alert('Erreur', 'Titre et date requis');
+    if (!title.trim() || !/^\d{4}-\d{2}-\d{2}$/.test(date.trim())) {
+      Alert.alert('Erreur', 'Titre requis et date au format AAAA-MM-JJ (ex. 2026-10-15)');
       return;
     }
     try {
       await api.createEvenement({ titre: title.trim(), description: desc.trim(), date_event: date.trim(), lieu: lieu.trim() });
       setShowAdd(false);
       setTitle(''); setDesc(''); setDate(''); setLieu('');
-      load();
+      reload();
     } catch (e) { Alert.alert('Erreur', e.message); }
   };
 
@@ -40,70 +34,60 @@ export default function CalendarScreen() {
     Alert.alert('Supprimer', 'Supprimer cet evenement ?', [
       { text: 'Annuler', style: 'cancel' },
       { text: 'Supprimer', style: 'destructive', onPress: async () => {
-        try { await api.deleteEvenement(id); load(); }
+        try { await api.deleteEvenement(id); reload(); }
         catch (e) { Alert.alert('Erreur', e.message); }
       }},
     ]);
   };
 
-  const mois = ['Janvier','Fevrier','Mars','Avril','Mai','Juin','Juillet','Aout','Septembre','Octobre','Novembre','Decembre'];
-  const jours = ['Dim','Lun','Mar','Mer','Jeu','Ven','Sam'];
-
   const renderEvent = ({ item }) => {
     const d = item.date_event ? new Date(item.date_event) : null;
-    const isPast = d && d < new Date(new Date().toDateString());
+    const passe = d && d < new Date(new Date().toDateString());
     return (
-      <TouchableOpacity style={[styles.card, isPast && styles.past]} onLongPress={() => handleDelete(item.id)}>
+      <Card style={[styles.card, passe && styles.past]} onLongPress={() => handleDelete(item.id)}>
         {d && (
-          <View style={styles.dateBadge}>
-            <Text style={styles.dateDay}>{d.getDate()}</Text>
-            <Text style={styles.dateMonth}>{mois[d.getMonth()].slice(0, 3)}</Text>
+          <View style={[styles.dateBadge, passe && { backgroundColor: colors.bg }]}>
+            <Text style={[styles.dateDay, passe && { color: colors.textMuted }]}>{d.getDate()}</Text>
+            <Text style={[styles.dateMonth, passe && { color: colors.textMuted }]}>{MOIS[d.getMonth()].slice(0, 3).toUpperCase()}</Text>
           </View>
         )}
         <View style={{ flex: 1 }}>
           <Text style={styles.title}>{item.titre}</Text>
           {item.description ? <Text style={styles.desc} numberOfLines={2}>{item.description}</Text> : null}
           <View style={styles.meta}>
-            {d ? <Text style={styles.metaText}>{jours[d.getDay()]} {d.getDate()} {mois[d.getMonth()]}</Text> : null}
-            {item.lieu ? <Text style={styles.metaText}>{item.lieu}</Text> : null}
+            {d ? <View style={styles.metaItem}><Ionicons name="time-outline" size={13} color={colors.textMuted} /><Text style={styles.metaText}>{JOURS[d.getDay()]} {d.getDate()} {MOIS[d.getMonth()]}</Text></View> : null}
+            {item.lieu ? <View style={styles.metaItem}><Ionicons name="location-outline" size={13} color={colors.textMuted} /><Text style={styles.metaText}>{item.lieu}</Text></View> : null}
           </View>
         </View>
-      </TouchableOpacity>
+      </Card>
     );
   };
 
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#FF6B35" /></View>;
+  if (loading) return <Loading />;
 
   return (
     <View style={styles.container}>
       <FlatList
         data={events}
+        contentContainerStyle={{ padding: spacing.md, paddingBottom: 90 }}
         keyExtractor={(item) => String(item.id)}
         renderItem={renderEvent}
-        ListEmptyComponent={
-          <View style={styles.center}>
-            <Ionicons name="calendar-outline" size={48} color="#ccc" />
-            <Text style={styles.empty}>Aucun evenement</Text>
-            <Text style={styles.hint}>Ajoute un evenement campus !</Text>
-          </View>
-        }
+        refreshControl={pullToRefresh(refreshing, refresh)}
+        ListHeaderComponent={events.length ? <Text style={styles.hint}>Appui long sur un evenement pour le supprimer</Text> : null}
+        ListEmptyComponent={<EmptyState icon="calendar-outline" title="Aucun evenement" hint="Ajoute tes examens et evenements campus avec +" />}
       />
-      <TouchableOpacity style={styles.fab} onPress={() => setShowAdd(true)}>
-        <Ionicons name="add" size={28} color="white" />
-      </TouchableOpacity>
+      <Fab onPress={() => setShowAdd(true)} />
 
-      <Modal visible={showAdd} transparent animationType="slide">
+      <Modal visible={showAdd} transparent animationType="slide" onRequestClose={() => setShowAdd(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modal}>
-            <Text style={styles.modalTitle}>Nouvel evenement</Text>
-            <TextInput style={styles.input} placeholder="Titre" value={title} onChangeText={setTitle} />
-            <TextInput style={styles.input} placeholder="Description (opt.)" value={desc} onChangeText={setDesc} multiline />
-            <TextInput style={styles.input} placeholder="Date (AAAA-MM-JJ)" value={date} onChangeText={setDate} autoCapitalize="none" />
-            <TextInput style={styles.input} placeholder="Lieu (opt.)" value={lieu} onChangeText={setLieu} />
-            <View style={styles.modalRow}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={() => setShowAdd(false)}><Text style={{ color: '#666' }}>Annuler</Text></TouchableOpacity>
-              <TouchableOpacity style={styles.confirmBtn} onPress={handleAdd}><Text style={{ color: 'white', fontWeight: '700' }}>Ajouter</Text></TouchableOpacity>
-            </View>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>Nouvel evenement</Text>
+            <TextInput style={styles.field} placeholder="Titre (ex. Partiel d'algebre)" placeholderTextColor={colors.textFaint} value={title} onChangeText={setTitle} />
+            <TextInput style={styles.field} placeholder="Date (AAAA-MM-JJ)" placeholderTextColor={colors.textFaint} value={date} onChangeText={setDate} autoCapitalize="none" keyboardType="numbers-and-punctuation" />
+            <TextInput style={styles.field} placeholder="Lieu (optionnel)" placeholderTextColor={colors.textFaint} value={lieu} onChangeText={setLieu} />
+            <TextInput style={[styles.field, { minHeight: 60 }]} placeholder="Description (optionnelle)" placeholderTextColor={colors.textFaint} value={desc} onChangeText={setDesc} multiline />
+            <PrimaryButton title="Ajouter" onPress={handleAdd} />
+            <TouchableOpacity style={styles.cancel} onPress={() => setShowAdd(false)}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -112,25 +96,22 @@ export default function CalendarScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F7F4', padding: 12 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
-  empty: { color: '#999', fontSize: 14, marginTop: 8 },
-  hint: { color: '#ccc', fontSize: 13, marginTop: 4 },
-  card: { flexDirection: 'row', backgroundColor: 'white', borderRadius: 12, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: '#EDEDEA', gap: 12 },
-  past: { opacity: 0.5 },
-  dateBadge: { alignItems: 'center', justifyContent: 'center', width: 48, borderRadius: 10, backgroundColor: '#FFF0E8', paddingVertical: 6 },
-  dateDay: { fontSize: 20, fontWeight: '800', color: '#FF6B35' },
-  dateMonth: { fontSize: 11, fontWeight: '600', color: '#FF6B35', marginTop: -2 },
-  title: { fontSize: 15, fontWeight: '700', marginBottom: 2 },
-  desc: { fontSize: 13, color: '#666', marginBottom: 4, lineHeight: 18 },
-  meta: { flexDirection: 'row', gap: 12 },
-  metaText: { fontSize: 12, color: '#999' },
-  fab: { position: 'absolute', bottom: 20, right: 20, width: 52, height: 52, borderRadius: 26, backgroundColor: '#FF6B35', alignItems: 'center', justifyContent: 'center', elevation: 4, shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 4 } },
+  container: { flex: 1, backgroundColor: colors.bg },
+  hint: { ...font.tiny, textAlign: 'center', marginBottom: spacing.sm },
+  card: { flexDirection: 'row', gap: spacing.md, alignItems: 'center' },
+  past: { opacity: 0.6 },
+  dateBadge: { alignItems: 'center', justifyContent: 'center', width: 56, height: 60, borderRadius: radius.md, backgroundColor: colors.primarySoft },
+  dateDay: { fontSize: 22, fontWeight: '900', color: colors.primary },
+  dateMonth: { fontSize: 11, fontWeight: '800', color: colors.primary, marginTop: -2 },
+  title: { fontSize: 16, fontWeight: '700', color: colors.text },
+  desc: { fontSize: 13, color: colors.textMuted, marginTop: 2, lineHeight: 18 },
+  meta: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginTop: spacing.sm },
+  metaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  metaText: { fontSize: 12, color: colors.textMuted },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
-  modal: { backgroundColor: 'white', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, paddingBottom: 40 },
-  modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 16 },
-  input: { borderWidth: 1, borderColor: '#EDEDEA', borderRadius: 10, padding: 12, fontSize: 15, marginBottom: 12 },
-  modalRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 4 },
-  cancelBtn: { paddingVertical: 10, paddingHorizontal: 20 },
-  confirmBtn: { backgroundColor: '#FF6B35', borderRadius: 50, paddingVertical: 10, paddingHorizontal: 24 },
+  sheet: { backgroundColor: colors.card, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.xl, paddingBottom: 36 },
+  sheetTitle: { ...font.heading, marginBottom: spacing.lg },
+  field: { backgroundColor: colors.bg, borderRadius: radius.md, padding: 14, fontSize: 15, marginBottom: spacing.md, color: colors.text, textAlignVertical: 'top' },
+  cancel: { alignItems: 'center', paddingTop: spacing.lg },
+  cancelText: { color: colors.textMuted, fontWeight: '600' },
 });

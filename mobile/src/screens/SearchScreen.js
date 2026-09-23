@@ -1,8 +1,11 @@
 import React, { useState, useRef } from 'react';
-import { View, Text, FlatList, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, TextInput, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import Avatar from '../components/Avatar';
+import { EmptyState } from '../components/ui';
+import { colors, radius, spacing, shadow } from '../theme';
+import { dateRelative } from '../utils';
 
 export default function SearchScreen({ navigation }) {
   const [query, setQuery] = useState('');
@@ -17,99 +20,97 @@ export default function SearchScreen({ navigation }) {
     timer.current = setTimeout(async () => {
       setLoading(true);
       try {
-        const data = await api.searchAll(q.trim());
-        setResults(data);
+        setResults(await api.searchAll(q.trim()));
       } catch (e) {}
       setLoading(false);
     }, 400);
   };
 
+  // Chaque section : ou elle mene quand on touche un resultat
   const sections = results ? [
-    { title: 'Posts', data: results.posts || [], icon: 'newspaper', empty: 'Aucun post' },
-    { title: 'Bourses', data: results.bourses || [], icon: 'cash', empty: 'Aucune bourse' },
-    { title: 'Formations', data: results.formations || [], icon: 'school', empty: 'Aucune formation' },
-    { title: 'Utilisateurs', data: results.users || [], icon: 'people', empty: 'Aucun utilisateur' },
-  ].filter(s => s.data.length > 0) : [];
+    { titre: 'Etudiants', data: results.users || [], icon: 'people' },
+    { titre: 'Publications', data: results.posts || [], icon: 'newspaper', route: 'Home' },
+    { titre: 'Bourses', data: results.bourses || [], icon: 'cash', route: 'Bourses' },
+    { titre: 'Formations', data: results.formations || [], icon: 'school', route: 'Formations' },
+  ].filter((s) => s.data.length > 0) : [];
 
   return (
     <View style={styles.container}>
       <View style={styles.searchBar}>
-        <Ionicons name="search" size={18} color="#999" style={{ marginRight: 8 }} />
+        <Ionicons name="search" size={18} color={colors.textFaint} />
         <TextInput
           style={styles.input}
           value={query}
           onChangeText={handleSearch}
-          placeholder="Rechercher posts, bourses, formations, personnes..."
-          placeholderTextColor="#999"
+          placeholder="Etudiants, bourses, formations..."
+          placeholderTextColor={colors.textFaint}
           autoFocus
           returnKeyType="search"
         />
         {query.length > 0 && (
-          <TouchableOpacity onPress={() => { setQuery(''); setResults(null); }}>
-            <Ionicons name="close-circle" size={20} color="#ccc" />
+          <TouchableOpacity onPress={() => { setQuery(''); setResults(null); }} hitSlop={10}>
+            <Ionicons name="close-circle" size={20} color={colors.textFaint} />
           </TouchableOpacity>
         )}
       </View>
 
-      {loading && <ActivityIndicator style={{ marginTop: 20 }} color="#FF6B35" />}
+      {loading && <ActivityIndicator style={{ marginTop: 24 }} color={colors.primary} />}
 
-      {!loading && results && sections.length === 0 && (
-        <View style={styles.center}>
-          <Ionicons name="search-outline" size={48} color="#ccc" />
-          <Text style={styles.empty}>Aucun resultat pour "{query}"</Text>
-        </View>
+      {!loading && !results && (
+        <EmptyState icon="search" title="Que cherches-tu ?" hint="Tape au moins 2 lettres : un nom, une bourse, une filiere..." />
       )}
 
-      {!loading && results && sections.length > 0 && (
-        <FlatList
-          data={sections}
-          keyExtractor={(item) => item.title}
-          renderItem={({ item }) => (
-            <View style={styles.section}>
+      {!loading && results && sections.length === 0 && (
+        <EmptyState icon="search-outline" title="Aucun resultat" hint={`Rien ne correspond a "${query}".`} />
+      )}
+
+      {!loading && sections.length > 0 && (
+        <ScrollView contentContainerStyle={{ padding: spacing.md }} keyboardShouldPersistTaps="handled">
+          {sections.map((section) => (
+            <View key={section.titre} style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Ionicons name={item.icon} size={16} color="#FF6B35" />
-                <Text style={styles.sectionTitle}>{item.title} ({item.data.length})</Text>
+                <Ionicons name={section.icon} size={15} color={colors.primary} />
+                <Text style={styles.sectionTitle}>{section.titre}</Text>
+                <Text style={styles.sectionCount}>{section.data.length}</Text>
               </View>
-              {item.data.map((row, i) => (
-                <TouchableOpacity key={row.id || i} style={styles.resultItem}>
-                  {item.title === 'Utilisateurs' ? (
-                    <Avatar name={`${row.prenom} ${row.nom}`} size={36} index={row.id} />
-                  ) : null}
+              {section.data.map((row, i) => (
+                <TouchableOpacity
+                  key={row.id || i}
+                  style={[styles.result, i > 0 && styles.resultBorder]}
+                  onPress={() => section.route && navigation.navigate(section.route)}
+                  disabled={!section.route}
+                  activeOpacity={0.7}
+                >
+                  {section.titre === 'Etudiants' ? <Avatar name={`${row.prenom} ${row.nom}`} size={38} index={row.id} /> : null}
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.resultTitle} numberOfLines={1}>{item.title === 'Posts' ? row.contenu : row.titre || row.nom || `${row.prenom} ${row.nom}`}</Text>
-                    {row.organisme ? <Text style={styles.resultSub}>{row.organisme}</Text> : null}
-                    {row.universite ? <Text style={styles.resultSub}>{row.universite}</Text> : null}
-                    {row.filiere ? <Text style={styles.resultSub}>{row.filiere}</Text> : null}
-                    {row.date_post ? <Text style={styles.resultSub}>{row.date_post?.slice(0, 10)}</Text> : null}
+                    <Text style={styles.resultTitle} numberOfLines={2}>
+                      {section.titre === 'Publications' ? row.contenu : row.titre || (row.prenom ? `${row.prenom} ${row.nom}` : row.nom)}
+                    </Text>
+                    <Text style={styles.resultSub} numberOfLines={1}>
+                      {[row.organisme, row.filiere, row.universite, row.niveau, row.date_post && dateRelative(row.date_post)].filter(Boolean).join(' · ')}
+                    </Text>
                   </View>
+                  {section.route ? <Ionicons name="chevron-forward" size={18} color={colors.textFaint} /> : null}
                 </TouchableOpacity>
               ))}
             </View>
-          )}
-        />
-      )}
-
-      {!results && !loading && (
-        <View style={styles.center}>
-          <Ionicons name="search" size={64} color="#eee" />
-          <Text style={styles.hint}>Cherche des posts, bourses, formations ou personnes</Text>
-        </View>
+          ))}
+        </ScrollView>
       )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F7F4' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
-  empty: { color: '#999', fontSize: 14, marginTop: 8 },
-  hint: { color: '#ccc', fontSize: 14, marginTop: 12, textAlign: 'center' },
-  searchBar: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'white', margin: 12, paddingHorizontal: 14, borderRadius: 12, borderWidth: 1, borderColor: '#EDEDEA' },
-  input: { flex: 1, paddingVertical: 12, fontSize: 15 },
-  section: { marginBottom: 8, backgroundColor: 'white', marginHorizontal: 12, borderRadius: 12, overflow: 'hidden', borderWidth: 1, borderColor: '#EDEDEA' },
-  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 12, paddingBottom: 4 },
-  sectionTitle: { fontSize: 13, fontWeight: '700', color: '#FF6B35', textTransform: 'uppercase' },
-  resultItem: { flexDirection: 'row', alignItems: 'center', padding: 12, borderTopWidth: 1, borderTopColor: '#EDEDEA', gap: 10 },
-  resultTitle: { fontSize: 14, fontWeight: '500' },
-  resultSub: { fontSize: 12, color: '#999', marginTop: 1 },
+  container: { flex: 1, backgroundColor: colors.bg },
+  searchBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.card, margin: spacing.md, marginBottom: 0, paddingHorizontal: spacing.lg, borderRadius: radius.pill, ...shadow },
+  input: { flex: 1, paddingVertical: 13, fontSize: 15, color: colors.text },
+  section: { backgroundColor: colors.card, borderRadius: radius.lg, marginBottom: spacing.md, overflow: 'hidden' },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.xs },
+  sectionTitle: { fontSize: 12, fontWeight: '800', color: colors.primary, textTransform: 'uppercase', letterSpacing: 0.5, flex: 1 },
+  sectionCount: { fontSize: 12, fontWeight: '700', color: colors.textFaint },
+  result: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.md, gap: spacing.md },
+  resultBorder: { borderTopWidth: 1, borderTopColor: colors.border },
+  resultTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
+  resultSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
 });

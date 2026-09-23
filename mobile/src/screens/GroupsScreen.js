@@ -1,69 +1,30 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, FlatList, TextInput, TouchableOpacity, Alert, ActivityIndicator, Modal, StyleSheet } from 'react-native';
+import React, { useState, useRef } from 'react';
+import { View, Text, FlatList, TextInput, TouchableOpacity, Alert, Modal, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
 import * as api from '../api';
 import Avatar from '../components/Avatar';
+import useApiList from '../hooks/useApiList';
+import { Loading, EmptyState, PrimaryButton, pullToRefresh } from '../components/ui';
+import { colors, radius, spacing, font } from '../theme';
+import { heure } from '../utils';
 
 export default function GroupsScreen() {
-  const [mesGroupes, setMesGroupes] = useState([]);
-  const [tousGroupes, setTousGroupes] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { data, loading, refreshing, refresh, reload } = useApiList(api.getGroupes, {});
   const [selected, setSelected] = useState(null);
-  const [messages, setMessages] = useState([]);
-  const [text, setText] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [tab, setTab] = useState('mes');
+  const mesGroupes = data.mes_groupes || [];
+  const tousGroupes = data.tous_groupes || [];
 
-  const load = async () => {
+  const handleJoin = async (g) => {
     try {
-      const data = await api.getGroupes();
-      setMesGroupes(data.mes_groupes || []);
-      setTousGroupes(data.tous_groupes || []);
+      await api.rejoindreGroupe(g.id);
+      await reload();
+      setTab('mes');
+      setSelected(g);
     } catch (e) { Alert.alert('Erreur', e.message); }
-    setLoading(false);
-  };
-
-  useFocusEffect(useCallback(() => { load(); }, []));
-
-  const openGroup = async (g) => {
-    setSelected(g);
-    try {
-      const data = await api.getGroupeMessages(g.id);
-      setMessages(data);
-    } catch (e) {}
-  };
-
-  const handleSend = async () => {
-    if (!text.trim() || !selected) return;
-    try {
-      await api.sendGroupeMessage(selected.id, text.trim());
-      setText('');
-      const data = await api.getGroupeMessages(selected.id);
-      setMessages(data);
-    } catch (e) { Alert.alert('Erreur', e.message); }
-  };
-
-  const handleJoin = async (id) => {
-    try {
-      await api.rejoindreGroupe(id);
-      load();
-    } catch (e) { Alert.alert('Erreur', e.message); }
-  };
-
-  const handleLeave = async () => {
-    Alert.alert('Quitter', 'Quitter ce groupe ?', [
-      { text: 'Annuler', style: 'cancel' },
-      { text: 'Quitter', style: 'destructive', onPress: async () => {
-        try {
-          await api.quitterGroupe(selected.id);
-          setSelected(null);
-          load();
-        } catch (e) { Alert.alert('Erreur', e.message); }
-      }},
-    ]);
   };
 
   const handleCreate = async () => {
@@ -73,88 +34,64 @@ export default function GroupsScreen() {
       setShowCreate(false);
       setNewName('');
       setNewDesc('');
-      load();
+      setTab('mes');
+      reload();
     } catch (e) { Alert.alert('Erreur', e.message); }
   };
 
-  if (loading) return <View style={styles.center}><ActivityIndicator size="large" color="#FF6B35" /></View>;
+  if (loading) return <Loading />;
 
   if (selected) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.convHeader}>
-          <TouchableOpacity onPress={() => setSelected(null)}><Ionicons name="arrow-back" size={24} color="#FF6B35" /></TouchableOpacity>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.convName}>{selected.nom}</Text>
-            {selected.description ? <Text style={styles.convPreview}>{selected.description}</Text> : null}
-          </View>
-          <TouchableOpacity onPress={handleLeave}><Ionicons name="exit-outline" size={22} color="#DC2626" /></TouchableOpacity>
-        </View>
-        <FlatList
-          style={styles.messageList}
-          data={messages}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={({ item }) => (
-            <View style={styles.msg}>
-              <Text style={styles.msgUser}>{item.prenom} {item.nom}</Text>
-              <View style={styles.msgBubble}><Text style={styles.msgText}>{item.contenu}</Text></View>
-              <Text style={styles.msgTime}>{item.date_envoi?.slice(11, 16)}</Text>
-            </View>
-          )}
-          ListEmptyComponent={<Text style={{ textAlign: 'center', color: '#999', padding: 40 }}>Aucun message</Text>}
-        />
-        <View style={styles.inputBar}>
-          <TextInput style={styles.input} value={text} onChangeText={setText} placeholder="Ecris un message..." placeholderTextColor="#999" />
-          <TouchableOpacity style={styles.sendBtn} onPress={handleSend}><Ionicons name="send" size={20} color="white" /></TouchableOpacity>
-        </View>
-      </View>
-    );
+    return <GroupChat groupe={selected} onBack={() => { setSelected(null); reload(); }} />;
   }
+
+  const liste = tab === 'mes' ? mesGroupes : tousGroupes;
 
   return (
     <View style={styles.container}>
-      <View style={styles.tabRow}>
-        <TouchableOpacity style={[styles.tab, tab === 'mes' && styles.tabActive]} onPress={() => setTab('mes')}>
-          <Text style={[styles.tabText, tab === 'mes' && styles.tabTextActive]}>Mes groupes ({mesGroupes.length})</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.tab, tab === 'tous' && styles.tabActive]} onPress={() => setTab('tous')}>
-          <Text style={[styles.tabText, tab === 'tous' && styles.tabTextActive]}>Decouvrir ({tousGroupes.length})</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.addBtn} onPress={() => setShowCreate(true)}>
-          <Ionicons name="add" size={22} color="white" />
-        </TouchableOpacity>
+      <View style={styles.segment}>
+        <Segment actif={tab === 'mes'} label={`Mes groupes (${mesGroupes.length})`} onPress={() => setTab('mes')} />
+        <Segment actif={tab === 'tous'} label={`Decouvrir (${tousGroupes.length})`} onPress={() => setTab('tous')} />
       </View>
 
       <FlatList
-        data={tab === 'mes' ? mesGroupes : tousGroupes}
+        data={liste}
+        contentContainerStyle={{ padding: spacing.md, paddingBottom: 90 }}
         keyExtractor={(item) => String(item.id)}
+        refreshControl={pullToRefresh(refreshing, refresh)}
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.groupItem} onPress={() => tab === 'mes' ? openGroup(item) : handleJoin(item.id)}>
-            <Avatar name={item.nom} size={44} index={item.id} />
+          <TouchableOpacity style={styles.groupItem} onPress={() => tab === 'mes' ? setSelected(item) : handleJoin(item)} activeOpacity={0.7}>
+            <Avatar name={item.nom} size={48} index={item.id} />
             <View style={{ flex: 1 }}>
               <Text style={styles.groupName}>{item.nom}</Text>
               {item.description ? <Text style={styles.groupDesc} numberOfLines={1}>{item.description}</Text> : null}
-              {item.role ? <Text style={styles.roleBadge}>{item.role}</Text> : null}
+              <Text style={styles.groupMeta}>
+                {item.nb_membres ? `${item.nb_membres} membre${item.nb_membres > 1 ? 's' : ''}` : ''}
+                {item.role === 'admin' ? '  ·  Admin' : ''}
+              </Text>
             </View>
-            {item.nb_membres ? <Text style={styles.memberCount}>{item.nb_membres} membres</Text> : null}
-            {tab === 'tous' ? <Ionicons name="add-circle" size={24} color="#FF6B35" /> : <Ionicons name="chevron-forward" size={20} color="#ccc" />}
+            {tab === 'tous'
+              ? <View style={styles.joinBtn}><Text style={styles.joinText}>Rejoindre</Text></View>
+              : <Ionicons name="chevron-forward" size={20} color={colors.textFaint} />}
           </TouchableOpacity>
         )}
-        ListEmptyComponent={
-          <View style={styles.center}><Ionicons name="people-outline" size={48} color="#ccc" /><Text style={styles.empty}>Aucun groupe</Text></View>
-        }
+        ListEmptyComponent={tab === 'mes'
+          ? <EmptyState icon="people-outline" title="Aucun groupe" hint="Rejoins un groupe dans Decouvrir ou cree le tien avec +" />
+          : <EmptyState icon="compass-outline" title="Rien a decouvrir" hint="Tu es deja dans tous les groupes !" />}
       />
 
-      <Modal visible={showCreate} transparent animationType="fade">
+      <TouchableOpacity style={styles.fab} onPress={() => setShowCreate(true)} activeOpacity={0.85}>
+        <Ionicons name="add" size={28} color={colors.white} />
+      </TouchableOpacity>
+
+      <Modal visible={showCreate} transparent animationType="slide" onRequestClose={() => setShowCreate(false)}>
         <View style={styles.modalOverlay}>
-          <View style={styles.modal}>
-            <Text style={styles.modalTitle}>Nouveau groupe</Text>
-            <TextInput style={styles.modalInput} placeholder="Nom du groupe" value={newName} onChangeText={setNewName} />
-            <TextInput style={styles.modalInput} placeholder="Description (optionnelle)" value={newDesc} onChangeText={setNewDesc} multiline />
-            <View style={styles.modalRow}>
-              <TouchableOpacity style={styles.modalCancel} onPress={() => setShowCreate(false)}><Text style={{ color: '#666' }}>Annuler</Text></TouchableOpacity>
-              <TouchableOpacity style={styles.modalConfirm} onPress={handleCreate}><Text style={{ color: 'white', fontWeight: '700' }}>Creer</Text></TouchableOpacity>
-            </View>
+          <View style={styles.sheet}>
+            <Text style={styles.sheetTitle}>Nouveau groupe</Text>
+            <TextInput style={styles.field} placeholder="Nom du groupe (ex. MIAGE L1)" placeholderTextColor={colors.textFaint} value={newName} onChangeText={setNewName} />
+            <TextInput style={[styles.field, { minHeight: 70 }]} placeholder="Description (optionnelle)" placeholderTextColor={colors.textFaint} value={newDesc} onChangeText={setNewDesc} multiline />
+            <PrimaryButton title="Creer le groupe" onPress={handleCreate} />
+            <TouchableOpacity style={styles.cancel} onPress={() => setShowCreate(false)}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -162,38 +99,110 @@ export default function GroupsScreen() {
   );
 }
 
+function Segment({ actif, label, onPress }) {
+  return (
+    <TouchableOpacity style={[styles.segBtn, actif && styles.segActive]} onPress={onPress}>
+      <Text style={[styles.segText, actif && styles.segTextActive]}>{label}</Text>
+    </TouchableOpacity>
+  );
+}
+
+function GroupChat({ groupe, onBack }) {
+  const listRef = useRef(null);
+  const { data: messages, loading, reload } = useApiList(() => api.getGroupeMessages(groupe.id));
+  const [text, setText] = useState('');
+
+  const handleSend = async () => {
+    if (!text.trim()) return;
+    const contenu = text.trim();
+    setText('');
+    try {
+      await api.sendGroupeMessage(groupe.id, contenu);
+      await reload();
+    } catch (e) { setText(contenu); Alert.alert('Erreur', e.message); }
+  };
+
+  const handleLeave = () => {
+    Alert.alert('Quitter', `Quitter le groupe ${groupe.nom} ?`, [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Quitter', style: 'destructive', onPress: async () => {
+        try { await api.quitterGroupe(groupe.id); onBack(); }
+        catch (e) { Alert.alert('Erreur', e.message); }
+      }},
+    ]);
+  };
+
+  return (
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90}>
+      <View style={styles.chatHeader}>
+        <TouchableOpacity onPress={onBack} hitSlop={10}><Ionicons name="chevron-back" size={26} color={colors.primary} /></TouchableOpacity>
+        <Avatar name={groupe.nom} size={36} index={groupe.id} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.chatName}>{groupe.nom}</Text>
+          {groupe.description ? <Text style={styles.chatDesc} numberOfLines={1}>{groupe.description}</Text> : null}
+        </View>
+        <TouchableOpacity onPress={handleLeave} hitSlop={10}><Ionicons name="exit-outline" size={22} color={colors.danger} /></TouchableOpacity>
+      </View>
+      {loading ? <Loading /> : (
+        <FlatList
+          ref={listRef}
+          style={{ flex: 1 }}
+          contentContainerStyle={{ padding: spacing.md }}
+          data={messages}
+          keyExtractor={(item) => String(item.id)}
+          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+          renderItem={({ item }) => (
+            <View style={styles.msgRow}>
+              <Avatar name={`${item.prenom} ${item.nom}`} size={30} index={item.user_id} />
+              <View style={styles.msgBubble}>
+                <Text style={styles.msgUser}>{item.prenom} {item.nom}</Text>
+                <Text style={styles.msgText}>{item.contenu}</Text>
+                <Text style={styles.msgTime}>{heure(item.date_envoi)}</Text>
+              </View>
+            </View>
+          )}
+          ListEmptyComponent={<EmptyState icon="chatbubbles-outline" title="Aucun message" hint="Lance la discussion !" />}
+        />
+      )}
+      <View style={styles.inputBar}>
+        <TextInput style={styles.input} value={text} onChangeText={setText} placeholder="Ecris au groupe..." placeholderTextColor={colors.textFaint} multiline />
+        <TouchableOpacity style={[styles.sendBtn, !text.trim() && { opacity: 0.4 }]} onPress={handleSend} disabled={!text.trim()}>
+          <Ionicons name="send" size={18} color={colors.white} />
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F7F4' },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 40 },
-  empty: { color: '#999', fontSize: 14, marginTop: 8 },
-  tabRow: { flexDirection: 'row', backgroundColor: 'white', padding: 8, borderBottomWidth: 1, borderBottomColor: '#EDEDEA', gap: 8 },
-  tab: { flex: 1, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
-  tabActive: { backgroundColor: '#FFF0E8' },
-  tabText: { fontSize: 13, fontWeight: '600', color: '#666' },
-  tabTextActive: { color: '#FF6B35' },
-  addBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#FF6B35', alignItems: 'center', justifyContent: 'center' },
-  groupItem: { flexDirection: 'row', alignItems: 'center', padding: 14, borderBottomWidth: 1, borderBottomColor: '#EDEDEA', backgroundColor: 'white', gap: 10 },
-  groupName: { fontWeight: '600', fontSize: 15 },
-  groupDesc: { fontSize: 13, color: '#999', marginTop: 2 },
-  memberCount: { fontSize: 12, color: '#999', marginRight: 8 },
-  roleBadge: { fontSize: 11, color: '#FF6B35', fontWeight: '600', marginTop: 2 },
-  convHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, backgroundColor: 'white', borderBottomWidth: 1, borderBottomColor: '#EDEDEA' },
-  convName: { fontWeight: '700', fontSize: 16 },
-  convPreview: { fontSize: 12, color: '#999', marginTop: 2 },
-  messageList: { flex: 1, padding: 12 },
-  msg: { marginBottom: 10 },
-  msgUser: { fontSize: 12, fontWeight: '600', color: '#FF6B35', marginBottom: 2, marginLeft: 4 },
-  msgBubble: { backgroundColor: 'white', borderRadius: 12, padding: 10, alignSelf: 'flex-start', maxWidth: '85%', borderWidth: 1, borderColor: '#EDEDEA' },
-  msgText: { fontSize: 15, lineHeight: 20 },
-  msgTime: { fontSize: 11, color: '#999', marginTop: 2, marginLeft: 4 },
-  inputBar: { flexDirection: 'row', alignItems: 'center', padding: 10, backgroundColor: 'white', borderTopWidth: 1, borderTopColor: '#EDEDEA', gap: 8 },
-  input: { flex: 1, borderWidth: 1, borderColor: '#EDEDEA', borderRadius: 50, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15 },
-  sendBtn: { backgroundColor: '#FF6B35', borderRadius: 50, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 30 },
-  modal: { backgroundColor: 'white', borderRadius: 16, padding: 24 },
-  modalTitle: { fontSize: 18, fontWeight: '700', marginBottom: 16 },
-  modalInput: { borderWidth: 1, borderColor: '#EDEDEA', borderRadius: 10, padding: 12, fontSize: 15, marginBottom: 12 },
-  modalRow: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 8 },
-  modalCancel: { paddingVertical: 10, paddingHorizontal: 20 },
-  modalConfirm: { backgroundColor: '#FF6B35', borderRadius: 50, paddingVertical: 10, paddingHorizontal: 24 },
+  container: { flex: 1, backgroundColor: colors.bg },
+  segment: { flexDirection: 'row', backgroundColor: colors.card, margin: spacing.md, marginBottom: 0, borderRadius: radius.pill, padding: 4 },
+  segBtn: { flex: 1, paddingVertical: 9, borderRadius: radius.pill, alignItems: 'center' },
+  segActive: { backgroundColor: colors.primary },
+  segText: { fontSize: 13, fontWeight: '700', color: colors.textMuted },
+  segTextActive: { color: colors.white },
+  groupItem: { flexDirection: 'row', alignItems: 'center', padding: spacing.md, backgroundColor: colors.card, borderRadius: radius.lg, marginBottom: spacing.sm, gap: spacing.md },
+  groupName: { fontWeight: '700', fontSize: 15, color: colors.text },
+  groupDesc: { fontSize: 13, color: colors.textMuted, marginTop: 2 },
+  groupMeta: { fontSize: 12, color: colors.textFaint, marginTop: 2 },
+  joinBtn: { backgroundColor: colors.primarySoft, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 6 },
+  joinText: { color: colors.primary, fontWeight: '700', fontSize: 12 },
+  fab: { position: 'absolute', bottom: 20, right: 20, width: 56, height: 56, borderRadius: 28, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', elevation: 5, shadowColor: colors.primary, shadowOpacity: 0.35, shadowRadius: 10, shadowOffset: { width: 0, height: 4 } },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'flex-end' },
+  sheet: { backgroundColor: colors.card, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.xl, paddingBottom: 36 },
+  sheetTitle: { ...font.heading, marginBottom: spacing.lg },
+  field: { backgroundColor: colors.bg, borderRadius: radius.md, padding: 14, fontSize: 15, marginBottom: spacing.md, color: colors.text, textAlignVertical: 'top' },
+  cancel: { alignItems: 'center', paddingTop: spacing.lg },
+  cancelText: { color: colors.textMuted, fontWeight: '600' },
+  chatHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.md, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border },
+  chatName: { fontWeight: '700', fontSize: 16, color: colors.text },
+  chatDesc: { fontSize: 12, color: colors.textMuted },
+  msgRow: { flexDirection: 'row', gap: spacing.sm, alignItems: 'flex-end', marginBottom: spacing.sm },
+  msgBubble: { backgroundColor: colors.card, borderRadius: 18, borderBottomLeftRadius: 6, paddingHorizontal: 14, paddingVertical: 8, maxWidth: '82%' },
+  msgUser: { fontSize: 12, fontWeight: '800', color: colors.primary, marginBottom: 1 },
+  msgText: { fontSize: 15, lineHeight: 20, color: colors.text },
+  msgTime: { fontSize: 10, color: colors.textFaint, marginTop: 3, alignSelf: 'flex-end' },
+  inputBar: { flexDirection: 'row', alignItems: 'flex-end', padding: spacing.sm, backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.sm },
+  input: { flex: 1, backgroundColor: colors.bg, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, maxHeight: 110, color: colors.text },
+  sendBtn: { backgroundColor: colors.primary, borderRadius: 22, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 });

@@ -2037,10 +2037,11 @@ def api_posts():
                users.prenom, users.nom, users.universite,
                (SELECT COUNT(*) FROM likes WHERE likes.post_id = posts.id) as nb_likes,
                (SELECT COUNT(*) FROM commentaires WHERE commentaires.post_id = posts.id) as nb_commentaires,
-               EXISTS(SELECT 1 FROM likes WHERE likes.post_id = posts.id AND likes.user_id = ?) as a_like
+               EXISTS(SELECT 1 FROM likes WHERE likes.post_id = posts.id AND likes.user_id = ?) as a_like,
+               (posts.user_id = ?) as est_auteur
         FROM posts JOIN users ON posts.user_id = users.id
         ORDER BY posts.date_post DESC LIMIT ? OFFSET ?
-    ''', (user_id, per_page, offset)).fetchall()
+    ''', (user_id, user_id, per_page, offset)).fetchall()
     conn.close()
     return jsonify([dict(p) for p in posts])
 
@@ -2143,7 +2144,7 @@ def api_delete_post(post_id):
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
     conn = get_db()
-    post = conn.execute('SELECT user_id FROM posts WHERE id = ?', (post_id,)).fetchone()
+    post = conn.execute('SELECT user_id, image FROM posts WHERE id = ?', (post_id,)).fetchone()
     if not post or post['user_id'] != user_id:
         conn.close()
         return jsonify({'error': 'Non autorise'}), 403
@@ -2152,6 +2153,8 @@ def api_delete_post(post_id):
     conn.execute('DELETE FROM posts WHERE id = ?', (post_id,))
     conn.commit()
     conn.close()
+    if post['image']:
+        supprimer_fichier('static/uploads/' + post['image'])
     return jsonify({'message': 'Supprime'})
 
 @app.route('/api/bourses')
