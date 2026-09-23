@@ -33,8 +33,35 @@ def check_password(mdp, hashed):
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24).hex())
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload
+# Securite des cookies de session : inaccessibles au JavaScript, pas envoyes par les
+# autres sites (Lax), et uniquement en HTTPS en production.
+EN_PRODUCTION = bool(os.environ.get('RENDER'))
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=EN_PRODUCTION,
+    PERMANENT_SESSION_LIFETIME=timedelta(days=14),
+)
+if EN_PRODUCTION:
+    # Render place un proxy devant l'app : on recupere la vraie IP du visiteur
+    # (sinon tous les visiteurs partagent la meme limite de tentatives)
+    from werkzeug.middleware.proxy_fix import ProxyFix
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+# Temps reel : seul le site LinkCI peut ouvrir une connexion avec les cookies du
+# visiteur (l'app mobile n'envoie pas d'en-tete Origin, elle reste acceptee).
+ORIGINES_AUTORISEES = [o.strip() for o in os.environ.get(
+    'SITE_ORIGINS', 'https://linkci.onrender.com,http://localhost:5000,http://127.0.0.1:5000').split(',') if o.strip()]
 # threading (+ simple-websocket) : eventlet est deprecie
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
+socketio = SocketIO(app, cors_allowed_origins=ORIGINES_AUTORISEES, async_mode='threading')
+
+# Administrateurs : role en base (colonne users.role). Les comptes listes ici
+# (deja inscrits) recoivent le role au demarrage. Ne jamais reconnaitre un admin
+# a sa seule adresse e-mail : n'importe qui pourrait s'inscrire avec.
+ADMIN_EMAILS = [e.strip().lower() for e in os.environ.get('ADMIN_EMAILS', 'fakeyeade225@gmail.com').split(',') if e.strip()]
+
+def est_admin(user):
+    return bool(user) and 'role' in user.keys() and user['role'] == 'admin'
 
 # Rate limiting (in-memory with periodic cleanup)
 from collections import defaultdict
@@ -114,8 +141,13 @@ def check_csrf():
     if 'user_id' in session and request.endpoint != 'static':
         try:
             conn = get_db()
-            banni = conn.execute('SELECT banni FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+            banni = conn.execute('SELECT banni, jeton_version FROM users WHERE id = ?', (session['user_id'],)).fetchone()
             conn.close()
+            # mot de passe reinitialise depuis : cette session est revoquee
+            if banni and 'v' in session and (banni['jeton_version'] or 0) != session['v']:
+                session.clear()
+                flash('Ton mot de passe a change : reconnecte-toi.', 'info')
+                return redirect(url_for('connexion'))
             if banni and banni['banni']:
                 session.clear()
                 flash('Votre compte a ete suspendu. Contactez l\'administration.', 'error')
@@ -135,8 +167,18 @@ def validate_email(email):
 def sanitize_text(text, maxlen=500):
     return text.strip()[:maxlen] if text else ''
 
+MDP_MIN = 8
+
 def validate_password(password):
-    return len(password) >= 6
+    return len(password or '') >= MDP_MIN
+
+def normaliser_email(email):
+    return (email or '').strip().lower()
+
+def lien_sur(url):
+    """N'accepte que les liens http(s) : bloque javascript:, data:, intent:..."""
+    url = (url or '').strip()
+    return url if re.match(r'^https?://[^\s<>"]+$', url, re.I) else ''
 
 FIELD_MAXLEN = {
     'nom': 50, 'prenom': 50, 'email': 120, 'universite': 100,
@@ -433,6 +475,17 @@ def init_db():
         );
     ''')
 
+    # Securite : role (admin) et version des jetons (revocation des sessions de l'app)
+    for colonne in ("role TEXT DEFAULT 'etudiant'", 'jeton_version INTEGER DEFAULT 0'):
+        try:
+            conn.execute('ALTER TABLE users ADD COLUMN ' + colonne)
+            conn.commit()
+        except Exception:
+            pass  # colonne deja presente
+    for email in ADMIN_EMAILS:
+        conn.execute("UPDATE users SET role = 'admin' WHERE lower(email) = ?", (email,))
+    conn.commit()
+
     # FTS5 full-text search tables (SQLite uniquement ; sous PostgreSQL la
     # recherche utilise le repli ILIKE)
     if not db.IS_PG:
@@ -615,14 +668,21 @@ def process_mentions(text, post_id=None, commentaire_id=None, expediteur_id=None
     conn.close()
 
 def render_mentions(text):
+    """Texte d'une publication -> HTML sur : tout est echappe, puis les @mentions
+    deviennent des liens. (Le template l'affiche avec |safe.)"""
+    from markupsafe import Markup, escape
     if not text:
-        return ''
+        return Markup('')
     def replace_mention(m):
         username = m.group(1)
         parts = username.replace('.', ' ').split()
         name = ' '.join(parts).title()
         return f'<a href="/recherche?q={username}" class="mention">@{name}</a>'
-    return MENTION_RE.sub(replace_mention, text)
+    return Markup(MENTION_RE.sub(replace_mention, str(escape(text))))
+
+@app.template_filter('lien_sur')
+def lien_sur_filter(url):
+    return lien_sur(url)
 
 @app.template_filter('render_mentions')
 def render_mentions_filter(text):
@@ -649,7 +709,7 @@ def inscription():
             return render_template('inscription.html')
         nom = sanitize_text(request.form.get('nom', ''), 50)
         prenom = sanitize_text(request.form.get('prenom', ''), 50)
-        email = sanitize_text(request.form.get('email', ''), 120)
+        email = normaliser_email(sanitize_text(request.form.get('email', ''), 120))
         mot_de_passe = request.form.get('mot_de_passe', '')
         universite = sanitize_text(request.form.get('universite', ''), 100)
         filiere = sanitize_text(request.form.get('filiere', ''), 100)
@@ -661,12 +721,14 @@ def inscription():
             flash('Email invalide.', 'error')
             return render_template('inscription.html')
         if not validate_password(mot_de_passe):
-            flash('Mot de passe trop court (min 6 caracteres).', 'error')
+            flash(f'Mot de passe trop court (min {MDP_MIN} caracteres).', 'error')
             return render_template('inscription.html')
         mot_de_passe = hash_password(mot_de_passe)
 
         conn = get_db()
         try:
+            if conn.execute('SELECT 1 FROM users WHERE lower(email) = ?', (email,)).fetchone():
+                raise db.IntegrityError('email deja utilise')
             conn.execute('INSERT INTO users (nom, prenom, email, mot_de_passe, universite, filiere, annee) VALUES (?, ?, ?, ?, ?, ?, ?)',
                          (nom, prenom, email, mot_de_passe, universite, filiere, annee))
             conn.commit()
@@ -686,10 +748,14 @@ def connexion():
         if not check_rate_limit(f'connexion:{ip}', max_reqs=5, window=60):
             flash('Trop de tentatives. Reessaie dans 1 minute.', 'error')
             return render_template('connexion.html', erreur='Trop de tentatives')
-        email = request.form['email']
+        email = normaliser_email(request.form.get('email', ''))
+        # limite aussi par compte : protege contre les attaques depuis plusieurs IP
+        if not check_rate_limit(f'connexion_compte:{email}', max_reqs=10, window=900):
+            flash('Trop de tentatives sur ce compte. Reessaie dans 15 minutes.', 'error')
+            return render_template('connexion.html')
         conn = get_db()
-        user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
-        if user and not check_password(request.form['mot_de_passe'], user['mot_de_passe']):
+        user = conn.execute('SELECT * FROM users WHERE lower(email) = ?', (email,)).fetchone()
+        if user and not check_password(request.form.get('mot_de_passe', ''), user['mot_de_passe']):
             user = None
         elif user and not user['mot_de_passe'].startswith('$2'):
             nouveau = hash_password(request.form['mot_de_passe'])
@@ -697,10 +763,16 @@ def connexion():
             conn.commit()
         conn.close()
 
+        if user and user['banni']:
+            flash('Votre compte a ete suspendu. Contactez l\'administration.', 'error')
+            return render_template('connexion.html')
         if user:
+            session.clear()  # nouvelle session (evite la fixation de session)
+            session.permanent = True
             session['user_id'] = user['id']
             session['user_nom'] = user['prenom'] + ' ' + user['nom']
             session['user_email'] = user['email']
+            session['v'] = user['jeton_version'] or 0
             flash('Connecte !', 'success')
             return redirect(url_for('feed'))
         else:
@@ -713,72 +785,95 @@ def deconnexion():
     session.clear()
     return redirect(url_for('index'))
 
+# ---- Reinitialisation du mot de passe
+# Le lien n'est JAMAIS affiche a l'ecran : seul le proprietaire de l'adresse le recoit
+# par e-mail. Le jeton est stocke hache en base. Meme reponse que le compte existe ou non.
+MESSAGE_REINIT = "Si un compte existe avec cet email, un lien de reinitialisation vient d'y etre envoye."
+
+def _hash_jeton(jeton):
+    return hashlib.sha256(jeton.encode()).hexdigest()
+
+def envoyer_email(destinataire, sujet, texte):
+    smtp_host = os.environ.get('SMTP_HOST', '')
+    smtp_user = os.environ.get('SMTP_USER', '')
+    smtp_pass = os.environ.get('SMTP_PASS', '')
+    if not (smtp_host and smtp_user and smtp_pass):
+        app.logger.error('SMTP non configure : email non envoye (%s)', sujet)
+        return False
+    try:
+        import smtplib
+        from email.mime.text import MIMEText
+        msg = MIMEText(texte, 'plain', 'utf-8')
+        msg['Subject'] = sujet
+        msg['From'] = os.environ.get('SMTP_FROM', smtp_user)
+        msg['To'] = destinataire
+        with smtplib.SMTP(smtp_host, int(os.environ.get('SMTP_PORT', '587')), timeout=15) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_pass)
+            server.send_message(msg)
+        return True
+    except Exception as e:
+        app.logger.error("Echec d'envoi d'email : %s", e)
+        return False
+
+def demander_reinitialisation(email):
+    """Cree un jeton (1 h) et l'envoie par e-mail si le compte existe. Ne renvoie rien."""
+    email = normaliser_email(email)
+    ip = request.remote_addr or 'unknown'
+    if not validate_email(email) or not check_rate_limit(f'reinit:{ip}', max_reqs=5, window=900) \
+            or not check_rate_limit(f'reinit_compte:{email}', max_reqs=3, window=3600):
+        return
+    conn = get_db()
+    user = conn.execute('SELECT id, email FROM users WHERE lower(email) = ?', (email,)).fetchone()
+    if user:
+        jeton = secrets.token_urlsafe(32)
+        expire = datetime.now(timezone.utc) + timedelta(hours=1)
+        conn.execute('UPDATE reset_tokens SET utilise = 1 WHERE user_id = ? AND utilise = 0', (user['id'],))
+        conn.execute('INSERT INTO reset_tokens (user_id, token, expire) VALUES (?, ?, ?)',
+                     (user['id'], _hash_jeton(jeton), expire.strftime('%Y-%m-%d %H:%M:%S')))
+        conn.commit()
+        lien = url_for('reinitialiser', token=jeton, _external=True, _scheme='https' if EN_PRODUCTION else None)
+        envoyer_email(user['email'], 'Reinitialisation de mot de passe - LINK CI',
+                      f"Bonjour,\n\nClique sur ce lien pour reinitialiser ton mot de passe :\n{lien}\n\n"
+                      "Ce lien expire dans 1 heure. Si tu n'as rien demande, ignore cet email.\n\nL'equipe LINK CI")
+    conn.close()
+
+def appliquer_reinitialisation(jeton, mot_de_passe):
+    """Renvoie None si c'est fait, sinon le message d'erreur."""
+    if not validate_password(mot_de_passe):
+        return f'Mot de passe trop court (min {MDP_MIN} caracteres).'
+    conn = get_db()
+    rt = conn.execute('SELECT * FROM reset_tokens WHERE token = ? AND utilise = 0 AND expire > ?',
+                      (_hash_jeton(jeton or ''), datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))).fetchone()
+    if not rt:
+        conn.close()
+        return 'Lien invalide ou expire.'
+    conn.execute('UPDATE users SET mot_de_passe = ?, jeton_version = COALESCE(jeton_version, 0) + 1 WHERE id = ?',
+                 (hash_password(mot_de_passe), rt['user_id']))  # deconnecte l'app et le site partout
+    conn.execute('UPDATE reset_tokens SET utilise = 1 WHERE user_id = ?', (rt['user_id'],))
+    conn.commit()
+    conn.close()
+    return None
+
 @app.route('/mot_de_passe_oublie', methods=['GET', 'POST'])
 def mot_de_passe_oublie():
     if request.method == 'POST':
-        email = sanitize_text(request.form.get('email', ''), 120)
-        if not validate_email(email):
-            flash('Email invalide.', 'error')
-            return redirect(url_for('connexion'))
-        conn = get_db()
-        user = conn.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
-        if user:
-            token = uuid.uuid4().hex
-            expire = datetime.now() + timedelta(hours=1)
-            conn.execute('INSERT INTO reset_tokens (user_id, token, expire) VALUES (?, ?, ?)',
-                         (user['id'], token, expire.strftime('%Y-%m-%d %H:%M:%S')))
-            conn.commit()
-            lien = url_for('reinitialiser', token=token, _external=True)
-            smtp_host = os.environ.get('SMTP_HOST', '')
-            smtp_port = int(os.environ.get('SMTP_PORT', '587'))
-            smtp_user = os.environ.get('SMTP_USER', '')
-            smtp_pass = os.environ.get('SMTP_PASS', '')
-            smtp_from = os.environ.get('SMTP_FROM', 'noreply@linkci.ci')
-            if smtp_host and smtp_user and smtp_pass:
-                try:
-                    import smtplib
-                    from email.mime.text import MIMEText
-                    msg = MIMEText(f"Bonjour,\n\nClique sur ce lien pour reinitialiser ton mot de passe :\n{lien}\n\nCe lien expire dans 1 heure.\n\nL'equipe LINK CI", 'plain', 'utf-8')
-                    msg['Subject'] = 'Reinitialisation de mot de passe - LINK CI'
-                    msg['From'] = smtp_from
-                    msg['To'] = email
-                    with smtplib.SMTP(smtp_host, smtp_port) as server:
-                        server.starttls()
-                        server.login(smtp_user, smtp_pass)
-                        server.send_message(msg)
-                    flash('Un email de reinitialisation a ete envoye.', 'success')
-                except Exception as e:
-                    flash(f"Erreur d'envoi : {e}. Lien : {lien}", 'warning')
-            else:
-                flash(f"SMTP non configure. Lien : {lien}", 'success')
-        else:
-            flash('Aucun compte trouve avec cet email.', 'error')
-        conn.close()
+        demander_reinitialisation(request.form.get('email', ''))
+        flash(MESSAGE_REINIT, 'success')
         return redirect(url_for('connexion'))
     return render_template('mot_de_passe_oublie.html')
 
 @app.route('/reinitialiser/<token>', methods=['GET', 'POST'])
 def reinitialiser(token):
-    conn = get_db()
-    rt = conn.execute('SELECT * FROM reset_tokens WHERE token = ? AND utilise = 0 AND expire > ?',
-                      (token, datetime.now().strftime('%Y-%m-%d %H:%M:%S'))).fetchone()
-    if not rt:
-        conn.close()
-        flash('Lien invalide ou expire.', 'error')
-        return redirect(url_for('connexion'))
     if request.method == 'POST':
-        mdp = request.form.get('mot_de_passe', '')
-        if not validate_password(mdp):
-            flash('Mot de passe trop court (min 6 caracteres).', 'error')
+        erreur = appliquer_reinitialisation(token, request.form.get('mot_de_passe', ''))
+        if erreur:
+            flash(erreur, 'error')
+            if 'invalide' in erreur:
+                return redirect(url_for('connexion'))
             return render_template('reinitialiser.html', token=token)
-        nouveau = hash_password(mdp)
-        conn.execute('UPDATE users SET mot_de_passe = ? WHERE id = ?', (nouveau, rt['user_id']))
-        conn.execute('UPDATE reset_tokens SET utilise = 1 WHERE id = ?', (rt['id'],))
-        conn.commit()
-        conn.close()
         flash('Mot de passe reinitialise ! Connecte-toi.', 'success')
         return redirect(url_for('connexion'))
-    conn.close()
     return render_template('reinitialiser.html', token=token)
 
 @app.route('/feed')
@@ -813,8 +908,11 @@ def publier():
         if image and image.filename:
             ext = os.path.splitext(image.filename)[1].lower()
             if ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp'):
-                image_nom = f"{uuid.uuid4().hex}{ext}"
-                stocker_fichier('static/uploads/' + image_nom, image.read())
+                data_img = image.read()
+                ext_reelle = extension_image(data_img)  # le contenu doit etre une vraie image
+                if ext_reelle:
+                    image_nom = f"{uuid.uuid4().hex}{ext_reelle}"
+                    stocker_fichier('static/uploads/' + image_nom, data_img)
         cur = conn.execute('INSERT INTO posts (user_id, contenu, image) VALUES (?, ?, ?)',
                      (session['user_id'], contenu, image_nom))
         post_id = cur.lastrowid
@@ -1064,10 +1162,15 @@ def api_expo_push_token():
 
 @app.route('/api/send_push', methods=['POST'])
 def api_send_push():
-    """Send push notification to a user via Expo Push API"""
+    """Send push notification to a user via Expo Push API (administrateurs seulement)"""
     user_id = api_require_auth()
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    moi = conn.execute('SELECT role FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    if not est_admin(moi):
+        return jsonify({'error': 'Acces reserve'}), 403
     data = request.json
     if not data or not data.get('destinataire_id') or not data.get('message'):
         return jsonify({'error': 'destinataire_id et message requis'}), 400
@@ -1113,8 +1216,14 @@ def modifier_profil():
             if avatar and avatar.filename:
                 ext = os.path.splitext(avatar.filename)[1].lower()
                 if ext in ('.png', '.jpg', '.jpeg', '.gif', '.webp'):
-                    avatar_nom = f"user_{session['user_id']}{ext}"
-                    stocker_fichier('static/avatars/' + avatar_nom, avatar.read())
+                    data_img = avatar.read()
+                    ext = extension_image(data_img) or ext
+                    if not extension_image(data_img):
+                        flash('Image invalide', 'error')
+                        conn.close()
+                        return redirect(url_for('modifier_profil'))
+                    avatar_nom = f"user_{session['user_id']}_{uuid.uuid4().hex[:8]}{ext}"
+                    stocker_fichier('static/avatars/' + avatar_nom, data_img)
                     conn.execute('UPDATE users SET prenom=?, nom=?, universite=?, filiere=?, annee=?, bio=?, avatar=? WHERE id=?',
                                  (prenom, nom, universite, filiere, annee, bio, avatar_nom, session['user_id']))
                 else:
@@ -1133,6 +1242,8 @@ def modifier_profil():
 
 @app.route('/api/mentions')
 def api_mentions():
+    if 'user_id' not in session:
+        return jsonify([]), 401
     q = request.args.get('q', '').strip()
     if len(q) < 1:
         return jsonify([])
@@ -1211,9 +1322,9 @@ def rechercher_utilisateurs():
     conn = get_db()
     users = conn.execute('''
         SELECT id, prenom, nom, filiere, universite FROM users
-        WHERE (prenom || ' ' || nom LIKE ? OR email LIKE ?) AND id != ?
+        WHERE (prenom || ' ' || nom LIKE ?) AND id != ?
         LIMIT 10
-    ''', ('%' + q + '%', '%' + q + '%', session['user_id'])).fetchall()
+    ''', ('%' + q + '%', session['user_id'])).fetchall()
     conn.close()
     return jsonify([dict(u) for u in users])
 
@@ -1366,7 +1477,7 @@ def ajouter_bourse():
         type_ = sanitize_text(request.form.get('type', ''), 50)
         cible = sanitize_text(request.form.get('cible', ''), 200)
         deadline = sanitize_text(request.form.get('deadline', ''), 20)
-        lien = sanitize_text(request.form.get('lien', ''), 500)
+        lien = lien_sur(sanitize_text(request.form.get('lien', ''), 500))
         pays = sanitize_text(request.form.get('pays', "Cote d'Ivoire"), 100)
         if not titre or not organisme or not type_:
             flash('Titre, organisme et type requis.', 'error')
@@ -1529,7 +1640,7 @@ def ajouter_formation():
         duree = sanitize_text(request.form.get('duree', ''), 100)
         debouches = sanitize_text(request.form.get('debouches', ''), 500)
         frais = sanitize_text(request.form.get('frais', ''), 100)
-        site_web = sanitize_text(request.form.get('site_web', ''), 500)
+        site_web = lien_sur(sanitize_text(request.form.get('site_web', ''), 500))
         if not nom or not universite or not niveau:
             flash('Nom, universite et niveau requis.', 'error')
             return render_template('ajouter_formation.html')
@@ -1779,7 +1890,7 @@ def admin_backup():
     conn = get_db()
     user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
     conn.close()
-    if not user or user['email'] not in ('admin@linkci.ci', 'qasade@gmail.com'):
+    if not est_admin(user):
         flash('Acces reserve', 'error')
         return redirect(url_for('feed'))
     if db.IS_PG:
@@ -1817,7 +1928,7 @@ def admin_dashboard():
         return redirect(url_for('connexion'))
     conn = get_db()
     user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
-    if not user or user['email'] not in ('admin@linkci.ci', 'qasade@gmail.com'):
+    if not est_admin(user):
         conn.close()
         flash('Acces reserve', 'error')
         return redirect(url_for('feed'))
@@ -1844,7 +1955,7 @@ def admin_required():
     conn = get_db()
     user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
     conn.close()
-    if not user or user['email'] not in ('admin@linkci.ci', 'qasade@gmail.com'):
+    if not est_admin(user):
         return None
     return user
 
@@ -1866,12 +1977,12 @@ def admin_bannir(user_id):
         flash('Acces reserve', 'error')
         return redirect(url_for('feed'))
     conn = get_db()
-    cible = conn.execute('SELECT id, email, banni FROM users WHERE id = ?', (user_id,)).fetchone()
+    cible = conn.execute('SELECT id, email, banni, role FROM users WHERE id = ?', (user_id,)).fetchone()
     if not cible:
         conn.close()
         flash('Utilisateur introuvable', 'error')
         return redirect(url_for('admin_utilisateurs'))
-    if cible['email'] in ('admin@linkci.ci', 'qasade@gmail.com'):
+    if est_admin(cible):
         conn.close()
         flash('Impossible de bannir un administrateur', 'error')
         return redirect(url_for('admin_utilisateurs'))
@@ -1939,6 +2050,9 @@ def admin_supprimer_bourse(bourse_id):
 # ===================== EXPORT CSV =====================
 @app.route('/sondage/export')
 def export_sondage_csv():
+    if not admin_required():
+        flash('Acces reserve', 'error')
+        return redirect(url_for('connexion'))
     conn = get_db()
     rows = conn.execute('SELECT * FROM sondages ORDER BY date_reponse DESC').fetchall()
     conn.close()
@@ -1953,6 +2067,9 @@ def export_sondage_csv():
 
 @app.route('/bourses/export')
 def export_bourses_csv():
+    if not admin_required():
+        flash('Acces reserve', 'error')
+        return redirect(url_for('connexion'))
     conn = get_db()
     rows = conn.execute('SELECT * FROM bourses ORDER BY date_publication DESC').fetchall()
     conn.close()
@@ -1974,22 +2091,36 @@ def api_require_auth():
         return None
     return verifier_jeton_api(auth[7:])
 
+# Jetons de l'app : signes (itsdangerous), valables 60 jours, et revocables
+# (users.jeton_version est incremente au changement de mot de passe).
+from itsdangerous import URLSafeTimedSerializer as _Serialiseur, BadSignature as _MauvaiseSignature
+_jetons_api = _Serialiseur(API_SECRET, salt='jeton-api-linkci')
+DUREE_JETON = 60 * 24 * 3600
+
 def verifier_jeton_api(token):
-    """Renvoie l'id de l'utilisateur si le jeton est valide, sinon None."""
+    """Renvoie l'id de l'utilisateur si le jeton est valide (signature, date, version,
+    compte non banni), sinon None."""
     if not token:
         return None
-    parts = token.split(':')
-    if len(parts) != 2:
+    try:
+        data = _jetons_api.loads(token, max_age=DUREE_JETON)
+        user_id, version = int(data['u']), int(data['v'])
+    except (_MauvaiseSignature, KeyError, TypeError, ValueError):
         return None
-    user_id, sig = parts
-    expected = hashlib.sha256(f"{user_id}:{API_SECRET}".encode()).hexdigest()[:16]
-    if sig != expected:
+    conn = get_db()
+    user = conn.execute('SELECT banni, jeton_version FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    if not user or user['banni'] or (user['jeton_version'] or 0) != version:
         return None
-    return int(user_id)
+    return user_id
 
 def api_token(user_id):
-    sig = hashlib.sha256(f"{user_id}:{API_SECRET}".encode()).hexdigest()[:16]
-    return f"{user_id}:{sig}"
+    conn = get_db()
+    user = conn.execute('SELECT jeton_version FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    return _jetons_api.dumps({'u': int(user_id), 'v': (user['jeton_version'] or 0) if user else 0})
+
+CHAMPS_PUBLICS_USER = 'id, nom, prenom, universite, filiere, annee, bio, avatar, date_inscription'
 
 @app.route('/api/register', methods=['POST'])
 def api_register():
@@ -2001,16 +2132,18 @@ def api_register():
         return jsonify({'error': 'JSON requis'}), 400
     nom = data.get('nom', '').strip()
     prenom = data.get('prenom', '').strip()
-    email = data.get('email', '').strip()
+    email = normaliser_email(data.get('email', ''))
     mot_de_passe = data.get('mot_de_passe', '')
     if not all([nom, prenom, email, mot_de_passe]):
         return jsonify({'error': 'Champs requis : nom, prenom, email, mot_de_passe'}), 400
     if not validate_email(email):
         return jsonify({'error': 'Email invalide'}), 400
     if not validate_password(mot_de_passe):
-        return jsonify({'error': 'Mot de passe trop court (min 6 caracteres)'}), 400
+        return jsonify({'error': f'Mot de passe trop court (min {MDP_MIN} caracteres)'}), 400
     conn = get_db()
     try:
+        if conn.execute('SELECT 1 FROM users WHERE lower(email) = ?', (email,)).fetchone():
+            raise db.IntegrityError('email deja utilise')
         conn.execute('INSERT INTO users (nom, prenom, email, mot_de_passe, universite, filiere, annee) VALUES (?, ?, ?, ?, ?, ?, ?)',
                      (nom, prenom, email, hash_password(mot_de_passe),
                       data.get('universite', ''), data.get('filiere', ''), data.get('annee', '')))
@@ -2030,18 +2163,25 @@ def api_login():
     data = request.json
     if not data:
         return jsonify({'error': 'JSON requis'}), 400
-    email = data.get('email', '').strip()
+    email = normaliser_email(data.get('email', ''))
+    if not check_rate_limit(f'connexion_compte:{email}', max_reqs=10, window=900):
+        return jsonify({'error': 'Trop de tentatives sur ce compte. Reessaie dans 15 minutes.'}), 429
     conn = get_db()
-    user = conn.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
+    user = conn.execute('SELECT * FROM users WHERE lower(email) = ?', (email,)).fetchone()
     if not user or not check_password(data.get('mot_de_passe', ''), user['mot_de_passe']):
         conn.close()
         return jsonify({'error': 'Email ou mot de passe incorrect'}), 401
+    if user['banni']:
+        conn.close()
+        return jsonify({'error': "Compte suspendu. Contacte l'administration."}), 403
     if not user['mot_de_passe'].startswith('$2'):
         nouveau = hash_password(data.get('mot_de_passe', ''))
         conn.execute('UPDATE users SET mot_de_passe = ? WHERE id = ?', (nouveau, user['id']))
         conn.commit()
     conn.close()
-    return jsonify({'token': api_token(user['id']), 'user': dict(user)})
+    # jamais le hash du mot de passe ni les champs internes
+    profil = {k: user[k] for k in ('id', 'nom', 'prenom', 'email', 'universite', 'filiere', 'annee', 'bio', 'avatar')}
+    return jsonify({'token': api_token(user['id']), 'user': profil})
 
 @app.route('/api/me')
 def api_me():
@@ -2300,7 +2440,7 @@ def api_profil(autre_id):
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
     conn = get_db()
-    user = conn.execute('SELECT id, nom, prenom, email, universite, filiere, annee, bio, avatar, date_inscription FROM users WHERE id = ?', (autre_id,)).fetchone()
+    user = conn.execute(f'SELECT {CHAMPS_PUBLICS_USER} FROM users WHERE id = ?', (autre_id,)).fetchone()  # pas d'email
     if not user:
         conn.close()
         return jsonify({'error': 'Introuvable'}), 404
@@ -2611,38 +2751,20 @@ def days_until_filter(dt_str):
 # ===================== API PASSWORD RESET =====================
 @app.route('/api/forgot_password', methods=['POST'])
 def api_forgot_password():
-    data = request.json
-    if not data or not data.get('email', '').strip():
+    data = request.json or {}
+    if not data.get('email', '').strip():
         return jsonify({'error': 'Email requis'}), 400
-    email = data['email'].strip()
-    conn = get_db()
-    user = conn.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
-    if user:
-        token = uuid.uuid4().hex
-        expire = datetime.now() + timedelta(hours=1)
-        conn.execute('INSERT INTO reset_tokens (user_id, token, expire) VALUES (?, ?, ?)',
-                     (user['id'], token, expire.strftime('%Y-%m-%d %H:%M:%S')))
-    conn.close()
-    return jsonify({'message': 'Si cet email existe, un lien de reinitialisation a ete envoye.'})
+    demander_reinitialisation(data['email'])
+    return jsonify({'message': MESSAGE_REINIT})
 
 @app.route('/api/reset_password', methods=['POST'])
 def api_reset_password():
-    data = request.json
-    if not data or not data.get('token') or not data.get('mot_de_passe'):
+    data = request.json or {}
+    if not data.get('token') or not data.get('mot_de_passe'):
         return jsonify({'error': 'Token et mot de passe requis'}), 400
-    if not validate_password(data['mot_de_passe']):
-        return jsonify({'error': 'Mot de passe trop court (min 6 caracteres)'}), 400
-    conn = get_db()
-    rt = conn.execute('SELECT * FROM reset_tokens WHERE token = ? AND utilise = 0 AND expire > ?',
-                      (data['token'], datetime.now().strftime('%Y-%m-%d %H:%M:%S'))).fetchone()
-    if not rt:
-        conn.close()
-        return jsonify({'error': 'Token invalide ou expire'}), 400
-    nouveau = hash_password(data['mot_de_passe'])
-    conn.execute('UPDATE users SET mot_de_passe = ? WHERE id = ?', (nouveau, rt['user_id']))
-    conn.execute('UPDATE reset_tokens SET utilise = 1 WHERE id = ?', (rt['id'],))
-    conn.commit()
-    conn.close()
+    erreur = appliquer_reinitialisation(data['token'], data['mot_de_passe'])
+    if erreur:
+        return jsonify({'error': erreur}), 400
     return jsonify({'message': 'Mot de passe reinitialise'})
 
 # ===================== SOCKETIO (chat temps reel) =====================
@@ -2731,6 +2853,10 @@ def add_security_headers(resp):
     resp.headers['X-Content-Type-Options'] = 'nosniff'
     resp.headers['X-Frame-Options'] = 'DENY'
     resp.headers['X-XSS-Protection'] = '1; mode=block'
+    resp.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    resp.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
+    # pas de <object>/<embed>, pas de <base> detourne, pas d'affichage dans un cadre
+    resp.headers['Content-Security-Policy'] = "object-src 'none'; base-uri 'self'; frame-ancestors 'none'"
     if not app.debug:
         resp.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     return resp

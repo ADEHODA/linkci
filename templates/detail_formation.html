@@ -75,7 +75,7 @@
             {% endif %}
 
             {% if formation.site_web %}
-            <a href="{{ formation.site_web }}" target="_blank" rel="noopener noreferrer" class="btn btn-orange">Site officiel &rarr;</a>
+            <a href="{{ formation.site_web|lien_sur or '#' }}" target="_blank" rel="noopener noreferrer" class="btn btn-orange">Site officiel &rarr;</a>
             {% endif %}
         </div>
     </div>

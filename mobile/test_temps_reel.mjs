@@ -16,7 +16,7 @@ const inscrire = async (email) =>
 const suffixe = Date.now();
 const tokA = await inscrire(`a${suffixe}@test.ci`);
 const tokB = await inscrire(`b${suffixe}@test.ci`);
-const idB = Number(tokB.split(':')[0]);
+const idB = (await api('/api/me', {}, tokB)).id;
 
 const socketB = io(BASE, { auth: { token: tokB } });
 const recus = [];

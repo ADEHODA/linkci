@@ -92,7 +92,7 @@
 
                 <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
                     {% if b.lien and not b.expiree %}
-                    <a href="{{ b.lien }}" target="_blank" rel="noopener noreferrer" style="flex:1;text-align:center;padding:0.5rem 1rem;background:var(--primary);color:white;border-radius:8px;text-decoration:none;font-size:0.85rem;font-weight:600;">Postuler</a>
+                    <a href="{{ b.lien|lien_sur or '#' }}" target="_blank" rel="noopener noreferrer" style="flex:1;text-align:center;padding:0.5rem 1rem;background:var(--primary);color:white;border-radius:8px;text-decoration:none;font-size:0.85rem;font-weight:600;">Postuler</a>
                     {% endif %}
                     {% if not b.expiree %}
                     <form method="POST" action="/bourses/signaler/{{ b.id }}" style="flex:0;">

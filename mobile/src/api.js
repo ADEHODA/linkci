@@ -10,6 +10,17 @@ export function getToken() {
   return _token;
 }
 
+// Appele quand le serveur refuse la session (jeton expire, revoque, compte suspendu)
+let _surSessionExpiree = null;
+export function onSessionExpiree(fn) {
+  _surSessionExpiree = fn;
+}
+
+// N'ouvre que des liens web (bloque javascript:, intent:, file:...)
+export function lienSur(url) {
+  return typeof url === 'string' && /^https?:\/\/\S+$/i.test(url.trim()) ? url.trim() : null;
+}
+
 async function request(path, options = {}) {
   const url = API_BASE + path;
   const headers = { 'Content-Type': 'application/json' };
@@ -27,6 +38,9 @@ async function request(path, options = {}) {
   } catch (e) {
     // Render (offre gratuite) renvoie une page HTML pendant le reveil du serveur (~50 s)
     throw new Error('Le serveur demarre, reessaie dans une minute');
+  }
+  if ((res.status === 401 || res.status === 403) && _token && path !== '/api/login' && _surSessionExpiree) {
+    if (res.status === 401 || /suspendu/i.test(data.error || '')) _surSessionExpiree(data.error);
   }
   if (!res.ok) throw new Error(data.error || 'Erreur réseau');
   return data;

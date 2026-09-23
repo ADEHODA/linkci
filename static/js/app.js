@@ -4,6 +4,13 @@ function toggleComments(postId) {
     if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
 }
 
+// Echappe le texte avant de l'inserer en HTML (les noms viennent des utilisateurs)
+function echapperHtml(texte) {
+    return String(texte == null ? '' : texte).replace(/[&<>"']/g, function(c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+}
+
 // ========== USER SEARCH ==========
 var searchTimeout = null;
 function searchUsers(query) {
@@ -22,7 +29,7 @@ function searchUsers(query) {
                     users.forEach(function(u) {
                         var div = document.createElement('div');
                         div.className = 'search-result-item';
-                        div.innerHTML = '<div class="avatar-sm">' + u.prenom[0] + u.nom[0] + '</div><div><strong>' + u.prenom + ' ' + u.nom + '</strong><br><small>' + (u.filiere || '') + (u.universite ? ' · ' + u.universite : '') + '</small></div>';
+                        div.innerHTML = '<div class="avatar-sm">' + echapperHtml((u.prenom || '?')[0] + (u.nom || '?')[0]) + '</div><div><strong>' + echapperHtml(u.prenom + ' ' + u.nom) + '</strong><br><small>' + echapperHtml(u.filiere || '') + (u.universite ? ' · ' + echapperHtml(u.universite) : '') + '</small></div>';
                         div.onclick = function() { window.location = '/profil/' + u.id; };
                         container.appendChild(div);
                     });

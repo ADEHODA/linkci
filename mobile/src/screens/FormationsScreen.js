@@ -19,7 +19,7 @@ export default function FormationsScreen() {
       keyExtractor={(item) => String(item.id)}
       refreshControl={pullToRefresh(refreshing, refresh)}
       renderItem={({ item }) => (
-        <Card onPress={() => item.site_web && Linking.openURL(item.site_web)}>
+        <Card onPress={() => api.lienSur(item.site_web) && Linking.openURL(api.lienSur(item.site_web))}>
           {item.niveau ? <Chip label={item.niveau} tone="accent" icon="school" /> : null}
           <Text style={styles.nom}>{item.nom}</Text>
           <View style={styles.uniRow}>

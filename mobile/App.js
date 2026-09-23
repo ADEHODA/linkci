@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import * as SecureStore from 'expo-secure-store';
 import AppNavigator from './src/navigation/AppNavigator';
-import { setToken } from './src/api';
+import { Alert } from 'react-native';
+import { setToken, onSessionExpiree } from './src/api';
 import { RealtimeProvider } from './src/realtime';
 
 export default function App() {
@@ -33,6 +34,17 @@ export default function App() {
     setTokenState(null);
     try { await SecureStore.deleteItemAsync('linkci_token'); } catch (e) {}
   };
+
+  // Session refusee par le serveur : retour a l'ecran de connexion, une seule fois
+  useEffect(() => {
+    let dejaPrevenu = false;
+    onSessionExpiree(() => {
+      if (dejaPrevenu) return;
+      dejaPrevenu = true;
+      handleLogout();
+      Alert.alert('Session expiree', 'Pour ta securite, reconnecte-toi.', [{ text: 'OK', onPress: () => { dejaPrevenu = false; } }]);
+    });
+  }, []);
 
   if (!ready) return null;
 

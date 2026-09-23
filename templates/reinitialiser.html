@@ -28,7 +28,7 @@
             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
             <div class="form-group">
                 <label>Nouveau mot de passe (min 6 caractères)</label>
-                <input type="password" name="mot_de_passe" required minlength="6" placeholder="••••••">
+                <input type="password" name="mot_de_passe" required minlength="8" placeholder="8 caractères minimum">
             </div>
             <button type="submit" class="btn-primary auth-btn">Réinitialiser</button>
         </form>

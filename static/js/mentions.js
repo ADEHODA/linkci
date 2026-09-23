@@ -1,3 +1,10 @@
+// Echappe le texte avant de l'inserer en HTML (les noms viennent des utilisateurs)
+function echapperHtml(texte) {
+    return String(texte == null ? '' : texte).replace(/[&<>"']/g, function(c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+}
+
 // Mention autocomplete
 document.addEventListener('input', function(e) {
     if (!e.target.matches('.mention-input')) return;
@@ -23,7 +30,7 @@ document.addEventListener('input', function(e) {
             users.forEach(function(u) {
                 var item = document.createElement('div');
                 item.className = 'mention-item';
-                item.innerHTML = '<span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#FF6B35;color:white;font-weight:700;font-size:0.75rem;flex-shrink:0;">' + u.prenom[0] + u.nom[0] + '</span> <span><strong>' + u.prenom + ' ' + u.nom + '</strong> <small style="color:#999;">' + (u.filiere || '') + '</small></span>';
+                item.innerHTML = '<span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#FF6B35;color:white;font-weight:700;font-size:0.75rem;flex-shrink:0;">' + echapperHtml((u.prenom || '?')[0] + (u.nom || '?')[0]) + '</span> <span><strong>' + echapperHtml(u.prenom + ' ' + u.nom) + '</strong> <small style="color:#999;">' + echapperHtml(u.filiere || '') + '</small></span>';
                 item.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;transition:background 0.15s;';
                 item.onmouseenter = function() { this.style.background = '#FFF0E8'; };
                 item.onmouseleave = function() { this.style.background = ''; };

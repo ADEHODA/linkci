@@ -18,8 +18,8 @@ export default function RegisterScreen({ navigation, onLogin }) {
       Alert.alert('Erreur', 'Prenom, nom, email et mot de passe sont requis');
       return;
     }
-    if (password.length < 6) {
-      Alert.alert('Erreur', 'Le mot de passe doit faire au moins 6 caracteres');
+    if (password.length < 8) {
+      Alert.alert('Erreur', 'Le mot de passe doit faire au moins 8 caracteres');
       return;
     }
     setLoading(true);
@@ -40,7 +40,7 @@ export default function RegisterScreen({ navigation, onLogin }) {
         <Field placeholder="Nom" value={nom} onChangeText={setNom} style={{ flex: 1 }} />
       </View>
       <Field icon="mail-outline" placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
-      <Field icon="lock-closed-outline" placeholder="Mot de passe (6 caracteres min.)" value={password} onChangeText={setPassword} secureTextEntry />
+      <Field icon="lock-closed-outline" placeholder="Mot de passe (8 caracteres min.)" value={password} onChangeText={setPassword} secureTextEntry />
       <Field icon="school-outline" placeholder="Universite (optionnel)" value={universite} onChangeText={setUniversite} />
       <PrimaryButton title="Creer mon compte" onPress={handleRegister} loading={loading} style={{ marginTop: spacing.sm }} />
       <TouchableOpacity onPress={() => navigation.navigate('Login')} style={styles.link}>

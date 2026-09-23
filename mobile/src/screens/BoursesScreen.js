@@ -14,7 +14,7 @@ export default function BoursesScreen() {
     const joursRestants = item.deadline ? Math.ceil((new Date(item.deadline) - new Date()) / 86400000) : null;
 
     return (
-      <Card style={expiree && styles.expired} onPress={() => item.lien && Linking.openURL(item.lien)}>
+      <Card style={expiree && styles.expired} onPress={() => api.lienSur(item.lien) && Linking.openURL(api.lienSur(item.lien))}>
         <View style={styles.chips}>
           {item.type ? <Chip label={item.type} /> : null}
           {expiree ? <Chip label="Expiree" tone="muted" icon="close-circle" />
