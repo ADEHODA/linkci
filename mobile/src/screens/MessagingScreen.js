@@ -7,10 +7,14 @@ import useApiList from '../hooks/useApiList';
 import { Loading, EmptyState, pullToRefresh } from '../components/ui';
 import { colors, radius, spacing } from '../theme';
 import { dateRelative, heure } from '../utils';
+import { useEvenement, useRealtime } from '../realtime';
 
 export default function MessagingScreen() {
   const { data: conversations, loading, refreshing, refresh, reload } = useApiList(api.getConversations);
   const [selected, setSelected] = useState(null);
+
+  // un nouveau message met a jour la liste des conversations
+  useEvenement('message_recu', () => { if (!selected) reload(); });
 
   if (loading) return <Loading />;
 
@@ -49,6 +53,15 @@ function Conversation({ conv, onBack }) {
   const listRef = useRef(null);
   const { data: messages, loading, reload } = useApiList(() => api.getMessages(conv.autre_id));
   const [text, setText] = useState('');
+  const { rafraichirCompteurs } = useRealtime();
+
+  // message de cette conversation : on recharge (ce qui le marque aussi comme lu)
+  useEvenement('message_recu', async (m) => {
+    if (m.expediteur_id === conv.autre_id || m.destinataire_id === conv.autre_id) {
+      await reload();
+      rafraichirCompteurs();
+    }
+  });
 
   const handleSend = async () => {
     if (!text.trim()) return;

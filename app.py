@@ -958,10 +958,11 @@ def envoyer_message(destinataire_id):
     contenu = sanitize_text(request.form.get('contenu', ''), 5000)
     if contenu:
         conn = get_db()
-        conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu) VALUES (?, ?, ?)',
-                     (session['user_id'], destinataire_id, contenu))
+        msg_id = conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu) VALUES (?, ?, ?)',
+                              (session['user_id'], destinataire_id, contenu)).lastrowid
         conn.commit()
         conn.close()
+        diffuser_message(session['user_id'], destinataire_id, msg_id, contenu)
         process_mentions(contenu, auteur_nom=session.get('user_nom', 'Quelqu\'un'))
         check_and_award_badges(session['user_id'])
         creer_notification(destinataire_id, 'message', f"Nouveau message de {session['user_nom']}", f"/conversation/{session['user_id']}")
@@ -1399,6 +1400,28 @@ def signaler_bourse(id):
     conn.close()
     return redirect(url_for('bourses'))
 
+def diffuser_message(expediteur_id, destinataire_id, message_id, contenu):
+    """Temps reel (app mobile) : previent l'expediteur et le destinataire d'un nouveau message prive.
+    Evenement distinct de 'new_message' (utilise par la page web de conversation) pour eviter les doublons."""
+    data = {'id': message_id, 'expediteur_id': int(expediteur_id), 'destinataire_id': int(destinataire_id),
+            'contenu': contenu, 'date_envoi': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}
+    for uid in {int(expediteur_id), int(destinataire_id)}:
+        try:
+            socketio.emit('message_recu', data, room='user_' + str(uid))
+        except Exception:
+            pass
+
+def diffuser_message_groupe(groupe_id, auteur_id):
+    """Temps reel : previent les membres d'un groupe qu'un nouveau message est arrive."""
+    conn = get_db()
+    membres = conn.execute('SELECT user_id FROM groupe_membres WHERE groupe_id = ?', (groupe_id,)).fetchall()
+    conn.close()
+    for m in membres:
+        try:
+            socketio.emit('groupe_message', {'groupe_id': groupe_id, 'user_id': auteur_id}, room='user_' + str(m['user_id']))
+        except Exception:
+            pass
+
 def creer_notification(user_id, type, message, lien=''):
     conn = get_db()
     conn.execute('INSERT INTO notifications (user_id, type, message, lien) VALUES (?, ?, ?, ?)',
@@ -1732,6 +1755,7 @@ def envoyer_message_groupe(id):
                      (id, session['user_id'], contenu))
         conn.commit()
         conn.close()
+        diffuser_message_groupe(id, session['user_id'])
         process_mentions(contenu, auteur_nom=session.get('user_nom', 'Quelqu\'un'))
         check_and_award_badges(session['user_id'])
     return redirect(url_for('discussion_groupe', id=id))
@@ -1948,7 +1972,10 @@ def api_require_auth():
     auth = request.headers.get('Authorization', '')
     if not auth.startswith('Bearer '):
         return None
-    token = auth[7:]
+    return verifier_jeton_api(auth[7:])
+
+def verifier_jeton_api(token):
+    """Renvoie l'id de l'utilisateur si le jeton est valide, sinon None."""
     if not token:
         return None
     parts = token.split(':')
@@ -2223,12 +2250,18 @@ def api_send_message():
     data = request.json
     if not data or not data.get('contenu', '').strip() or not data.get('destinataire_id'):
         return jsonify({'error': 'contenu et destinataire_id requis'}), 400
+    contenu = sanitize_text(data['contenu'], FIELD_MAXLEN['message'])
+    destinataire_id = int(data['destinataire_id'])
     conn = get_db()
-    conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu) VALUES (?, ?, ?)',
-                 (user_id, data['destinataire_id'], data['contenu'].strip()))
+    msg_id = conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu) VALUES (?, ?, ?)',
+                          (user_id, destinataire_id, contenu)).lastrowid
     conn.commit()
+    auteur = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (user_id,)).fetchone()
     conn.close()
-    return jsonify({'message': 'Envoye'}), 201
+    diffuser_message(user_id, destinataire_id, msg_id, contenu)
+    nom = f"{auteur['prenom']} {auteur['nom']}" if auteur else "quelqu'un"
+    creer_notification(destinataire_id, 'message', f"Nouveau message de {nom}", f"/conversation/{user_id}")
+    return jsonify({'message': 'Envoye', 'id': msg_id}), 201
 
 @app.route('/api/conversations')
 def api_conversations():
@@ -2303,6 +2336,30 @@ def api_documents():
 # telephone n'a pas de session, on lui donne une URL signee valable 5 minutes.
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 _liens_docs = URLSafeTimedSerializer(app.secret_key, salt='telechargement-document')
+
+@app.route('/api/compteurs')
+def api_compteurs():
+    """Pastilles de l'app : messages prives et notifications non lus
+    (les notifications de message sont deja comptees dans les messages)."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    messages = conn.execute('SELECT COUNT(*) as nb FROM messages WHERE destinataire_id = ? AND lu = 0', (user_id,)).fetchone()['nb']
+    notifs = conn.execute("SELECT COUNT(*) as nb FROM notifications WHERE user_id = ? AND lu = 0 AND type != 'message'", (user_id,)).fetchone()['nb']
+    conn.close()
+    return jsonify({'messages': messages, 'notifications': notifs})
+
+@app.route('/api/notifications/lire', methods=['POST'])
+def api_notifications_lues():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    conn.execute('UPDATE notifications SET lu = 1 WHERE user_id = ? AND lu = 0', (user_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Notifications lues'})
 
 @app.route('/api/documents/<int:doc_id>/lien')
 def api_lien_document(doc_id):
@@ -2497,9 +2554,10 @@ def api_envoyer_message_groupe(id):
         conn.close()
         return jsonify({'error': 'Tu n\'es pas membre'}), 403
     conn.execute('INSERT INTO groupe_messages (groupe_id, user_id, contenu) VALUES (?, ?, ?)',
-                 (id, user_id, data['contenu'].strip()))
+                 (id, user_id, sanitize_text(data['contenu'], FIELD_MAXLEN['message'])))
     conn.commit()
     conn.close()
+    diffuser_message_groupe(id, user_id)
     return jsonify({'message': 'Envoye'}), 201
 
 @app.route('/api/groupes/<int:id>/quitter', methods=['POST'])
@@ -2589,7 +2647,18 @@ def api_reset_password():
 
 # ===================== SOCKETIO (chat temps reel) =====================
 @socketio.on('connect')
-def handle_connect():
+def handle_connect(auth=None):
+    # L'app mobile n'a pas de session web : elle s'identifie avec son jeton d'API.
+    # La session Socket.IO est propre a cette connexion (manage_session).
+    if 'user_id' not in session and isinstance(auth, dict) and auth.get('token'):
+        uid = verifier_jeton_api(auth['token'])
+        if uid:
+            conn = get_db()
+            u = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (uid,)).fetchone()
+            conn.close()
+            if u:
+                session['user_id'] = uid
+                session['user_nom'] = f"{u['prenom']} {u['nom']}"
     if 'user_id' in session:
         join_room('user_' + str(session['user_id']))
         emit('connected', {'user_id': session['user_id']})
@@ -2627,6 +2696,7 @@ def handle_send_message(data):
                  (session['user_id'], destinataire_id, contenu)).lastrowid
     conn.commit()
     conn.close()
+    diffuser_message(session['user_id'], destinataire_id, msg_id, contenu)
 
     room = str(min(session['user_id'], destinataire_id)) + '_' + str(max(session['user_id'], destinataire_id))
     message_data = {

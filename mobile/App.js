@@ -3,6 +3,7 @@ import { StatusBar } from 'expo-status-bar';
 import * as SecureStore from 'expo-secure-store';
 import AppNavigator from './src/navigation/AppNavigator';
 import { setToken } from './src/api';
+import { RealtimeProvider } from './src/realtime';
 
 export default function App() {
   const [token, setTokenState] = useState(null);
@@ -36,9 +37,9 @@ export default function App() {
   if (!ready) return null;
 
   return (
-    <>
-      <StatusBar style={token ? 'light' : 'dark'} />
+    <RealtimeProvider token={token}>
+      <StatusBar style="dark" />
       <AppNavigator token={token} onLogin={handleLogin} onLogout={handleLogout} />
-    </>
+    </RealtimeProvider>
   );
 }

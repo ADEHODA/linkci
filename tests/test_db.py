@@ -169,3 +169,40 @@ def test_api_modifier_profil_avec_avatar(client):
     assert client.get('/api/me', headers=h).get_json()['avatar'] == u2['avatar']
     assert client.put('/api/profil', json={'prenom': '', 'nom': 'x'}, headers=h).status_code == 400
     linkci_app.supprimer_fichier('static/avatars/' + u2['avatar'])
+
+
+def _id(h):
+    return int(h['Authorization'].split()[1].split(':')[0])
+
+
+def test_temps_reel_app_avec_jeton(client):
+    ha, hb = _jeton_api(client, 'rt_a@test.ci'), _jeton_api(client, 'rt_b@test.ci')
+    # B se connecte au temps reel avec son jeton d'API (pas de session web)
+    sb = linkci_app.socketio.test_client(linkci_app.app, auth={'token': hb['Authorization'][7:]})
+    assert sb.is_connected()
+    assert any(e['name'] == 'connected' and e['args'][0]['user_id'] == _id(hb) for e in sb.get_received())
+    # A envoie un message depuis l'app : B le recoit instantanement + une notification
+    assert client.post('/api/messages', json={'destinataire_id': _id(hb), 'contenu': 'Salut B'}, headers=ha).status_code == 201
+    recus = sb.get_received()
+    msg = [e for e in recus if e['name'] == 'message_recu']
+    assert msg and msg[0]['args'][0]['contenu'] == 'Salut B' and msg[0]['args'][0]['expediteur_id'] == _id(ha)
+    assert any(e['name'] == 'notification_update' for e in recus)
+    sb.disconnect()
+
+
+def test_socket_jeton_invalide_non_identifie(client):
+    s = linkci_app.socketio.test_client(linkci_app.app, auth={'token': '1:faux'})
+    assert not any(e['name'] == 'connected' for e in s.get_received())
+    s.disconnect()
+
+
+def test_compteurs_et_lecture_notifications(client):
+    ha, hb = _jeton_api(client, 'cpt_a@test.ci'), _jeton_api(client, 'cpt_b@test.ci')
+    client.post('/api/messages', json={'destinataire_id': _id(hb), 'contenu': 'un'}, headers=ha)
+    client.post('/api/messages', json={'destinataire_id': _id(hb), 'contenu': 'deux'}, headers=ha)
+    linkci_app.creer_notification(_id(hb), 'like', 'A aime ta publication')
+    c = client.get('/api/compteurs', headers=hb).get_json()
+    assert c == {'messages': 2, 'notifications': 1}  # les notifs de message ne comptent pas en double
+    client.get(f'/api/messages?avec={_id(ha)}', headers=hb)  # ouvrir la conversation marque lu
+    client.post('/api/notifications/lire', headers=hb)
+    assert client.get('/api/compteurs', headers=hb).get_json() == {'messages': 0, 'notifications': 0}

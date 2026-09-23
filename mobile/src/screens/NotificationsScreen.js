@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { View, Text, FlatList, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
@@ -6,6 +6,8 @@ import useApiList from '../hooks/useApiList';
 import { Loading, EmptyState, pullToRefresh } from '../components/ui';
 import { colors, radius, spacing } from '../theme';
 import { dateRelative } from '../utils';
+import { useFocusEffect } from '@react-navigation/native';
+import { useEvenement, useRealtime } from '../realtime';
 
 const ICONS = {
   bourse: ['cash', '#FF6B35'], formation: ['school', '#009E60'], message: ['chatbubble', '#2563EB'],
@@ -14,7 +16,16 @@ const ICONS = {
 };
 
 export default function NotificationsScreen() {
-  const { data, loading, refreshing, refresh } = useApiList(async () => (await api.getNotifications()).notifications || []);
+  const { data, loading, refreshing, refresh, reload } = useApiList(async () => (await api.getNotifications()).notifications || []);
+  const { rafraichirCompteurs } = useRealtime();
+
+  // A l'ouverture : on affiche les non lues en surbrillance, puis on les marque comme lues
+  // (avec un delai, pour que la liste soit chargee avant d'etre marquee lue)
+  useFocusEffect(useCallback(() => {
+    const t = setTimeout(() => api.markNotificationsRead().then(rafraichirCompteurs).catch(() => {}), 1500);
+    return () => clearTimeout(t);
+  }, [rafraichirCompteurs]));
+  useEvenement('notification_update', () => reload());
 
   if (loading) return <Loading />;
 

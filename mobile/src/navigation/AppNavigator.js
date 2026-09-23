@@ -20,6 +20,7 @@ import EditProfileScreen from '../screens/EditProfileScreen';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import { colors, headerOptions } from '../theme';
+import { useRealtime } from '../realtime';
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -34,7 +35,10 @@ const TAB_ICONS = {
 
 const navTheme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: colors.bg, primary: colors.primary } };
 
+const pastille = (n) => (n > 0 ? (n > 99 ? '99+' : n) : undefined);
+
 function HomeTabs({ onLogout }) {
+  const { compteurs } = useRealtime();
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -46,6 +50,7 @@ function HomeTabs({ onLogout }) {
         tabBarInactiveTintColor: colors.textFaint,
         tabBarStyle: { height: 62, paddingTop: 6, paddingBottom: 8, borderTopColor: colors.border, backgroundColor: colors.card },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        tabBarBadgeStyle: { backgroundColor: colors.danger, fontSize: 10, fontWeight: '800' },
       })}
     >
       <Tab.Screen
@@ -63,8 +68,8 @@ function HomeTabs({ onLogout }) {
         })}
       />
       <Tab.Screen name="Explorer" component={ExploreScreen} />
-      <Tab.Screen name="Messages" component={MessagingScreen} />
-      <Tab.Screen name="Alertes" component={NotificationsScreen} options={{ title: 'Notifications', tabBarLabel: 'Alertes' }} />
+      <Tab.Screen name="Messages" component={MessagingScreen} options={{ tabBarBadge: pastille(compteurs.messages) }} />
+      <Tab.Screen name="Alertes" component={NotificationsScreen} options={{ title: 'Notifications', tabBarLabel: 'Alertes', tabBarBadge: pastille(compteurs.notifications) }} />
       <Tab.Screen name="Profil">
         {(props) => <ProfileScreen {...props} onLogout={onLogout} />}
       </Tab.Screen>

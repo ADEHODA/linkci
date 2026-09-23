@@ -7,6 +7,7 @@ import useApiList from '../hooks/useApiList';
 import { Loading, EmptyState, PrimaryButton, pullToRefresh } from '../components/ui';
 import { colors, radius, spacing, font } from '../theme';
 import { heure } from '../utils';
+import { useEvenement } from '../realtime';
 
 export default function GroupsScreen() {
   const { data, loading, refreshing, refresh, reload } = useApiList(api.getGroupes, {});
@@ -111,6 +112,8 @@ function GroupChat({ groupe, onBack }) {
   const listRef = useRef(null);
   const { data: messages, loading, reload } = useApiList(() => api.getGroupeMessages(groupe.id));
   const [text, setText] = useState('');
+
+  useEvenement('groupe_message', (m) => { if (m.groupe_id === groupe.id) reload(); });
 
   const handleSend = async () => {
     if (!text.trim()) return;

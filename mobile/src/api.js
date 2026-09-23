@@ -85,6 +85,9 @@ export const sendMessage = (destinataire_id, contenu) =>
 
 // Notifications
 export const getNotifications = () => request('/api/notifications');
+export const markNotificationsRead = () => request('/api/notifications/lire', { method: 'POST' });
+// { messages, notifications } non lus (pastilles des onglets)
+export const getCompteurs = () => request('/api/compteurs');
 
 // Profil
 export const getProfile = (userId) => request(`/api/profil/${userId}`);
