@@ -502,6 +502,7 @@ def init_db():
     # (voir connexion()) : on ne peut pas le faire ici sans le mot de passe en clair.
 
     conn.close()
+    seed_badges()  # apres la creation des tables (base neuve)
 
 # Badge definitions (auto-seeded)
 BADGES = [
@@ -615,10 +616,6 @@ def render_mentions(text):
 def render_mentions_filter(text):
     return render_mentions(text)
 
-try:
-    seed_badges()
-except Exception:
-    pass  # DB may not be initialized yet
 
 @app.route('/')
 def index():
