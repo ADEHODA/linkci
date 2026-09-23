@@ -3,6 +3,7 @@ import { View, Text, FlatList, TouchableOpacity, Alert, StyleSheet } from 'react
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import Avatar from '../components/Avatar';
+import PostImage from '../components/PostImage';
 import useApiList from '../hooks/useApiList';
 import { Card, Loading, EmptyState, pullToRefresh } from '../components/ui';
 import { colors, radius, spacing, font, shadow } from '../theme';
@@ -78,7 +79,8 @@ export default function ProfileScreen({ onLogout }) {
       keyExtractor={(item) => String(item.id)}
       renderItem={({ item }) => (
         <Card style={styles.postCard}>
-          <Text style={styles.postContent}>{item.contenu}</Text>
+          {item.contenu ? <Text style={styles.postContent}>{item.contenu}</Text> : null}
+          {item.image ? <PostImage uri={api.imageUrl(item.image)} style={{ marginBottom: spacing.md }} /> : null}
           <View style={styles.postMeta}>
             <View style={styles.metaItem}><Ionicons name="heart" size={14} color={colors.like} /><Text style={styles.metaText}>{item.nb_likes}</Text></View>
             <View style={styles.metaItem}><Ionicons name="chatbubble" size={13} color={colors.textFaint} /><Text style={styles.metaText}>{item.nb_commentaires}</Text></View>

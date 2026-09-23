@@ -173,6 +173,18 @@ def stocker_fichier(chemin, data):
     conn.commit()
     conn.close()
 
+def extension_image(data):
+    """Extension d'apres le contenu reel du fichier, ou None si ce n'est pas une image acceptee."""
+    if data[:3] == b'\xff\xd8\xff':
+        return '.jpg'
+    if data[:8] == b'\x89PNG\r\n\x1a\n':
+        return '.png'
+    if data[:6] in (b'GIF87a', b'GIF89a'):
+        return '.gif'
+    if data[:4] == b'RIFF' and data[8:12] == b'WEBP':
+        return '.webp'
+    return None
+
 def restaurer_fichier(chemin):
     """Garantit que le fichier est sur disque. Renvoie False s'il n'existe nulle part."""
     disque = _chemin_disque(chemin)
@@ -2054,26 +2066,28 @@ def api_create_post():
     if not check_rate_limit(f'publication:{user_id}', max_reqs=10, window=60):
         return jsonify({'error': 'Trop de publications. Ralentis.'}), 429
     data = request.json
-    if not data or not data.get('contenu', '').strip():
+    # Une photo seule (sans texte) est acceptee
+    if not data or not (data.get('contenu', '').strip() or data.get('image')):
         return jsonify({'error': 'Contenu requis'}), 400
-    contenu = sanitize_text(data['contenu'].strip())
-    if len(contenu) > FIELD_MAXLEN.get('contenu', 5000):
-        return jsonify({'error': f'Maximum {FIELD_MAXLEN.get("contenu", 5000)} caracteres'}), 400
+    contenu = data.get('contenu', '').strip()
+    if len(contenu) > FIELD_MAXLEN['contenu']:
+        return jsonify({'error': f"Maximum {FIELD_MAXLEN['contenu']} caracteres"}), 400
+    contenu = sanitize_text(contenu, FIELD_MAXLEN['contenu'])
     conn = get_db()
     image_nom = None
     image_b64 = data.get('image')
-    if image_b64 and len(image_b64) > 100:
+    if image_b64:
+        import base64, binascii
         try:
-            import base64
-            img_data = base64.b64decode(image_b64)
-            ext = '.png'
-            if img_data[:3] == b'\xff\xd8\xff': ext = '.jpg'
-            elif img_data[:6] in (b'GIF87a', b'GIF89a'): ext = '.gif'
-            elif img_data[:4] == b'RIFF' and img_data[8:12] == b'WEBP': ext = '.webp'
-            image_nom = f"{uuid.uuid4().hex}{ext}"
-            stocker_fichier('static/uploads/' + image_nom, img_data)
-        except Exception:
-            pass
+            img_data = base64.b64decode(image_b64, validate=True)
+        except (binascii.Error, ValueError):
+            img_data = b''
+        ext = extension_image(img_data)
+        if not ext:
+            conn.close()
+            return jsonify({'error': 'Image invalide (JPEG, PNG, GIF ou WebP)'}), 400
+        image_nom = f"{uuid.uuid4().hex}{ext}"
+        stocker_fichier('static/uploads/' + image_nom, img_data)
     post_id = conn.execute('INSERT INTO posts (user_id, contenu, image) VALUES (?, ?, ?)', (user_id, contenu, image_nom)).lastrowid
     conn.commit()
     auteur = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (user_id,)).fetchone()

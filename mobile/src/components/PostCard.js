@@ -2,6 +2,7 @@ import React from 'react';
 import { View, TextInput, TouchableOpacity, Text, Alert, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Avatar from './Avatar';
+import PostImage from './PostImage';
 import { Card } from './ui';
 import * as api from '../api';
 import { colors, radius, spacing, font } from '../theme';
@@ -85,7 +86,8 @@ export default function PostCard({ post, onRefresh }) {
         ) : null}
       </View>
 
-      <Text style={styles.content}>{post.contenu}</Text>
+      {post.contenu ? <Text style={styles.content}>{post.contenu}</Text> : null}
+      {post.image ? <PostImage uri={api.imageUrl(post.image)} style={styles.image} /> : null}
 
       <View style={styles.actions}>
         <TouchableOpacity onPress={handleLike} style={[styles.actionBtn, liked && { backgroundColor: colors.likeSoft }]}>
@@ -134,6 +136,7 @@ const styles = StyleSheet.create({
   name: { fontWeight: '700', fontSize: 15, color: colors.text },
   date: { ...font.tiny, marginTop: 1 },
   content: { ...font.body, marginBottom: spacing.md },
+  image: { marginBottom: spacing.md },
   actions: { flexDirection: 'row', gap: spacing.sm },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12, borderRadius: radius.pill, backgroundColor: colors.bg },
   actionText: { fontSize: 13, fontWeight: '600', color: colors.textMuted },

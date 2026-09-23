@@ -28,7 +28,14 @@
     },
     "plugins": [
       "expo-asset",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "LinkCI a besoin de tes photos pour que tu puisses les partager dans le fil.",
+          "cameraPermission": "LinkCI a besoin de l'appareil photo pour prendre une photo a publier."
+        }
+      ]
     ]
   }
 }

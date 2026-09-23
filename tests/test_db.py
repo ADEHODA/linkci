@@ -99,3 +99,36 @@ def test_ancien_mot_de_passe_sha256_survit_au_redemarrage(client):
     h = conn.execute('SELECT mot_de_passe FROM users WHERE email = ?', ('old@test.ci',)).fetchone()['mot_de_passe']
     conn.close()
     assert h.startswith('$2')  # converti en bcrypt a la connexion
+
+
+PNG_1PX = ('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==')
+
+
+def _jeton_api(client, email):
+    resp = client.post('/api/register', json={'nom': 'Api', 'prenom': 'Test', 'email': email, 'mot_de_passe': 'password123'})
+    return {'Authorization': 'Bearer ' + resp.get_json()['token']}
+
+
+def test_api_photo_seule_acceptee(client):
+    h = _jeton_api(client, 'photo@test.ci')
+    resp = client.post('/api/posts', json={'contenu': '', 'image': PNG_1PX}, headers=h)
+    assert resp.status_code == 201
+    posts = client.get('/api/posts', headers=h).get_json()
+    post = next(p for p in posts if p['id'] == resp.get_json()['id'])
+    assert post['image'].endswith('.png') and post['est_auteur']
+    linkci_app.supprimer_fichier('static/uploads/' + post['image'])
+
+
+def test_api_image_invalide_refusee(client):
+    h = _jeton_api(client, 'invalide@test.ci')
+    resp = client.post('/api/posts', json={'contenu': 'x', 'image': 'cGFzIHVuZSBpbWFnZQ=='}, headers=h)
+    assert resp.status_code == 400
+    assert client.post('/api/posts', json={'contenu': ''}, headers=h).status_code == 400
+
+
+def test_api_texte_long_non_tronque(client):
+    h = _jeton_api(client, 'long@test.ci')
+    texte = 'a' * 1200
+    pid = client.post('/api/posts', json={'contenu': texte}, headers=h).get_json()['id']
+    post = next(p for p in client.get('/api/posts', headers=h).get_json() if p['id'] == pid)
+    assert len(post['contenu']) == 1200

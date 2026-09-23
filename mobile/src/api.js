@@ -44,8 +44,12 @@ export const getMe = () => request('/api/me');
 // Feed
 export const getPosts = (page = 1) => request(`/api/posts?page=${page}`);
 
-export const createPost = (contenu) =>
-  request('/api/posts', { method: 'POST', body: JSON.stringify({ contenu }) });
+// image : photo encodee en base64 (JPEG), optionnelle
+export const createPost = (contenu, image = null) =>
+  request('/api/posts', { method: 'POST', body: JSON.stringify(image ? { contenu, image } : { contenu }) });
+
+// Adresse d'une image envoyee sur le serveur (ex. post.image)
+export const imageUrl = (nom, dossier = 'uploads') => `${API_BASE}/static/${dossier}/${nom}`;
 
 export const likePost = (postId) =>
   request(`/api/posts/${postId}/like`, { method: 'POST' });
