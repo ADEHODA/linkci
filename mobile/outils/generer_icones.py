@@ -1,8 +1,8 @@
 """Genere les icones de l'app LinkCI.
 
-Logo : trois noeuds relies (un reseau de personnes). Le noeud blanc est relie au
-noeud vert du bas par un lien courbe qui dessine le L de LinkCI ; un second noeud
-vert complete le reseau. Couleurs de la Cote d'Ivoire : orange, blanc, vert.
+Logo : trois etudiants (badges ronds avec une silhouette) relies en reseau. Le badge
+blanc est relie au badge vert du bas par un lien epais et courbe qui dessine le L
+de LinkCI. Couleurs de la Cote d'Ivoire : orange, blanc, vert.
 
 Usage (depuis le dossier mobile) : python outils/generer_icones.py
 Necessite Pillow (pip install pillow).
@@ -44,15 +44,29 @@ def logo(taille, echelle, ombre=True):
     o = taille * (1 - echelle) / 2
     P = lambda x, y: (o + x * u, o + y * u)
 
-    def rond(cx, cy, r, couleur):
+    def personne(cx, cy, r, fond_badge, couleur_perso):
+        """Badge rond avec une silhouette (tete + epaules) : chaque noeud est un etudiant."""
         x, y = P(cx, cy)
-        d.ellipse([x - r * u, y - r * u, x + r * u, y + r * u], fill=couleur)
+        R_ = r * u
+        badge = Image.new('RGBA', img.size, (0, 0, 0, 0))
+        bd = ImageDraw.Draw(badge)
+        bd.ellipse([x - R_, y - R_, x + R_, y + R_], fill=fond_badge)
+        silhouette = Image.new('RGBA', img.size, (0, 0, 0, 0))
+        sd = ImageDraw.Draw(silhouette)
+        rt = 0.30 * R_  # tete
+        sd.ellipse([x - rt, y - 0.30 * R_ - rt, x + rt, y - 0.30 * R_ + rt], fill=couleur_perso)
+        sd.ellipse([x - 0.62 * R_, y + 0.16 * R_, x + 0.62 * R_, y + 1.30 * R_], fill=couleur_perso)  # epaules
+        masque = Image.new('L', img.size, 0)  # la silhouette reste dans le badge, avec une marge
+        m = 0.80 * R_
+        ImageDraw.Draw(masque).ellipse([x - m, y - m, x + m, y + m], fill=255)
+        badge.paste(silhouette, (0, 0), Image.composite(silhouette.split()[3], Image.new('L', img.size, 0), masque))
+        img.alpha_composite(badge)
 
     # Positions des noeuds
-    blanc, vert_haut, vert_bas = (30, 30), (72, 30), (72, 70)
-    R = 12.5          # rayon des noeuds
-    L = 8.5           # epaisseur du lien
-    coude = 16        # rayon de l'arrondi du L
+    blanc, vert_haut, vert_bas = (29, 29), (72, 29), (72, 71)
+    R = 14.5          # rayon des noeuds
+    L = 11.5          # epaisseur du lien
+    coude = 17        # rayon de l'arrondi du L
 
     # Lien en L : descend du noeud blanc, s'arrondit, file vers le noeud vert du bas
     x0, y0 = blanc
@@ -64,14 +78,10 @@ def logo(taille, echelle, ombre=True):
     r_ext = (coude + L / 2) * u
     d.arc([cx - r_ext, cy - r_ext, cx + r_ext, cy + r_ext], 90, 180, fill=BLANC, width=int(L * u))
 
-    # Lien discret entre les deux noeuds verts (le reseau continue)
-    d.line([P(*vert_haut), P(*vert_bas)], fill=(255, 255, 255, 110), width=int(3.2 * u))
-
-    rond(*blanc, R, BLANC)
-    rond(*vert_haut, R, VERT)
-    rond(*vert_bas, R, VERT)
-    # lisere blanc autour des noeuds verts : ils ressortent sur l'orange
+    # Les etudiants : blanc (silhouette orange), verts (silhouette blanche) avec lisere blanc
+    personne(*blanc, R, BLANC, (240, 110, 34, 255))
     for c in (vert_haut, vert_bas):
+        personne(*c, R, VERT, BLANC)
         x, y = P(*c)
         d.ellipse([x - R * u, y - R * u, x + R * u, y + R * u], outline=BLANC, width=int(2.4 * u))
 
