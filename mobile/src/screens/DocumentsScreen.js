@@ -47,7 +47,7 @@ export default function DocumentsScreen() {
         data={docs}
         keyExtractor={(item) => String(item.id)}
         renderItem={({ item }) => (
-          <TouchableOpacity style={styles.card} onPress={() => Linking.openURL('https://qasade.pythonanywhere.com/documents/' + item.id + '/telecharger')}>
+          <TouchableOpacity style={styles.card} onPress={() => Linking.openURL(api.API_BASE + '/documents/' + item.id + '/telecharger')}>
             <View style={styles.iconBox}>
               <Ionicons name={getIcon(item.fichier)} size={24} color="#FF6B35" />
             </View>

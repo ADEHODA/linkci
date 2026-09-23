@@ -1,4 +1,4 @@
-const API_BASE = 'https://qasade.pythonanywhere.com';
+export const API_BASE = 'https://linkci.onrender.com';
 
 let _token = null;
 
@@ -15,8 +15,19 @@ async function request(path, options = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (_token) headers['Authorization'] = `Bearer ${_token}`;
 
-  const res = await fetch(url, { ...options, headers });
-  const data = await res.json();
+  let res;
+  try {
+    res = await fetch(url, { ...options, headers });
+  } catch (e) {
+    throw new Error('Pas de connexion internet');
+  }
+  let data;
+  try {
+    data = await res.json();
+  } catch (e) {
+    // Render (offre gratuite) renvoie une page HTML pendant le reveil du serveur (~50 s)
+    throw new Error('Le serveur demarre, reessaie dans une minute');
+  }
   if (!res.ok) throw new Error(data.error || 'Erreur réseau');
   return data;
 }
