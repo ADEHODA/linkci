@@ -1,45 +1,75 @@
-"""Genere les icones de l'app a partir du logo LinkCI (static/images/logo.svg).
+"""Genere les icones de l'app LinkCI : un L geometrique relie a un noeud (l'idee de "lien").
 
 Usage (depuis le dossier mobile) : python outils/generer_icones.py
 Necessite Pillow (pip install pillow).
 """
 import os
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter
 
 ICI = os.path.dirname(os.path.abspath(__file__))
 ASSETS = os.path.join(ICI, '..', 'assets')
-ORANGE, ORANGE_FONCE, VERT, BLANC = (255, 107, 53), (232, 93, 38), (0, 157, 84), (255, 255, 255)
-POLICE = next((p for p in (r'C:\Windows\Fonts\ariblk.ttf', r'C:\Windows\Fonts\arialbd.ttf',
-                           '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf') if os.path.exists(p)), None)
+HAUT_GAUCHE, BAS_DROITE = (255, 140, 82), (236, 78, 26)  # degrade orange LinkCI
+BLANC = (255, 255, 255)
 SS = 4  # sur-echantillonnage : on dessine en grand puis on reduit (bords lisses)
 
 
-def degrade(taille):
+def fond(taille):
+    """Degrade diagonal + reflet doux en haut a gauche."""
     img = Image.new('RGBA', (taille, taille))
-    d = ImageDraw.Draw(img)
-    for x in range(taille):
-        t = x / (taille - 1)
-        d.line([(x, 0), (x, taille)], fill=tuple(int(a + (b - a) * t) for a, b in zip(ORANGE, ORANGE_FONCE)) + (255,))
+    px = img.load()
+    for y in range(0, taille, 4):
+        for x in range(0, taille, 4):
+            t = (x + y) / (2 * (taille - 1))
+            c = tuple(int(a + (b - a) * t) for a, b in zip(HAUT_GAUCHE, BAS_DROITE)) + (255,)
+            for dy in range(4):
+                for dx in range(4):
+                    if x + dx < taille and y + dy < taille:
+                        px[x + dx, y + dy] = c
+    reflet = Image.new('RGBA', (taille, taille), (0, 0, 0, 0))
+    ImageDraw.Draw(reflet).ellipse([-taille * 0.5, -taille * 0.6, taille * 0.7, taille * 0.5], fill=(255, 255, 255, 26))
+    img.alpha_composite(reflet.filter(ImageFilter.GaussianBlur(taille * 0.16)))
     return img
 
 
-def motif(img, cx, cy, echelle, drapeau=True):
-    """Logo : anneau fin, 4 points (le reseau), grand L blanc et drapeau ivoirien.
-    Centre en (cx, cy) ; echelle = 1 pour un logo de 62 px de cote."""
+def logo(taille, echelle, ombre=True):
+    """Logo blanc sur fond transparent. Coordonnees dans un carre de 100 unites, centre.
+    echelle : part de l'image occupee par ce carre de 100 unites."""
+    img = Image.new('RGBA', (taille, taille), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    e = echelle
-    r = 23 * e
-    d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=(255, 255, 255, 110), width=max(1, int(1.6 * e)))
-    for ax, ay in ((-1, -1), (1, -1), (-1, 1), (1, 1)):  # points sur l'anneau, en diagonale
-        x, y = cx + ax * r * 0.707, cy + ay * r * 0.707
-        d.ellipse([x - 2.8 * e, y - 2.8 * e, x + 2.8 * e, y + 2.8 * e], fill=BLANC)
-    police = ImageFont.truetype(POLICE, int(30 * e)) if POLICE else ImageFont.load_default()
-    d.text((cx - 1.5 * e, cy), 'L', font=police, fill=BLANC, anchor='mm')
-    if drapeau:  # petit drapeau ivoirien au pied du L
-        x0, y0, w, h = cx + 6 * e, cy + 4 * e, 2.4 * e, 6.5 * e
-        for i, c in enumerate((ORANGE, BLANC, VERT)):
-            d.rectangle([x0 + i * w, y0, x0 + (i + 1) * w, y0 + h], fill=c)
-        d.rectangle([x0, y0, x0 + 3 * w, y0 + h], outline=BLANC, width=max(1, int(0.6 * e)))
+    u = taille * echelle / 100
+    o = taille * (1 - echelle) / 2
+    P = lambda x, y: (o + (x - 3.2) * u, o + (y + 3) * u)  # recentre le dessin
+
+    def trait(a, b, largeur, couleur=BLANC):
+        d.line([P(*a), P(*b)], fill=couleur, width=int(largeur * u))
+        for x, y in (a, b):  # bouts arrondis
+            r = largeur * u / 2
+            cx, cy = P(x, y)
+            d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=couleur)
+
+    def rond(c, r, couleur=BLANC):
+        cx, cy = P(*c)
+        d.ellipse([cx - r * u, cy - r * u, cx + r * u, cy + r * u], fill=couleur)
+
+    # le lien : du bout du L vers le noeud
+    trait((68, 72), (68, 38), 7, (255, 255, 255, 150))
+    # le L
+    trait((34, 22), (34, 72), 17)
+    trait((34, 72), (68, 72), 17)
+    # le noeud, avec un anneau
+    rond((68, 30), 13)
+    rond((68, 30), 6.5, (0, 0, 0, 0))  # trou transparent (le dessin remplace les pixels)
+
+    if ombre:  # ombre portee douce sous le logo
+        alpha = img.split()[3]
+        sombre = Image.new('RGBA', img.size, (120, 30, 0, 0))
+        sombre.putalpha(alpha.point(lambda a: int(a * 0.35)))
+        sombre = sombre.filter(ImageFilter.GaussianBlur(taille * 0.018))
+        decale = Image.new('RGBA', img.size, (0, 0, 0, 0))
+        decale.paste(sombre, (0, int(taille * 0.018)))
+        decale.alpha_composite(img)
+        img = decale
+    return img
 
 
 def enregistrer(img, nom, taille):
@@ -47,23 +77,20 @@ def enregistrer(img, nom, taille):
     print('ok', nom, taille)
 
 
-os.makedirs(ASSETS, exist_ok=True)
-T = 1024 * SS
+if __name__ == '__main__':
+    os.makedirs(ASSETS, exist_ok=True)
+    T = 1024 * SS
 
-# Icone classique : fond plein (Android et iOS arrondissent eux-memes)
-icone = degrade(T)
-motif(icone, T / 2, T / 2, T / 62 * 0.9)
-enregistrer(icone, 'icon.png', 1024)
+    # Icone classique : fond plein (Android et iOS arrondissent eux-memes)
+    icone = fond(T)
+    icone.alpha_composite(logo(T, 0.62))
+    enregistrer(icone, 'icon.png', 1024)
 
-# Icone adaptative Android : premier plan transparent, motif dans la zone sure (66 % central)
-adaptive = Image.new('RGBA', (T, T), (0, 0, 0, 0))
-motif(adaptive, T / 2, T / 2, T / 62 * 0.7)
-enregistrer(adaptive, 'adaptive-icon.png', 1024)
+    # Icone adaptative Android : logo seul, dans la zone jamais rognee (66 % central)
+    enregistrer(logo(T, 0.56), 'adaptive-icon.png', 1024)
 
-# Ecran de demarrage : logo blanc sur fond orange (couleur definie dans app.json)
-splash = Image.new('RGBA', (T, T), (0, 0, 0, 0))
-motif(splash, T / 2, T / 2, T / 62 * 0.9)
-enregistrer(splash, 'splash-icon.png', 1024)
+    # Ecran de demarrage : logo blanc (fond orange defini dans app.json)
+    enregistrer(logo(T, 0.70, ombre=False), 'splash-icon.png', 1024)
 
-# Favicon (version web)
-enregistrer(icone, 'favicon.png', 48)
+    # Favicon (version web)
+    enregistrer(icone, 'favicon.png', 48)
