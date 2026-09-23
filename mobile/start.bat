@@ -6,6 +6,8 @@ rem Annoncer l'adresse Wi-Fi du PC : sinon Expo peut choisir celle de VirtualBox
 rem (192.168.56.x), injoignable depuis le telephone
 for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "(Get-NetIPAddress -AddressFamily IPv4 -InterfaceAlias 'Wi-Fi' -ErrorAction SilentlyContinue | Select-Object -First 1).IPAddress"`) do set "REACT_NATIVE_PACKAGER_HOSTNAME=%%i"
 cd /d "%~dp0"
+rem Le projet est lie au compte Expo : on s'authentifie avec EXPO_TOKEN lu dans ..\.env
+for /f "usebackq tokens=1,* delims==" %%a in ("..\.env") do if "%%a"=="EXPO_TOKEN" set "EXPO_TOKEN=%%b"
 echo ========================================
 echo    LINK CI - App Mobile
 echo ========================================
