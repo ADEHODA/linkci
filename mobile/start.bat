@@ -1,5 +1,7 @@
 @echo off
-set PATH=D:\;%PATH%
+rem Node portable (dossier utilisateur) ; D:\ seulement si ce lecteur est branche
+if exist "%LOCALAPPDATA%\Programs\nodejs\node.exe" set "PATH=%LOCALAPPDATA%\Programs\nodejs;%PATH%"
+if exist D:\node.exe set PATH=D:\;%PATH%
 cd /d "%~dp0"
 echo ========================================
 echo    LINK CI - App Mobile
