@@ -1343,7 +1343,7 @@ def bourses():
 
     conn = get_db()
     # Auto-expire les bourses dont la deadline est passee
-    conn.execute('UPDATE bourses SET expiree = 1 WHERE deadline != "" AND deadline < ? AND expiree = 0', (aujourdhui,))
+    conn.execute("UPDATE bourses SET expiree = 1 WHERE deadline != '' AND deadline < ? AND expiree = 0", (aujourdhui,))
     conn.commit()
 
     toutes = conn.execute('SELECT * FROM bourses ORDER BY expiree ASC, date_publication DESC').fetchall()
@@ -2172,7 +2172,7 @@ def api_bourses():
     from datetime import date
     aujourdhui = date.today().isoformat()
     conn = get_db()
-    conn.execute('UPDATE bourses SET expiree = 1 WHERE deadline != "" AND deadline < ? AND expiree = 0', (aujourdhui,))
+    conn.execute("UPDATE bourses SET expiree = 1 WHERE deadline != '' AND deadline < ? AND expiree = 0", (aujourdhui,))
     conn.commit()
     bourses = conn.execute('SELECT * FROM bourses ORDER BY expiree ASC, date_publication DESC').fetchall()
     conn.close()

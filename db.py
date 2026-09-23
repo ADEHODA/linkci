@@ -12,6 +12,7 @@ Hypotheses (vraies pour le schema de LinkCI) :
 - les dates sont stockees en TEXT 'YYYY-MM-DD HH:MM:SS' comme dans SQLite,
   pour que les comparaisons et les [:10] du code restent valables.
 """
+import atexit
 import os
 import re
 import sqlite3
@@ -118,6 +119,7 @@ def _get_pool():
             check=ConnectionPool.check_connection,  # Neon coupe les connexions inactives
             open=True,
         )
+        atexit.register(_pool.close)  # sinon erreur bruyante a l'arret de Python
     return _pool
 
 
