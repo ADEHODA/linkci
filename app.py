@@ -498,15 +498,8 @@ def init_db():
 
     conn.commit()
 
-    # Migrate old SHA256 passwords to bcrypt
-    try:
-        old_users = conn.execute('SELECT id, mot_de_passe FROM users').fetchall()
-        for uid, pwd in old_users:
-            if pwd and not pwd.startswith('$2'):
-                new_hash = bcrypt.hashpw(hashlib.sha256(pwd.encode()).hexdigest().encode(), bcrypt.gensalt()).decode()
-                conn.execute('UPDATE users SET mot_de_passe = ? WHERE id = ?', (new_hash, uid))
-    except:
-        pass  # Table may not exist yet
+    # Les anciens mots de passe SHA256 sont convertis en bcrypt a la connexion
+    # (voir connexion()) : on ne peut pas le faire ici sans le mot de passe en clair.
 
     conn.close()
 

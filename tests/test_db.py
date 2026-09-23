@@ -83,3 +83,19 @@ def test_stats_page(client):
     client.post('/publier', data={'contenu': 'Post pour les stats'})
     resp = client.get('/stats')
     assert resp.status_code == 200
+
+
+def test_ancien_mot_de_passe_sha256_survit_au_redemarrage(client):
+    import hashlib
+    conn = linkci_app.get_db()
+    conn.execute('INSERT INTO users (nom, prenom, email, mot_de_passe) VALUES (?, ?, ?, ?)',
+                 ('Old', 'User', 'old@test.ci', hashlib.sha256(b'vieuxmdp').hexdigest()))
+    conn.commit()
+    conn.close()
+    linkci_app.init_db()  # redemarrage : ne doit pas abimer le hash
+    resp = client.post('/connexion', data={'email': 'old@test.ci', 'mot_de_passe': 'vieuxmdp'})
+    assert resp.status_code == 302 and '/feed' in resp.headers['Location']
+    conn = linkci_app.get_db()
+    h = conn.execute('SELECT mot_de_passe FROM users WHERE email = ?', ('old@test.ci',)).fetchone()['mot_de_passe']
+    conn.close()
+    assert h.startswith('$2')  # converti en bcrypt a la connexion
