@@ -1,46 +1,47 @@
 {
-  "expo": {
-    "name": "LINK CI",
-    "slug": "link-ci",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "newArchEnabled": true,
-    "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#FF6B35"
-    },
-    "assetBundlePatterns": [
-      "**/*"
-    ],
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.linkci.app"
-    },
-    "android": {
-      "package": "com.linkci.app",
-      "versionCode": 1,
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#FF6B35"
-      }
-    },
-    "web": {
-      "favicon": "./assets/favicon.png"
-    },
-    "plugins": [
-      "expo-asset",
-      "expo-font",
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "LinkCI a besoin de tes photos pour que tu puisses les partager dans le fil.",
-          "cameraPermission": "LinkCI a besoin de l'appareil photo pour prendre une photo a publier."
-        }
-      ]
-    ],
-    "description": "Le reseau social des etudiants de Cote d'Ivoire."
-  }
+    "expo":  {
+                 "name":  "LINK CI",
+                 "slug":  "link-ci",
+                 "version":  "1.0.0",
+                 "orientation":  "portrait",
+                 "icon":  "./assets/icon.png",
+                 "userInterfaceStyle":  "light",
+                 "newArchEnabled":  true,
+                 "splash":  {
+                                "image":  "./assets/splash-icon.png",
+                                "resizeMode":  "contain",
+                                "backgroundColor":  "#FF6B35"
+                            },
+                 "assetBundlePatterns":  [
+                                             "**/*"
+                                         ],
+                 "ios":  {
+                             "supportsTablet":  true,
+                             "bundleIdentifier":  "com.linkci.app"
+                         },
+                 "android":  {
+                                 "package":  "com.linkci.app",
+                                 "versionCode":  1,
+                                 "adaptiveIcon":  {
+                                                      "foregroundImage":  "./assets/adaptive-icon.png",
+                                                      "backgroundColor":  "#FF6B35",
+                                                      "backgroundImage":  "./assets/adaptive-background.png"
+                                                  }
+                             },
+                 "web":  {
+                             "favicon":  "./assets/favicon.png"
+                         },
+                 "plugins":  [
+                                 "expo-asset",
+                                 "expo-font",
+                                 [
+                                     "expo-image-picker",
+                                     {
+                                         "photosPermission":  "LinkCI a besoin de tes photos pour que tu puisses les partager dans le fil.",
+                                         "cameraPermission":  "LinkCI a besoin de l\u0027appareil photo pour prendre une photo a publier."
+                                     }
+                                 ]
+                             ],
+                 "description":  "Le reseau social des etudiants de Cote d\u0027Ivoire."
+             }
 }
