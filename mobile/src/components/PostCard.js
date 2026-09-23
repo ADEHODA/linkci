@@ -74,7 +74,7 @@ export default function PostCard({ post, onRefresh }) {
   return (
     <Card>
       <View style={styles.header}>
-        <Avatar name={`${post.prenom} ${post.nom}`} size={42} index={post.user_id} />
+        <Avatar name={`${post.prenom} ${post.nom}`} size={42} index={post.user_id} avatar={post.avatar} />
         <View style={styles.headerInfo}>
           <Text style={styles.name}>{post.prenom} {post.nom}</Text>
           <Text style={styles.date}>{dateRelative(post.date_post)}</Text>
@@ -105,7 +105,7 @@ export default function PostCard({ post, onRefresh }) {
         <View style={styles.commentsSection}>
           {comments.map((c) => (
             <View key={c.id} style={styles.comment}>
-              <Avatar name={`${c.prenom} ${c.nom}`} size={28} index={c.user_id} />
+              <Avatar name={`${c.prenom} ${c.nom}`} size={28} index={c.user_id} avatar={c.avatar} />
               <View style={styles.commentBubble}>
                 <Text style={styles.commentUser}>{c.prenom} {c.nom}</Text>
                 <Text style={styles.commentText}>{c.contenu}</Text>

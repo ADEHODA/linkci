@@ -15,7 +15,7 @@ async function chargerProfil() {
   return { user: me, posts: profil.posts || [], badges: me.badges || profil.badges || [] };
 }
 
-export default function ProfileScreen({ onLogout }) {
+export default function ProfileScreen({ navigation, onLogout }) {
   const { data, loading, refreshing, refresh } = useApiList(chargerProfil, null);
 
   const handleLogout = () => {
@@ -39,7 +39,7 @@ export default function ProfileScreen({ onLogout }) {
           <View style={styles.banner} />
           <View style={styles.header}>
             <View style={styles.avatarRing}>
-              <Avatar name={`${user.prenom} ${user.nom}`} size={88} index={user.id} />
+              <Avatar name={`${user.prenom} ${user.nom}`} size={88} index={user.id} avatar={user.avatar} />
             </View>
             <Text style={styles.name}>{user.prenom} {user.nom}</Text>
             {(user.filiere || user.universite) ? (
@@ -67,10 +67,15 @@ export default function ProfileScreen({ onLogout }) {
               </View>
             ) : null}
 
-            <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-              <Ionicons name="log-out-outline" size={16} color={colors.danger} />
-              <Text style={styles.logoutText}>Deconnexion</Text>
-            </TouchableOpacity>
+            <View style={styles.boutons}>
+              <TouchableOpacity style={styles.editBtn} onPress={() => navigation.navigate('ModifierProfil', { user })}>
+                <Ionicons name="create-outline" size={16} color={colors.white} />
+                <Text style={styles.editText}>Modifier le profil</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+                <Ionicons name="log-out-outline" size={16} color={colors.danger} />
+              </TouchableOpacity>
+            </View>
           </View>
           <Text style={styles.sectionTitle}>Mes publications</Text>
         </>
@@ -120,8 +125,10 @@ const styles = StyleSheet.create({
   badge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.primarySoft, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 4 },
   badgeIcon: { fontSize: 13 },
   badgeText: { fontSize: 12, fontWeight: '700', color: colors.primary },
-  logoutBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.lg, paddingVertical: 8, paddingHorizontal: 20, borderRadius: radius.pill, backgroundColor: colors.dangerSoft },
-  logoutText: { color: colors.danger, fontWeight: '700', fontSize: 14 },
+  boutons: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg, alignSelf: 'stretch' },
+  editBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 11, borderRadius: radius.pill, backgroundColor: colors.primary },
+  editText: { color: colors.white, fontWeight: '700', fontSize: 14 },
+  logoutBtn: { width: 44, alignItems: 'center', justifyContent: 'center', borderRadius: radius.pill, backgroundColor: colors.dangerSoft },
   sectionTitle: { ...font.heading, paddingHorizontal: spacing.lg, paddingTop: spacing.xl, paddingBottom: spacing.md },
   postCard: { marginHorizontal: spacing.md },
   postContent: { ...font.body, marginBottom: spacing.md },

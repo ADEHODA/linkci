@@ -132,3 +132,40 @@ def test_api_texte_long_non_tronque(client):
     pid = client.post('/api/posts', json={'contenu': texte}, headers=h).get_json()['id']
     post = next(p for p in client.get('/api/posts', headers=h).get_json() if p['id'] == pid)
     assert len(post['contenu']) == 1200
+
+
+def test_api_lien_document_signe(client):
+    h = _jeton_api(client, 'docs@test.ci')
+    uid = int(h['Authorization'].split()[1].split(':')[0])
+    nom = f'test_{uuid.uuid4().hex}.pdf'
+    linkci_app.stocker_fichier('uploads/' + nom, b'%PDF-1.4 test')
+    conn = linkci_app.get_db()
+    doc_id = conn.execute('INSERT INTO documents (user_id, titre, fichier) VALUES (?, ?, ?)', (uid, 'Cours', nom)).lastrowid
+    conn.commit()
+    conn.close()
+    try:
+        assert client.get(f'/api/documents/{doc_id}/lien').status_code == 401
+        chemin = client.get(f'/api/documents/{doc_id}/lien', headers=h).get_json()['chemin']
+        resp = client.get(chemin)  # sans session ni jeton d'API
+        assert resp.status_code == 200 and resp.data == b'%PDF-1.4 test'
+        resp.close()
+        assert client.get(chemin.split('?')[0] + '?t=faux').status_code == 403
+        autre = chemin.replace(f'/documents/{doc_id}/', f'/documents/{doc_id + 1}/')
+        assert client.get(autre).status_code == 403  # jeton d'un autre document
+    finally:
+        linkci_app.supprimer_fichier('uploads/' + nom)
+    assert client.get(f'/api/documents/{doc_id}/lien', headers=h).status_code == 404  # fichier disparu
+
+
+def test_api_modifier_profil_avec_avatar(client):
+    h = _jeton_api(client, 'profil@test.ci')
+    resp = client.put('/api/profil', json={'prenom': 'Awa', 'nom': 'Kone', 'bio': 'MIAGE', 'filiere': 'Info', 'avatar': PNG_1PX}, headers=h)
+    assert resp.status_code == 200
+    u = resp.get_json()
+    assert (u['prenom'], u['bio'], u['filiere']) == ('Awa', 'MIAGE', 'Info') and u['avatar'].endswith('.png')
+    premier = u['avatar']
+    u2 = client.put('/api/profil', json={'prenom': 'Awa', 'nom': 'Kone', 'avatar': PNG_1PX}, headers=h).get_json()
+    assert u2['avatar'] != premier and not linkci_app.restaurer_fichier('static/avatars/' + premier)  # ancien supprime
+    assert client.get('/api/me', headers=h).get_json()['avatar'] == u2['avatar']
+    assert client.put('/api/profil', json={'prenom': '', 'nom': 'x'}, headers=h).status_code == 400
+    linkci_app.supprimer_fichier('static/avatars/' + u2['avatar'])

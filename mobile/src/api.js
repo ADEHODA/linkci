@@ -114,6 +114,12 @@ export const quitterGroupe = (id) =>
 
 // Documents
 export const getDocuments = () => request('/api/documents');
+// Adresse de telechargement temporaire (5 min) a ouvrir dans le navigateur
+export const getDocumentUrl = async (id) => API_BASE + (await request(`/api/documents/${id}/lien`)).chemin;
+
+// Mon profil : { prenom, nom, universite, filiere, annee, bio, avatar? (base64) }
+export const updateProfile = (data) =>
+  request('/api/profil', { method: 'PUT', body: JSON.stringify(data) });
 
 // Recherche
 export const searchAll = (q) => request(`/api/recherche?q=${encodeURIComponent(q)}`);

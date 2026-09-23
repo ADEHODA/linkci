@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, FlatList, Linking, StyleSheet } from 'react-native';
+import { View, Text, FlatList, Linking, Alert, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import useApiList from '../hooks/useApiList';
@@ -15,6 +15,14 @@ const DOC_ICONS = {
 export default function DocumentsScreen() {
   const { data: docs, loading, refreshing, refresh } = useApiList(api.getDocuments);
 
+  const telecharger = async (doc) => {
+    try {
+      await Linking.openURL(await api.getDocumentUrl(doc.id));
+    } catch (e) {
+      Alert.alert('Telechargement impossible', e.message);
+    }
+  };
+
   const getIcon = (fichier) => DOC_ICONS[fichier?.split('.').pop()?.toLowerCase()] || 'document';
 
   if (loading) return <Loading />;
@@ -27,7 +35,7 @@ export default function DocumentsScreen() {
       keyExtractor={(item) => String(item.id)}
       refreshControl={pullToRefresh(refreshing, refresh)}
       renderItem={({ item }) => (
-        <Card style={styles.card} onPress={() => Linking.openURL(api.API_BASE + '/documents/' + item.id + '/telecharger')}>
+        <Card style={styles.card} onPress={() => telecharger(item)}>
           <View style={styles.iconBox}>
             <Ionicons name={getIcon(item.fichier)} size={24} color="#2563EB" />
           </View>

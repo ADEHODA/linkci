@@ -2022,7 +2022,7 @@ def api_me():
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
     conn = get_db()
-    user = conn.execute('SELECT id, nom, prenom, email, universite, filiere, annee, bio, date_inscription FROM users WHERE id = ?', (user_id,)).fetchone()
+    user = conn.execute('SELECT id, nom, prenom, email, universite, filiere, annee, bio, avatar, date_inscription FROM users WHERE id = ?', (user_id,)).fetchone()
     badges = conn.execute('''
         SELECT b.* FROM user_badges ub
         JOIN badges b ON ub.badge_id = b.id
@@ -2046,7 +2046,7 @@ def api_posts():
     conn = get_db()
     posts = conn.execute('''
         SELECT posts.id, posts.user_id, posts.contenu, posts.image, posts.date_post,
-               users.prenom, users.nom, users.universite,
+               users.prenom, users.nom, users.universite, users.avatar,
                (SELECT COUNT(*) FROM likes WHERE likes.post_id = posts.id) as nb_likes,
                (SELECT COUNT(*) FROM commentaires WHERE commentaires.post_id = posts.id) as nb_commentaires,
                EXISTS(SELECT 1 FROM likes WHERE likes.post_id = posts.id AND likes.user_id = ?) as a_like,
@@ -2123,7 +2123,7 @@ def api_comments(post_id):
     conn = get_db()
     comments = conn.execute('''
         SELECT commentaires.id, commentaires.user_id, commentaires.contenu, commentaires.date_commentaire,
-               users.prenom, users.nom
+               users.prenom, users.nom, users.avatar
         FROM commentaires JOIN users ON commentaires.user_id = users.id
         WHERE commentaires.post_id = ? ORDER BY commentaires.date_commentaire ASC
     ''', (post_id,)).fetchall()
@@ -2267,7 +2267,7 @@ def api_profil(autre_id):
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
     conn = get_db()
-    user = conn.execute('SELECT id, nom, prenom, email, universite, filiere, annee, bio, date_inscription FROM users WHERE id = ?', (autre_id,)).fetchone()
+    user = conn.execute('SELECT id, nom, prenom, email, universite, filiere, annee, bio, avatar, date_inscription FROM users WHERE id = ?', (autre_id,)).fetchone()
     if not user:
         conn.close()
         return jsonify({'error': 'Introuvable'}), 404
@@ -2298,6 +2298,83 @@ def api_documents():
     ''').fetchall()
     conn.close()
     return jsonify([dict(d) for d in docs])
+
+# Lien de telechargement temporaire pour l'app mobile : le navigateur du
+# telephone n'a pas de session, on lui donne une URL signee valable 5 minutes.
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+_liens_docs = URLSafeTimedSerializer(app.secret_key, salt='telechargement-document')
+
+@app.route('/api/documents/<int:doc_id>/lien')
+def api_lien_document(doc_id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    doc = conn.execute('SELECT id, fichier FROM documents WHERE id = ?', (doc_id,)).fetchone()
+    conn.close()
+    if not doc:
+        return jsonify({'error': 'Document introuvable'}), 404
+    if not restaurer_fichier('uploads/' + doc['fichier']):
+        return jsonify({'error': "Le fichier de ce document n'est plus disponible"}), 404
+    jeton = _liens_docs.dumps(doc_id)
+    # chemin relatif : l'app le complete avec l'adresse du serveur (https derriere le proxy Render)
+    return jsonify({'chemin': url_for('fichier_document', doc_id=doc_id, t=jeton)})
+
+@app.route('/documents/<int:doc_id>/fichier')
+def fichier_document(doc_id):
+    try:
+        if _liens_docs.loads(request.args.get('t', ''), max_age=300) != doc_id:
+            raise BadSignature('autre document')
+    except SignatureExpired:
+        return "Lien expire : relance le telechargement depuis l'application.", 410
+    except BadSignature:
+        return 'Lien invalide.', 403
+    conn = get_db()
+    doc = conn.execute('SELECT * FROM documents WHERE id = ?', (doc_id,)).fetchone()
+    if not doc or not restaurer_fichier('uploads/' + doc['fichier']):
+        conn.close()
+        return 'Fichier introuvable.', 404
+    conn.execute('UPDATE documents SET telechargements = telechargements + 1 WHERE id = ?', (doc_id,))
+    conn.commit()
+    conn.close()
+    return send_file(os.path.join(app.root_path, 'uploads', doc['fichier']), as_attachment=True,
+                     download_name=doc['titre'] + os.path.splitext(doc['fichier'])[1])
+
+@app.route('/api/profil', methods=['PUT'])
+def api_modifier_profil():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    data = request.json or {}
+    champs = {k: sanitize_text(str(data.get(k) or ''), n) for k, n in
+              (('prenom', 50), ('nom', 50), ('universite', 100), ('filiere', 100), ('annee', 20), ('bio', 500))}
+    if not champs['prenom'] or not champs['nom']:
+        return jsonify({'error': 'Prenom et nom requis'}), 400
+    conn = get_db()
+    ancien = conn.execute('SELECT avatar FROM users WHERE id = ?', (user_id,)).fetchone()
+    avatar = ancien['avatar'] if ancien else None
+    if data.get('avatar'):
+        import base64, binascii
+        try:
+            img = base64.b64decode(data['avatar'], validate=True)
+        except (binascii.Error, ValueError):
+            img = b''
+        ext = extension_image(img)
+        if not ext:
+            conn.close()
+            return jsonify({'error': 'Image invalide (JPEG, PNG, GIF ou WebP)'}), 400
+        # nom unique a chaque changement : evite que les telephones gardent l'ancienne photo en cache
+        avatar = f"user_{user_id}_{uuid.uuid4().hex[:8]}{ext}"
+        stocker_fichier('static/avatars/' + avatar, img)
+        if ancien and ancien['avatar'] and ancien['avatar'] != 'default.png':
+            supprimer_fichier('static/avatars/' + ancien['avatar'])
+    conn.execute('UPDATE users SET prenom=?, nom=?, universite=?, filiere=?, annee=?, bio=?, avatar=? WHERE id=?',
+                 (champs['prenom'], champs['nom'], champs['universite'], champs['filiere'],
+                  champs['annee'], champs['bio'], avatar, user_id))
+    conn.commit()
+    user = conn.execute('SELECT id, nom, prenom, email, universite, filiere, annee, bio, avatar, date_inscription FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    return jsonify(dict(user))
 
 @app.route('/api/evenements')
 def api_evenements():

@@ -16,6 +16,7 @@ import CalendarScreen from '../screens/CalendarScreen';
 import GroupsScreen from '../screens/GroupsScreen';
 import DocumentsScreen from '../screens/DocumentsScreen';
 import SearchScreen from '../screens/SearchScreen';
+import EditProfileScreen from '../screens/EditProfileScreen';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import { colors, headerOptions } from '../theme';
@@ -86,6 +87,7 @@ export default function AppNavigator({ token, onLogin, onLogout }) {
             <Stack.Screen name="Groupes" component={GroupsScreen} />
             <Stack.Screen name="Calendrier" component={CalendarScreen} />
             <Stack.Screen name="Search" component={SearchScreen} options={{ title: 'Recherche' }} />
+            <Stack.Screen name="ModifierProfil" component={EditProfileScreen} options={{ title: 'Modifier le profil' }} />
           </>
         ) : (
           <>
