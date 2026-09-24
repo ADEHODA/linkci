@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vérifie ton e-mail — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+<div class="auth-page">
+    <div class="auth-card">
+        <a href="/" class="auth-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="40"></a>
+        <h1 class="auth-title">Vérifie ton e-mail</h1>
+        <p class="auth-subtitle">Entre le code à 6 chiffres envoyé à <strong>{{ email }}</strong>. Pense à regarder dans les spams.</p>
+        <form method="POST" class="auth-form">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <div class="form-group">
+                <label>Code</label>
+                <input type="text" name="code" required inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,7}" maxlength="7" placeholder="123456" style="letter-spacing:0.4em;font-size:1.3rem;text-align:center;">
+            </div>
+            <button type="submit" class="btn-primary auth-btn">Valider</button>
+        </form>
+        <form method="POST" style="margin-top:0.75rem;text-align:center;">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="renvoyer">
+            <button type="submit" class="btn-action" style="background:none;border:none;color:var(--orange);font-weight:600;cursor:pointer;">Renvoyer un code</button>
+        </form>
+        <div class="auth-footer">
+            <a href="/connexion">← Retour à la connexion</a>
+        </div>
+    </div>
+</div>
+</body>
+</html>

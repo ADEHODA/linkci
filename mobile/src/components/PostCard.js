@@ -82,6 +82,39 @@ export default function PostCard({ post, onRefresh }) {
     ]);
   };
 
+  // Publication d'un autre etudiant : signaler ou bloquer l'auteur
+  const signaler = (motif) => {
+    api.signalerPost(post.id, motif)
+      .then((r) => Alert.alert('Merci', r.message))
+      .catch((e) => Alert.alert('Erreur', e.message));
+  };
+
+  const ouvrirMenu = () => {
+    Alert.alert(`${post.prenom} ${post.nom}`, 'Que veux-tu faire ?', [
+      {
+        text: 'Signaler la publication',
+        onPress: () => Alert.alert('Signaler', 'Pourquoi ?', [
+          { text: 'Spam ou arnaque', onPress: () => signaler('Spam ou arnaque') },
+          { text: 'Contenu choquant ou haineux', onPress: () => signaler('Contenu choquant ou haineux') },
+          { text: 'Annuler', style: 'cancel' },
+        ]),
+      },
+      {
+        text: `Bloquer ${post.prenom}`,
+        style: 'destructive',
+        onPress: () => Alert.alert(`Bloquer ${post.prenom} ?`, "Vous ne verrez plus vos publications et ne pourrez plus vous ecrire. Tu pourras le debloquer depuis son profil.", [
+          { text: 'Annuler', style: 'cancel' },
+          {
+            text: 'Bloquer',
+            style: 'destructive',
+            onPress: () => api.bloquer(post.user_id).then(() => onRefresh && onRefresh()).catch((e) => Alert.alert('Erreur', e.message)),
+          },
+        ]),
+      },
+      { text: 'Annuler', style: 'cancel' },
+    ]);
+  };
+
   return (
     <Card>
       <View style={styles.header}>
@@ -92,11 +125,9 @@ export default function PostCard({ post, onRefresh }) {
             <Text style={styles.date}>{[post.universite, dateRelative(post.date_post)].filter(Boolean).join(' · ')}</Text>
           </View>
         </TouchableOpacity>
-        {post.est_auteur ? (
-          <TouchableOpacity onPress={handleDelete} hitSlop={10}>
-            <Ionicons name="ellipsis-horizontal" size={20} color={colors.textFaint} />
-          </TouchableOpacity>
-        ) : null}
+        <TouchableOpacity onPress={post.est_auteur ? handleDelete : ouvrirMenu} hitSlop={10}>
+          <Ionicons name="ellipsis-horizontal" size={20} color={colors.textFaint} />
+        </TouchableOpacity>
       </View>
 
       {post.contenu ? <Text style={styles.content}>{post.contenu}</Text> : null}

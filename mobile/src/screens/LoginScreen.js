@@ -22,7 +22,8 @@ export default function LoginScreen({ navigation, onLogin }) {
       api.setToken(data.token);
       onLogin(data.token);
     } catch (e) {
-      Alert.alert('Erreur', e.message);
+      if (e.data?.a_verifier) navigation.navigate('VerifierEmail', { email: e.data.email });
+      else Alert.alert('Erreur', e.message);
     }
     setLoading(false);
   };

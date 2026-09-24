@@ -21,6 +21,7 @@ import SearchScreen from '../screens/SearchScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
+import VerifyEmailScreen from '../screens/VerifyEmailScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import { useTheme } from '../theme';
 import { useRealtime } from '../realtime';
@@ -127,6 +128,9 @@ export default function AppNavigator({ token, onLogin, onLogout, accueilVu }) {
             </Stack.Screen>
             <Stack.Screen name="Register" options={{ headerShown: false }}>
               {(props) => <RegisterScreen {...props} onLogin={onLogin} />}
+            </Stack.Screen>
+            <Stack.Screen name="VerifierEmail" options={{ headerShown: false }}>
+              {(props) => <VerifyEmailScreen {...props} onLogin={onLogin} />}
             </Stack.Screen>
           </>
         )}

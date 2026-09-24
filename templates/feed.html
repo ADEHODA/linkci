@@ -103,6 +103,12 @@
                         <button class="btn-action" onclick="toggleComments({{ post.id }})">
                             💬 {{ post.nb_commentaires }}
                         </button>
+                        {% if post.user_id != session.user_id %}
+                        <form method="POST" action="/signaler_post/{{ post.id }}" style="margin-left:auto;" onsubmit="return confirm('Signaler cette publication aux administrateurs ?')">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <button type="submit" class="btn-action" title="Signaler">🚩</button>
+                        </form>
+                        {% endif %}
                     </div>
                     <div class="post-comments" id="comments-{{ post.id }}" style="display:none;">
                         <form method="POST" action="/commenter/{{ post.id }}" class="comment-form">

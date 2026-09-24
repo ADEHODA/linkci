@@ -562,6 +562,39 @@ def init_db():
         conn.execute("UPDATE users SET role = 'admin' WHERE lower(email) = ?", (email,))
     conn.commit()
 
+    # Verification de l'e-mail : DEFAULT 1 pour que les comptes existants restent
+    # actifs ; les nouvelles inscriptions sont creees avec email_verifie = 0.
+    try:
+        conn.execute('ALTER TABLE users ADD COLUMN email_verifie INTEGER DEFAULT 1')
+        conn.commit()
+    except Exception:
+        pass
+    for requete in (
+        '''CREATE TABLE IF NOT EXISTS codes_verification (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            code TEXT NOT NULL,
+            expire TEXT NOT NULL,
+            essais INTEGER DEFAULT 0)''',
+        # Signalements de publications (un par etudiant et par publication)
+        '''CREATE TABLE IF NOT EXISTS signalements_posts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            motif TEXT,
+            date_signalement TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE (post_id, user_id))''',
+        # Blocages : bloqueur ne voit plus les publications de bloque, et plus
+        # aucun message ne passe entre eux
+        '''CREATE TABLE IF NOT EXISTS blocages (
+            bloqueur_id INTEGER NOT NULL,
+            bloque_id INTEGER NOT NULL,
+            date_blocage TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (bloqueur_id, bloque_id))''',
+    ):
+        conn.execute(requete)
+    conn.commit()
+
     # FTS5 full-text search tables (SQLite uniquement ; sous PostgreSQL la
     # recherche utilise le repli ILIKE)
     if not db.IS_PG:
@@ -776,6 +809,110 @@ def index():
     conn.close()
     return render_template('index.html', nb_users=nb_users, nb_posts=nb_posts, nb_formations=nb_formations)
 
+# ---- Verification de l'adresse e-mail (code a 6 chiffres)
+CODE_VALIDITE_MIN = 15
+CODE_ESSAIS_MAX = 5
+
+def verification_active():
+    return app.config.get('VERIFIER_EMAIL', True)  # desactivable pour les anciens tests
+
+def envoyer_code_verification(user_id, email, prenom=''):
+    """Remplace le code precedent et l'envoie par e-mail. Limite les envois."""
+    if not check_rate_limit(f'code_verif:{user_id}', max_reqs=3, window=900):
+        return False
+    code = f'{secrets.randbelow(10 ** 6):06d}'
+    expire = (datetime.now(timezone.utc) + timedelta(minutes=CODE_VALIDITE_MIN)).strftime('%Y-%m-%d %H:%M:%S')
+    conn = get_db()
+    conn.execute('DELETE FROM codes_verification WHERE user_id = ?', (user_id,))
+    conn.execute('INSERT INTO codes_verification (user_id, code, expire) VALUES (?, ?, ?)',
+                 (user_id, _hash_jeton(code), expire))
+    conn.commit()
+    conn.close()
+    return envoyer_email(email, f'{code} est ton code LINK CI',
+                         f"Bonjour {prenom},\n\nTon code de verification LINK CI : {code}\n\n"
+                         f"Il expire dans {CODE_VALIDITE_MIN} minutes. Si tu n'as pas cree de compte, "
+                         "ignore cet e-mail.\n\nL'equipe LINK CI")
+
+def verifier_code_email(email, code):
+    """Renvoie (user, None) si le code est bon (le compte devient verifie),
+    sinon (None, message d'erreur)."""
+    email = normaliser_email(email)
+    code = re.sub(r'\D', '', str(code or ''))
+    conn = get_db()
+    user = conn.execute('SELECT * FROM users WHERE lower(email) = ?', (email,)).fetchone()
+    if not user or user['email_verifie']:
+        conn.close()
+        # jamais de connexion sans mot de passe pour un compte deja verifie
+        return None, 'Code invalide. Si ton compte est deja verifie, connecte-toi.'
+    rc = conn.execute('SELECT * FROM codes_verification WHERE user_id = ?', (user['id'],)).fetchone()
+    maintenant = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    if not rc or rc['expire'] < maintenant or (rc['essais'] or 0) >= CODE_ESSAIS_MAX:
+        conn.close()
+        return None, 'Code expire. Demande un nouveau code.'
+    if not secrets.compare_digest(rc['code'], _hash_jeton(code)):
+        conn.execute('UPDATE codes_verification SET essais = COALESCE(essais, 0) + 1 WHERE id = ?', (rc['id'],))
+        conn.commit()
+        conn.close()
+        return None, 'Code incorrect.'
+    conn.execute('UPDATE users SET email_verifie = 1 WHERE id = ?', (user['id'],))
+    conn.execute('DELETE FROM codes_verification WHERE user_id = ?', (user['id'],))
+    conn.commit()
+    conn.close()
+    return user, None
+
+def ouvrir_session(user):
+    session.clear()  # nouvelle session (evite la fixation de session)
+    session.permanent = True
+    session['user_id'] = user['id']
+    session['user_nom'] = user['prenom'] + ' ' + user['nom']
+    session['user_email'] = user['email']
+    session['v'] = user['jeton_version'] or 0
+
+# ---- Blocages entre etudiants
+def blocage_entre(a, b):
+    conn = get_db()
+    r = conn.execute('SELECT 1 FROM blocages WHERE (bloqueur_id = ? AND bloque_id = ?) OR (bloqueur_id = ? AND bloque_id = ?)',
+                     (a, b, b, a)).fetchone()
+    conn.close()
+    return bool(r)
+
+def changer_blocage(moi, autre, bloquer):
+    conn = get_db()
+    if bloquer:
+        if not conn.execute('SELECT 1 FROM blocages WHERE bloqueur_id = ? AND bloque_id = ?', (moi, autre)).fetchone():
+            conn.execute('INSERT INTO blocages (bloqueur_id, bloque_id) VALUES (?, ?)', (moi, autre))
+        # plus d'abonnement dans un sens ni dans l'autre
+        conn.execute('DELETE FROM follows WHERE (follower_id = ? AND followed_id = ?) OR (follower_id = ? AND followed_id = ?)',
+                     (moi, autre, autre, moi))
+    else:
+        conn.execute('DELETE FROM blocages WHERE bloqueur_id = ? AND bloque_id = ?', (moi, autre))
+    conn.commit()
+    conn.close()
+
+def signaler_publication(post_id, user_id, motif):
+    """Renvoie un message d'erreur, ou None si le signalement est enregistre."""
+    motif = sanitize_text(motif or '', 300)
+    conn = get_db()
+    post = conn.execute('SELECT id, user_id, contenu FROM posts WHERE id = ?', (post_id,)).fetchone()
+    if not post:
+        conn.close()
+        return 'Publication introuvable'
+    if post['user_id'] == user_id:
+        conn.close()
+        return 'Tu ne peux pas signaler ta propre publication'
+    if trop_rapide('signalement', user_id, 10, 3600):
+        conn.close()
+        return 'Trop de signalements. Reessaie plus tard.'
+    if not conn.execute('SELECT 1 FROM signalements_posts WHERE post_id = ? AND user_id = ?', (post_id, user_id)).fetchone():
+        conn.execute('INSERT INTO signalements_posts (post_id, user_id, motif) VALUES (?, ?, ?)', (post_id, user_id, motif))
+        conn.commit()
+        conn.close()
+        extrait = (post['contenu'] or '')[:60]
+        prevenir_admins('signalement', f'Publication signalee : {extrait}')
+    else:
+        conn.close()
+    return None
+
 @app.route('/inscription', methods=['GET', 'POST'])
 def inscription():
     if request.method == 'POST':
@@ -805,11 +942,16 @@ def inscription():
         try:
             if conn.execute('SELECT 1 FROM users WHERE lower(email) = ?', (email,)).fetchone():
                 raise db.IntegrityError('email deja utilise')
-            conn.execute('INSERT INTO users (nom, prenom, email, mot_de_passe, universite, filiere, annee) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                         (nom, prenom, email, mot_de_passe, universite, filiere, annee))
+            user_id = conn.execute('INSERT INTO users (nom, prenom, email, mot_de_passe, universite, filiere, annee, email_verifie) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                                   (nom, prenom, email, mot_de_passe, universite, filiere, annee, 0 if verification_active() else 1)).lastrowid
             conn.commit()
-            flash('Compte cree ! Connecte-toi.', 'success')
-            return redirect(url_for('connexion'))
+            if not verification_active():
+                flash('Compte cree ! Connecte-toi.', 'success')
+                return redirect(url_for('connexion'))
+            envoyer_code_verification(user_id, email, prenom)
+            session['a_verifier'] = email
+            flash(f'Compte cree ! Entre le code envoye a {email}.', 'success')
+            return redirect(url_for('verifier_email'))
         except db.IntegrityError:
             flash('Cet email est deja utilise.', 'error')
             return render_template('inscription.html')
@@ -844,19 +986,65 @@ def connexion():
         if user and user['banni']:
             flash('Votre compte a ete suspendu. Contactez l\'administration.', 'error')
             return render_template('connexion.html')
+        if user and not user['email_verifie']:
+            envoyer_code_verification(user['id'], user['email'], user['prenom'])
+            session['a_verifier'] = user['email']
+            flash(f"Verifie d'abord ton adresse : un code a ete envoye a {user['email']}.", 'info')
+            return redirect(url_for('verifier_email'))
         if user:
-            session.clear()  # nouvelle session (evite la fixation de session)
-            session.permanent = True
-            session['user_id'] = user['id']
-            session['user_nom'] = user['prenom'] + ' ' + user['nom']
-            session['user_email'] = user['email']
-            session['v'] = user['jeton_version'] or 0
+            ouvrir_session(user)
             flash('Connecte !', 'success')
             return redirect(url_for('feed'))
         else:
             flash('Email ou mot de passe incorrect.', 'error')
             return render_template('connexion.html')
     return render_template('connexion.html')
+
+@app.route('/verifier_email', methods=['GET', 'POST'])
+def verifier_email():
+    email = session.get('a_verifier', '')
+    if not email:
+        return redirect(url_for('connexion'))
+    if request.method == 'POST':
+        ip = request.remote_addr or 'unknown'
+        if request.form.get('action') == 'renvoyer':
+            conn = get_db()
+            user = conn.execute('SELECT id, email, prenom, email_verifie FROM users WHERE lower(email) = ?', (email,)).fetchone()
+            conn.close()
+            if user and not user['email_verifie'] and envoyer_code_verification(user['id'], user['email'], user['prenom']):
+                flash('Nouveau code envoye.', 'success')
+            else:
+                flash("Patiente quelques minutes avant de redemander un code.", 'error')
+            return redirect(url_for('verifier_email'))
+        if not check_rate_limit(f'verif_code:{ip}', max_reqs=10, window=900):
+            flash('Trop de tentatives. Reessaie dans 15 minutes.', 'error')
+            return redirect(url_for('verifier_email'))
+        user, erreur = verifier_code_email(email, request.form.get('code', ''))
+        if erreur:
+            flash(erreur, 'error')
+            return redirect(url_for('verifier_email'))
+        ouvrir_session(user)
+        flash('Adresse verifiee, bienvenue sur LINK CI !', 'success')
+        return redirect(url_for('feed'))
+    return render_template('verifier_email.html', email=email)
+
+@app.route('/signaler_post/<int:post_id>', methods=['POST'])
+def signaler_post_web(post_id):
+    if 'user_id' not in session:
+        return redirect(url_for('connexion'))
+    erreur = signaler_publication(post_id, session['user_id'], request.form.get('motif', ''))
+    flash(erreur or 'Merci, un administrateur va examiner cette publication.', 'error' if erreur else 'success')
+    return redirection_sure(request.referrer, url_for('feed'))
+
+@app.route('/bloquer/<int:autre_id>', methods=['POST'])
+def bloquer_web(autre_id):
+    if 'user_id' not in session:
+        return redirect(url_for('connexion'))
+    if autre_id != session['user_id']:
+        bloquer = request.form.get('action') != 'debloquer'
+        changer_blocage(session['user_id'], autre_id, bloquer)
+        flash('Utilisateur bloque.' if bloquer else 'Utilisateur debloque.', 'success')
+    return redirect(url_for('profil', user_id=autre_id))
 
 @app.route('/deconnexion')
 def deconnexion():
@@ -1007,8 +1195,9 @@ def feed():
                EXISTS(SELECT 1 FROM likes WHERE likes.post_id = posts.id AND likes.user_id = ?) as a_like
         FROM posts
         JOIN users ON posts.user_id = users.id
+        WHERE posts.user_id NOT IN (SELECT bloque_id FROM blocages WHERE bloqueur_id = ?) AND posts.user_id NOT IN (SELECT bloqueur_id FROM blocages WHERE bloque_id = ?)
         ORDER BY posts.date_post DESC
-    ''', (session['user_id'],)).fetchall()
+    ''', (session['user_id'], session['user_id'], session['user_id'])).fetchall()
     nb_abonnements = conn.execute('SELECT COUNT(*) as nb FROM follows WHERE follower_id = ?', (session['user_id'],)).fetchone()['nb']
     conn.close()
 
@@ -1110,8 +1299,10 @@ def profil(user_id):
                                     (session['user_id'], user_id)).fetchone())
     nb_abonnes = conn.execute('SELECT COUNT(*) as nb FROM follows WHERE followed_id = ?', (user_id,)).fetchone()['nb']
     nb_abonnements = conn.execute('SELECT COUNT(*) as nb FROM follows WHERE follower_id = ?', (user_id,)).fetchone()['nb']
+    est_bloque = bool(conn.execute('SELECT 1 FROM blocages WHERE bloqueur_id = ? AND bloque_id = ?',
+                                   (session['user_id'], user_id)).fetchone())
     conn.close()
-    return render_template('profil.html', user=user, posts=posts, nb_posts=nb_posts, nb_likes_recus=nb_likes_recus, nb_commentaires_recus=nb_commentaires_recus, nb_bourses=nb_bourses, nb_docs=nb_docs, badges=badges, est_abonne=est_abonne, nb_abonnes=nb_abonnes, nb_abonnements=nb_abonnements)
+    return render_template('profil.html', user=user, posts=posts, nb_posts=nb_posts, nb_likes_recus=nb_likes_recus, nb_commentaires_recus=nb_commentaires_recus, nb_bourses=nb_bourses, nb_docs=nb_docs, badges=badges, est_abonne=est_abonne, nb_abonnes=nb_abonnes, nb_abonnements=nb_abonnements, est_bloque=est_bloque)
 
 # ===================== USER STATS =====================
 @app.route('/stats')
@@ -1175,7 +1366,8 @@ def envoyer_message(destinataire_id):
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
     contenu = sanitize_text(request.form.get('contenu', ''), 5000)
-    if contenu and (trop_rapide('message', session['user_id'], 30, 60) or destinataire_id == session['user_id']):
+    if contenu and (trop_rapide('message', session['user_id'], 30, 60) or destinataire_id == session['user_id']
+                    or blocage_entre(session['user_id'], destinataire_id)):
         flash("Message non envoye (trop de messages, ou destinataire invalide).", 'error')
         return redirect(url_for('conversation', autre_id=destinataire_id))
     if contenu:
@@ -2159,9 +2351,26 @@ def admin_dashboard():
     derniers_posts = conn.execute('SELECT posts.id, posts.contenu, posts.date_post, users.prenom, users.nom FROM posts JOIN users ON posts.user_id = users.id ORDER BY posts.date_post DESC LIMIT 10').fetchall()
     bourses_attente = conn.execute('SELECT * FROM bourses WHERE valide = 0 ORDER BY date_publication DESC').fetchall()
     formations_attente = conn.execute('SELECT * FROM formations WHERE valide = 0 ORDER BY date_ajout DESC').fetchall()
+    posts_signales = conn.execute('''
+        SELECT posts.id, posts.contenu, users.prenom, users.nom, COUNT(s.id) AS nb,
+               MAX(s.motif) AS motif
+        FROM signalements_posts s JOIN posts ON posts.id = s.post_id JOIN users ON users.id = posts.user_id
+        GROUP BY posts.id, posts.contenu, users.prenom, users.nom ORDER BY nb DESC''').fetchall()
     conn.close()
     return render_template('admin.html', stats=stats, derniers_inscrits=derniers_inscrits, derniers_posts=derniers_posts,
-                           bourses_attente=bourses_attente, formations_attente=formations_attente)
+                           bourses_attente=bourses_attente, formations_attente=formations_attente, posts_signales=posts_signales)
+
+@app.route('/admin/ignorer_signalement/<int:post_id>', methods=['POST'])
+def admin_ignorer_signalement(post_id):
+    if not admin_required():
+        flash('Acces reserve', 'error')
+        return redirect(url_for('feed'))
+    conn = get_db()
+    conn.execute('DELETE FROM signalements_posts WHERE post_id = ?', (post_id,))
+    conn.commit()
+    conn.close()
+    flash('Signalement ignore', 'success')
+    return redirect(url_for('admin_dashboard'))
 
 def prevenir_admins(type, message):
     conn = get_db()
@@ -2252,6 +2461,7 @@ def admin_supprimer_post(post_id):
         return jsonify({'error': 'Post introuvable'}), 404
     conn.execute('DELETE FROM likes WHERE post_id = ?', (post_id,))
     conn.execute('DELETE FROM commentaires WHERE post_id = ?', (post_id,))
+    conn.execute('DELETE FROM signalements_posts WHERE post_id = ?', (post_id,))
     conn.execute('DELETE FROM posts WHERE id = ?', (post_id,))
     # Delete post image if any
     if post['image']:
@@ -2390,13 +2600,20 @@ def api_register():
     try:
         if conn.execute('SELECT 1 FROM users WHERE lower(email) = ?', (email,)).fetchone():
             raise db.IntegrityError('email deja utilise')
-        conn.execute('INSERT INTO users (nom, prenom, email, mot_de_passe, universite, filiere, annee) VALUES (?, ?, ?, ?, ?, ?, ?)',
-                     (nom, prenom, email, hash_password(mot_de_passe),
-                      data.get('universite', ''), data.get('filiere', ''), data.get('annee', '')))
+        user_id = conn.execute('INSERT INTO users (nom, prenom, email, mot_de_passe, universite, filiere, annee, email_verifie) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+                               (nom, prenom, email, hash_password(mot_de_passe),
+                                sanitize_text(str(data.get('universite') or ''), 100), sanitize_text(str(data.get('filiere') or ''), 100),
+                                sanitize_text(str(data.get('annee') or ''), 20), 0 if verification_active() else 1)).lastrowid
         conn.commit()
-        user = conn.execute('SELECT id, nom, prenom, email, universite, filiere FROM users WHERE email = ?', (email,)).fetchone()
+        if not verification_active():
+            user = conn.execute('SELECT id, nom, prenom, email, universite, filiere FROM users WHERE id = ?', (user_id,)).fetchone()
+            conn.close()
+            return jsonify({'token': api_token(user['id']), 'user': dict(user)}), 201
         conn.close()
-        return jsonify({'token': api_token(user['id']), 'user': dict(user)}), 201
+        envoyer_code_verification(user_id, email, prenom)
+        # pas de jeton tant que l'adresse n'est pas verifiee (POST /api/verifier_email)
+        return jsonify({'a_verifier': True, 'email': email,
+                        'message': f'Un code a 6 chiffres a ete envoye a {email}.'}), 201
     except db.IntegrityError:
         conn.close()
         return jsonify({'error': 'Email deja utilise'}), 409
@@ -2420,6 +2637,11 @@ def api_login():
     if user['banni']:
         conn.close()
         return jsonify({'error': "Compte suspendu. Contacte l'administration."}), 403
+    if not user['email_verifie']:
+        conn.close()
+        envoyer_code_verification(user['id'], user['email'], user['prenom'])
+        return jsonify({'error': "Verifie d'abord ton adresse e-mail : un code vient de t'etre envoye.",
+                        'a_verifier': True, 'email': user['email']}), 403
     if not user['mot_de_passe'].startswith('$2'):
         nouveau = hash_password(data.get('mot_de_passe', ''))
         conn.execute('UPDATE users SET mot_de_passe = ? WHERE id = ?', (nouveau, user['id']))
@@ -2428,6 +2650,72 @@ def api_login():
     # jamais le hash du mot de passe ni les champs internes
     profil = {k: user[k] for k in ('id', 'nom', 'prenom', 'email', 'universite', 'filiere', 'annee', 'bio', 'avatar')}
     return jsonify({'token': api_token(user['id']), 'user': profil})
+
+@app.route('/api/verifier_email', methods=['POST'])
+def api_verifier_email():
+    ip = request.remote_addr or 'unknown'
+    if not check_rate_limit(f'verif_code:{ip}', max_reqs=10, window=900):
+        return jsonify({'error': 'Trop de tentatives. Reessaie dans 15 minutes.'}), 429
+    data = request.get_json(silent=True) or {}
+    user, erreur = verifier_code_email(data.get('email', ''), data.get('code', ''))
+    if erreur:
+        return jsonify({'error': erreur}), 400
+    profil = {k: user[k] for k in ('id', 'nom', 'prenom', 'email', 'universite', 'filiere', 'annee', 'bio', 'avatar')}
+    return jsonify({'token': api_token(user['id']), 'user': profil})
+
+@app.route('/api/renvoyer_code', methods=['POST'])
+def api_renvoyer_code():
+    ip = request.remote_addr or 'unknown'
+    if not check_rate_limit(f'renvoi_code:{ip}', max_reqs=5, window=900):
+        return jsonify({'error': 'Trop de demandes. Reessaie dans 15 minutes.'}), 429
+    data = request.get_json(silent=True) or {}
+    email = normaliser_email(data.get('email', ''))
+    conn = get_db()
+    user = conn.execute('SELECT id, email, prenom, email_verifie FROM users WHERE lower(email) = ?', (email,)).fetchone()
+    conn.close()
+    if user and not user['email_verifie']:
+        envoyer_code_verification(user['id'], user['email'], user['prenom'])
+    # meme reponse dans tous les cas : ne revele pas quels comptes existent
+    return jsonify({'message': "Si un compte attend une verification, un nouveau code a ete envoye."})
+
+@app.route('/api/posts/<int:post_id>/signaler', methods=['POST'])
+def api_signaler_post(post_id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    data = request.get_json(silent=True) or {}
+    erreur = signaler_publication(post_id, user_id, data.get('motif', ''))
+    if erreur:
+        return jsonify({'error': erreur}), 404 if 'introuvable' in erreur else 400
+    return jsonify({'message': 'Merci, un administrateur va examiner cette publication.'})
+
+@app.route('/api/utilisateurs/<int:autre_id>/bloquer', methods=['POST', 'DELETE'])
+def api_bloquer(autre_id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if autre_id == user_id:
+        return jsonify({'error': 'Impossible de te bloquer toi-meme'}), 400
+    conn = get_db()
+    existe = conn.execute('SELECT 1 FROM users WHERE id = ?', (autre_id,)).fetchone()
+    conn.close()
+    if not existe:
+        return jsonify({'error': 'Introuvable'}), 404
+    bloquer = request.method == 'POST'
+    changer_blocage(user_id, autre_id, bloquer)
+    return jsonify({'bloque': bloquer})
+
+@app.route('/api/bloques')
+def api_bloques():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    lignes = conn.execute('''SELECT users.id, users.prenom, users.nom, users.avatar FROM blocages
+                             JOIN users ON users.id = blocages.bloque_id
+                             WHERE blocages.bloqueur_id = ? ORDER BY blocages.date_blocage DESC''', (user_id,)).fetchall()
+    conn.close()
+    return jsonify([dict(l) for l in lignes])
 
 @app.route('/api/me')
 def api_me():
@@ -2465,8 +2753,9 @@ def api_posts():
                EXISTS(SELECT 1 FROM likes WHERE likes.post_id = posts.id AND likes.user_id = ?) as a_like,
                (posts.user_id = ?) as est_auteur
         FROM posts JOIN users ON posts.user_id = users.id
+        WHERE posts.user_id NOT IN (SELECT bloque_id FROM blocages WHERE bloqueur_id = ?) AND posts.user_id NOT IN (SELECT bloqueur_id FROM blocages WHERE bloque_id = ?)
         ORDER BY posts.date_post DESC LIMIT ? OFFSET ?
-    ''', (user_id, user_id, per_page, offset)).fetchall()
+    ''', (user_id, user_id, user_id, user_id, per_page, offset)).fetchall()
     conn.close()
     return jsonify([dict(p) for p in posts])
 
@@ -2648,6 +2937,8 @@ def api_send_message():
         return jsonify({'error': 'destinataire_id invalide'}), 400
     if destinataire_id == user_id:
         return jsonify({'error': "Tu ne peux pas t'envoyer un message"}), 400
+    if blocage_entre(user_id, destinataire_id):
+        return jsonify({'error': "Tu ne peux pas ecrire a cette personne."}), 409  # pas 403 : l'app y voit une session expiree
     conn = get_db()
     if not conn.execute('SELECT 1 FROM users WHERE id = ?', (destinataire_id,)).fetchone():
         conn.close()
@@ -2714,8 +3005,9 @@ def api_profil(autre_id):
         JOIN badges b ON ub.badge_id = b.id
         WHERE ub.user_id = ? ORDER BY ub.date_obtention DESC
     ''', (autre_id,)).fetchall()
+    bloque = bool(conn.execute('SELECT 1 FROM blocages WHERE bloqueur_id = ? AND bloque_id = ?', (user_id, autre_id)).fetchone())
     conn.close()
-    return jsonify({'user': dict(user), 'posts': [dict(p) for p in posts], 'badges': [dict(b) for b in badges]})
+    return jsonify({'user': dict(user), 'posts': [dict(p) for p in posts], 'badges': [dict(b) for b in badges], 'bloque': bloque})
 
 @app.route('/api/documents')
 def api_documents():
@@ -3108,6 +3400,8 @@ def handle_send_message(data):
         return
     contenu = sanitize_text(str(data.get('contenu') or ''), FIELD_MAXLEN['message'])
     if not contenu or destinataire_id == session['user_id'] or trop_rapide('message', session['user_id'], 30, 60):
+        return
+    if blocage_entre(session['user_id'], destinataire_id):
         return
 
     conn = get_db()

@@ -1,6 +1,6 @@
 // Profil d'un autre etudiant : navigate('ProfilEtudiant', { id })
 import React from 'react';
-import { View, Text, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import Avatar from '../components/Avatar';
@@ -20,6 +20,22 @@ export default function StudentProfileScreen({ route, navigation }) {
   }, null);
 
   if (loading || !data) return <SkeletonList lignes={3} avatar carte />;
+
+  const changerBlocage = () => {
+    const bloque = data.bloque;
+    Alert.alert(
+      bloque ? `Debloquer ${data.user.prenom} ?` : `Bloquer ${data.user.prenom} ?`,
+      bloque ? 'Vous pourrez de nouveau voir vos publications et vous ecrire.' : 'Vous ne verrez plus vos publications et ne pourrez plus vous ecrire.',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: bloque ? 'Debloquer' : 'Bloquer',
+          style: bloque ? 'default' : 'destructive',
+          onPress: () => (bloque ? api.debloquer(id) : api.bloquer(id)).then(refresh).catch((e) => Alert.alert('Erreur', e.message)),
+        },
+      ],
+    );
+  };
   const { user, posts = [], badges = [], estMoi } = data;
   const inscrit = parseDate(user.date_inscription);
   const totalLikes = posts.reduce((n, p) => n + (p.nb_likes || 0), 0);
@@ -77,6 +93,12 @@ export default function StudentProfileScreen({ route, navigation }) {
                 <Text style={styles.boutonTexte}>Envoyer un message</Text>
               </TouchableOpacity>
             )}
+            {!estMoi ? (
+              <TouchableOpacity style={styles.bloquer} onPress={changerBlocage} hitSlop={8}>
+                <Ionicons name={data.bloque ? 'lock-open-outline' : 'ban-outline'} size={15} color={colors.textMuted} />
+                <Text style={styles.bloquerTexte}>{data.bloque ? `Debloquer ${user.prenom}` : `Bloquer ${user.prenom}`}</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
           <Text style={styles.sectionTitle}>Publications</Text>
         </>
@@ -107,6 +129,8 @@ function Stat({ styles, valeur, label }) {
 }
 
 const useStyles = creerStyles(({ colors, font, shadow }) => ({
+  bloquer: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.md, paddingVertical: 6 },
+  bloquerTexte: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
   container: { flex: 1, backgroundColor: colors.bg },
   banner: { height: 80, backgroundColor: colors.primary },
   header: { backgroundColor: colors.card, alignItems: 'center', paddingHorizontal: spacing.xl, paddingBottom: spacing.xl, borderBottomLeftRadius: radius.xl, borderBottomRightRadius: radius.xl, ...shadow },

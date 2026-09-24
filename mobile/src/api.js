@@ -91,7 +91,12 @@ async function request(path, options = {}) {
   if ((res.status === 401 || res.status === 403) && _token && path !== '/api/login' && _surSessionExpiree) {
     if (res.status === 401 || /suspendu/i.test(data.error || '')) _surSessionExpiree(data.error);
   }
-  if (!res.ok) throw new Error(data.error || 'Erreur réseau');
+  if (!res.ok) {
+    const erreur = new Error(data.error || 'Erreur réseau');
+    erreur.status = res.status;
+    erreur.data = data; // ex. { a_verifier: true, email } a la connexion
+    throw erreur;
+  }
   return data;
 }
 
@@ -101,6 +106,19 @@ export const register = (data) =>
 
 export const login = (data) =>
   request('/api/login', { method: 'POST', body: JSON.stringify(data) });
+
+// Verification de l'adresse e-mail (code a 6 chiffres)
+export const verifierEmail = (email, code) =>
+  request('/api/verifier_email', { method: 'POST', body: JSON.stringify({ email, code }) });
+export const renvoyerCode = (email) =>
+  request('/api/renvoyer_code', { method: 'POST', body: JSON.stringify({ email }) });
+
+// Signalements et blocages
+export const signalerPost = (id, motif) =>
+  request(`/api/posts/${id}/signaler`, { method: 'POST', body: JSON.stringify({ motif }) });
+export const bloquer = (id) => request(`/api/utilisateurs/${id}/bloquer`, { method: 'POST' });
+export const debloquer = (id) => request(`/api/utilisateurs/${id}/bloquer`, { method: 'DELETE' });
+export const getBloques = () => request('/api/bloques');
 
 export const getMe = () => request('/api/me');
 

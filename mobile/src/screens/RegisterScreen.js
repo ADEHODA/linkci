@@ -26,8 +26,12 @@ export default function RegisterScreen({ navigation, onLogin }) {
     setLoading(true);
     try {
       const data = await api.register({ nom: nom.trim(), prenom: prenom.trim(), email: email.trim(), mot_de_passe: password, universite: universite.trim() });
-      api.setToken(data.token);
-      onLogin(data.token);
+      if (data.a_verifier) {
+        navigation.navigate('VerifierEmail', { email: data.email });
+      } else {
+        api.setToken(data.token);
+        onLogin(data.token);
+      }
     } catch (e) {
       Alert.alert('Erreur', e.message);
     }

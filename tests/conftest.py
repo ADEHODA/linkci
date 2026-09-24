@@ -18,6 +18,7 @@ import pytest
 @pytest.fixture
 def client():
     linkci_app.app.config['TESTING'] = True
+    linkci_app.app.config['VERIFIER_EMAIL'] = False  # les tests dedies l'activent
     linkci_app.app.secret_key = 'test-secret'
     with linkci_app.app.test_client() as c:
         yield c

@@ -53,6 +53,11 @@
                             {% if est_abonne %}✓ Abonné{% else %}Suivre{% endif %}
                         </button>
                     </form>
+                    <form method="POST" action="/bloquer/{{ user.id }}" style="margin-top:0.5rem;" {% if not est_bloque %}onsubmit="return confirm('Bloquer cette personne ? Vous ne verrez plus vos publications et ne pourrez plus vous ecrire.')"{% endif %}>
+                        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="action" value="{{ 'debloquer' if est_bloque else 'bloquer' }}">
+                        <button type="submit" class="btn-modifier" style="background:none;color:var(--text-muted);font-size:0.8rem;">{{ '🔓 Débloquer' if est_bloque else '🚫 Bloquer' }}</button>
+                    </form>
                 </div>
                 {% endif %}
                 {% if user.id == session.user_id %}
