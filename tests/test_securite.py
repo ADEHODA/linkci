@@ -322,5 +322,7 @@ def test_bouton_admin_xss_neutralise(client):
     inscrire(client, 'piege@test.ci')
     sql("UPDATE users SET prenom = ? WHERE email = 'piege@test.ci'", ("x');alert(1);('",))
     connecter(client, 'admin_xss@test.ci')
-    page = client.get('/admin').get_data(as_text=True)
-    assert "confirm('Bannir x" not in page and 'this.dataset.nom' in page
+    for url in ('/admin', '/admin/utilisateurs'):
+        page = client.get(url).get_data(as_text=True)
+        assert "confirm('Bannir x" not in page and "alert(1);('" not in page
+    assert 'this.dataset.nom' in page

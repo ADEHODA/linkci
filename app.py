@@ -2134,7 +2134,7 @@ def admin_dashboard():
     stats['sondages'] = conn.execute('SELECT COUNT(*) as nb FROM sondages').fetchone()['nb']
     stats['groupes'] = conn.execute('SELECT COUNT(*) as nb FROM groupes').fetchone()['nb']
     stats['evenements'] = conn.execute('SELECT COUNT(*) as nb FROM evenements').fetchone()['nb']
-    derniers_inscrits = conn.execute('SELECT id, prenom, nom, email, universite, date_inscription FROM users ORDER BY date_inscription DESC LIMIT 10').fetchall()
+    derniers_inscrits = conn.execute('SELECT id, prenom, nom, email, universite, date_inscription, banni, role FROM users ORDER BY date_inscription DESC LIMIT 10').fetchall()
     derniers_posts = conn.execute('SELECT posts.id, posts.contenu, posts.date_post, users.prenom, users.nom FROM posts JOIN users ON posts.user_id = users.id ORDER BY posts.date_post DESC LIMIT 10').fetchall()
     bourses_attente = conn.execute('SELECT * FROM bourses WHERE valide = 0 ORDER BY date_publication DESC').fetchall()
     formations_attente = conn.execute('SELECT * FROM formations WHERE valide = 0 ORDER BY date_ajout DESC').fetchall()
@@ -2191,7 +2191,7 @@ def admin_utilisateurs():
         flash('Acces reserve', 'error')
         return redirect(url_for('feed'))
     conn = get_db()
-    utilisateurs = conn.execute('SELECT id, prenom, nom, email, universite, banni, date_inscription FROM users ORDER BY date_inscription DESC').fetchall()
+    utilisateurs = conn.execute('SELECT id, prenom, nom, email, universite, banni, role, date_inscription FROM users ORDER BY date_inscription DESC').fetchall()
     conn.close()
     return render_template('admin_utilisateurs.html', utilisateurs=utilisateurs)
 

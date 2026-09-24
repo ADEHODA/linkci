@@ -13,6 +13,15 @@
         .admin-table th { text-align:left;padding:0.5rem;border-bottom:2px solid var(--border);color:var(--text-muted);font-size:0.75rem;text-transform:uppercase; }
         .admin-table td { padding:0.5rem;border-bottom:1px solid var(--border);vertical-align:middle; }
         .admin-table tr:hover td { background:var(--orange-light); }
+        @media (max-width:700px) {
+            .admin-table tr:first-child { display:none; }
+            .admin-table tr { display:flex;flex-wrap:wrap;align-items:center;gap:0.3rem 0.75rem;padding:0.75rem 0;border-bottom:1px solid var(--border); }
+            .admin-table td { border:none;padding:0; }
+            .admin-table td:nth-child(1), .admin-table td:nth-child(2) { flex-basis:100%; }
+            .admin-table td:nth-child(1) { font-weight:700; }
+            .admin-table td:last-child { margin-left:auto; }
+            .admin-table button { padding:0.5rem 0.9rem;font-size:0.85rem; }
+        }
         .badge-banni { background:#FFEBEE;color:#C62828;padding:0.15rem 0.4rem;border-radius:4px;font-size:0.7rem;font-weight:600; }
         .badge-actif { background:#E8F5E9;color:#2E7D32;padding:0.15rem 0.4rem;border-radius:4px;font-size:0.7rem;font-weight:600; }
         .btn-toggle { padding:0.3rem 0.6rem;border-radius:6px;font-size:0.75rem;font-weight:600;border:none;cursor:pointer; }
@@ -33,6 +42,7 @@
         </div>
     </nav>
     <div class="container" style="max-width:1000px;">
+{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-container">{% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
         <h2 style="margin-bottom:1.5rem;">Gestion des utilisateurs</h2>
         <table class="admin-table">
             <tr><th>Nom</th><th>Email</th><th>Université</th><th>Statut</th><th>Date</th><th>Action</th></tr>
@@ -44,6 +54,7 @@
                 <td>{% if u.banni %}<span class="badge-banni">BANNI</span>{% else %}<span class="badge-actif">Actif</span>{% endif %}</td>
                 <td>{{ u.date_inscription[:10] }}</td>
                 <td>
+                    {% if u.role == 'admin' %}<span class="badge-actif">Admin</span>{% else %}
                     <form method="POST" action="/admin/bannir/{{ u.id }}" style="display:inline;">
                         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                         {% if u.banni %}
@@ -51,7 +62,7 @@
                         {% else %}
                         <button type="submit" class="btn-toggle ban" data-nom="{{ u.prenom }} {{ u.nom }}" onclick="return confirm('Bannir ' + this.dataset.nom + ' ?')">Bannir</button>
                         {% endif %}
-                    </form>
+                    </form>{% endif %}
                 </td>
             </tr>
             {% endfor %}

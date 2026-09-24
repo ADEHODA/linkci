@@ -19,6 +19,15 @@
         .admin-table th { text-align:left;padding:0.5rem;border-bottom:2px solid var(--border);color:var(--text-muted);font-size:0.75rem;text-transform:uppercase; }
         .admin-table td { padding:0.5rem;border-bottom:1px solid var(--border);vertical-align:middle; }
         .admin-table tr:hover td { background:var(--orange-light); }
+        @media (max-width:700px) {
+            .admin-table tr:first-child { display:none; }
+            .admin-table tr { display:flex;flex-wrap:wrap;align-items:center;gap:0.3rem 0.75rem;padding:0.75rem 0;border-bottom:1px solid var(--border); }
+            .admin-table td { border:none;padding:0; }
+            .admin-table td:nth-child(1), .admin-table td:nth-child(2) { flex-basis:100%; }
+            .admin-table td:nth-child(1) { font-weight:700; }
+            .admin-table td:last-child { margin-left:auto; }
+            .admin-table button { padding:0.5rem 0.9rem;font-size:0.85rem; }
+        }
         .btn-ban { padding:0.25rem 0.5rem;border-radius:6px;font-size:0.75rem;font-weight:600;border:none;cursor:pointer;text-decoration:none;display:inline-block; }
         .btn-ban.banni { background:#FFEBEE;color:#C62828; }
         .btn-ban.actif { background:#E8F5E9;color:#2E7D32; }
@@ -38,6 +47,7 @@
         </div>
     </nav>
     <div class="container" style="max-width:1000px;">
+{% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}<div class="flash-container">{% for category, message in messages %}<div class="flash {{ category }}">{{ message }}</div>{% endfor %}</div>{% endif %}{% endwith %}
         <h2 style="margin-bottom:1.5rem;">Dashboard Admin</h2>
         <div class="admin-grid">
             <div class="admin-stat"><div class="num">{{ stats.users }}</div><div class="label">Utilisateurs</div></div>
@@ -62,8 +72,8 @@
                     <td>{{ b.organisme }}{% if b.deadline %} · limite {{ b.deadline }}{% endif %}</td>
                     <td>{% if b.lien|lien_sur %}<a href="{{ b.lien|lien_sur }}" target="_blank" rel="noopener noreferrer nofollow">verifier</a>{% else %}-{% endif %}</td>
                     <td>
-                        <form method="POST" action="/admin/moderation/bourse/{{ b.id }}/valider" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-ban">Publier</button></form>
-                        <form method="POST" action="/admin/moderation/bourse/{{ b.id }}/refuser" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-ban actif">Refuser</button></form>
+                        <form method="POST" action="/admin/moderation/bourse/{{ b.id }}/valider" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-ban actif">Publier</button></form>
+                        <form method="POST" action="/admin/moderation/bourse/{{ b.id }}/refuser" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-ban banni">Refuser</button></form>
                     </td>
                 </tr>
                 {% endfor %}
@@ -74,8 +84,8 @@
                     <td>{{ f.universite }} · {{ f.niveau }}</td>
                     <td>{% if f.site_web|lien_sur %}<a href="{{ f.site_web|lien_sur }}" target="_blank" rel="noopener noreferrer nofollow">verifier</a>{% else %}-{% endif %}</td>
                     <td>
-                        <form method="POST" action="/admin/moderation/formation/{{ f.id }}/valider" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-ban">Publier</button></form>
-                        <form method="POST" action="/admin/moderation/formation/{{ f.id }}/refuser" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-ban actif">Refuser</button></form>
+                        <form method="POST" action="/admin/moderation/formation/{{ f.id }}/valider" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-ban actif">Publier</button></form>
+                        <form method="POST" action="/admin/moderation/formation/{{ f.id }}/refuser" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-ban banni">Refuser</button></form>
                     </td>
                 </tr>
                 {% endfor %}
@@ -93,10 +103,12 @@
                     <td>{{ u.universite or '-' }}</td>
                     <td>{{ u.date_inscription[:10] }}</td>
                     <td>
+                        {% if u.role == 'admin' %}<span class="badge-actif">Admin</span>{% else %}
                         <form method="POST" action="/admin/bannir/{{ u.id }}" style="display:inline;">
                             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="btn-ban actif" data-nom="{{ u.prenom }} {{ u.nom }}" onclick="return confirm('Bannir ' + this.dataset.nom + ' ?')">Bannir</button>
-                        </form>
+                            {% if u.banni %}<button type="submit" class="btn-ban actif">Reactiver</button>
+                            {% else %}<button type="submit" class="btn-ban banni">Bannir</button>{% endif %}
+                        </form>{% endif %}
                     </td>
                 </tr>
                 {% endfor %}
