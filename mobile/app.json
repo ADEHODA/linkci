@@ -2,7 +2,7 @@
   "expo": {
     "name": "LINK CI",
     "slug": "link-ci",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -21,7 +21,7 @@
     },
     "android": {
       "package": "com.linkci.app",
-      "versionCode": 1,
+      "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FF6B35",
@@ -58,6 +58,14 @@
         "projectId": "79b542e5-bbfd-4213-ba5d-a428bd7f98df"
       }
     },
-    "owner": "adehoda"
+    "owner": "adehoda",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/79b542e5-bbfd-4213-ba5d-a428bd7f98df",
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    }
   }
 }

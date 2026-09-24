@@ -12,11 +12,14 @@ import { setToken, onSessionExpiree, viderCache } from './src/api';
 import BanniereReseau from './src/components/BanniereReseau';
 import { RealtimeProvider } from './src/realtime';
 import { ThemeProvider, useTheme } from './src/theme';
+import { surveillerMisesAJour } from './src/misesAJour';
 
 export default function App() {
   const [token, setTokenState] = useState(null);
   const [ready, setReady] = useState(false);
   const [accueilVu, setAccueilVu] = useState(true);
+
+  useEffect(() => surveillerMisesAJour(), []);
 
   useEffect(() => {
     (async () => {
