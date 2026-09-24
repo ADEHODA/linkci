@@ -875,7 +875,24 @@ def envoyer_email(destinataire, sujet, texte):
     """Envoie un e-mail. Renvoie True si le service l'a accepte.
     1. Brevo (API web) si BREVO_API_KEY est defini : fonctionne sur Render gratuit,
        qui bloque les ports SMTP. EMAIL_EXPEDITEUR = adresse validee dans Brevo.
-    2. Sinon SMTP (SMTP_HOST, SMTP_USER, SMTP_PASS...), pratique en local."""
+    2. Sinon SMTP (SMTP_HOST, SMTP_USER, SMTP_PASS...), pratique en local.
+    0. Avant tout : le script Google (GMAIL_SCRIPT_URL + GMAIL_SCRIPT_SECRET), qui
+       envoie depuis le Gmail de l'administrateur (outils/gmail_relais.gs)."""
+    url_script = os.environ.get('GMAIL_SCRIPT_URL', '').strip()
+    secret_script = os.environ.get('GMAIL_SCRIPT_SECRET', '').strip()
+    if url_script and secret_script:
+        try:
+            import requests as http_req
+            # Google repond par une redirection vers le resultat (suivie en GET)
+            r = http_req.post(url_script, timeout=20, json={
+                'secret': secret_script, 'to': destinataire, 'subject': sujet, 'text': texte})
+            if r.status_code == 200 and r.text.strip().startswith('{') and r.json().get('ok'):
+                return True
+            app.logger.error("Le script Gmail a refuse l'email (%s) : %s", r.status_code, r.text[:300])
+        except Exception as e:
+            app.logger.error("Echec d'envoi via le script Gmail : %s", e)
+        return False
+
     cle_brevo = os.environ.get('BREVO_API_KEY', '').strip()
     if cle_brevo:
         expediteur = os.environ.get('EMAIL_EXPEDITEUR', '').strip()

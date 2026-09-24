@@ -326,3 +326,29 @@ def test_bouton_admin_xss_neutralise(client):
         page = client.get(url).get_data(as_text=True)
         assert "confirm('Bannir x" not in page and "alert(1);('" not in page
     assert 'this.dataset.nom' in page
+
+
+# ---- E-mails par le relais Gmail (Google Apps Script)
+class _Reponse:
+    def __init__(self, code, texte):
+        self.status_code, self.text = code, texte
+    def json(self):
+        import json
+        return json.loads(self.text)
+
+
+def test_email_par_relais_gmail(monkeypatch):
+    import requests
+    envois = []
+    def faux_post(url, json=None, timeout=None, **kw):
+        envois.append((url, json))
+        return _Reponse(200, '{"ok": true}' if json['secret'] == 'bon-secret' else '{"ok": false}')
+    monkeypatch.setattr(requests, 'post', faux_post)
+    monkeypatch.setenv('GMAIL_SCRIPT_URL', 'https://script.google.com/macros/s/x/exec')
+    monkeypatch.setenv('GMAIL_SCRIPT_SECRET', 'bon-secret')
+    with linkci_app.app.app_context():
+        assert linkci_app.envoyer_email('awa@test.ci', 'Sujet', 'Texte') is True
+    assert envois[0][1] == {'secret': 'bon-secret', 'to': 'awa@test.ci', 'subject': 'Sujet', 'text': 'Texte'}
+    monkeypatch.setenv('GMAIL_SCRIPT_SECRET', 'mauvais')
+    with linkci_app.app.app_context():
+        assert linkci_app.envoyer_email('awa@test.ci', 'Sujet', 'Texte') is False

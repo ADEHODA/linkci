@@ -15,7 +15,12 @@ services:
       # Chaine de connexion Neon (postgresql://...?sslmode=require), a saisir dans le dashboard
       - key: DATABASE_URL
         sync: false
-      # E-mails (mot de passe oublie) : Brevo, car Render gratuit bloque les ports SMTP
+      # E-mails (mot de passe oublie) : script Google qui envoie depuis Gmail
+      # (outils/gmail_relais.gs), ou Brevo ; Render gratuit bloque les ports SMTP
+      - key: GMAIL_SCRIPT_URL
+        sync: false
+      - key: GMAIL_SCRIPT_SECRET
+        sync: false
       - key: BREVO_API_KEY
         sync: false
       - key: EMAIL_EXPEDITEUR
