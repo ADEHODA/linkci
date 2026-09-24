@@ -116,3 +116,19 @@ def test_bloquer_masque_les_publications_et_les_messages(client):
     client.delete(f'/api/utilisateurs/{id_b}/bloquer', headers=entete(tok_a))
     assert client.post('/api/messages', json={'destinataire_id': id_a, 'contenu': 'pardon'}, headers=entete(tok_b)).status_code in (200, 201)
 
+
+
+# ---- Messages avec photo et "vu"
+def test_message_photo_et_vu(client):
+    import base64
+    png = base64.b64encode(b'\x89PNG\r\n\x1a\n' + b'\x00' * 64).decode()
+    tok_a, id_a = compte(client, 'photo.a@test.ci')
+    tok_b, id_b = compte(client, 'photo.b@test.ci')
+    r = client.post('/api/messages', json={'destinataire_id': id_b, 'image': png}, headers=entete(tok_a))
+    assert r.status_code == 201
+    faux = base64.b64encode(b'MZ\x90\x00 executable').decode()
+    assert client.post('/api/messages', json={'destinataire_id': id_b, 'image': faux}, headers=entete(tok_a)).status_code == 400
+    msgs = client.get(f'/api/messages?avec={id_a}', headers=entete(tok_b)).get_json()
+    assert msgs[-1]['image'] and msgs[-1]['contenu'] == ''
+    # B a ouvert la conversation : le message de A est lu
+    assert client.get(f'/api/messages?avec={id_b}', headers=entete(tok_a)).get_json()[-1]['lu'] == 1

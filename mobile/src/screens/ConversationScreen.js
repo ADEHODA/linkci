@@ -1,9 +1,11 @@
 // Discussion privee avec un etudiant : navigate('Conversation', { autre_id, prenom, nom, avatar })
-import React, { useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { View, Text, FlatList, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import Avatar from '../components/Avatar';
+import PostImage from '../components/PostImage';
+import { choisirPhoto } from '../photos';
 import useApiList from '../hooks/useApiList';
 import { Loading, EmptyState } from '../components/ui';
 import { radius, spacing, creerStyles, useTheme } from '../theme';
@@ -17,7 +19,10 @@ export default function ConversationScreen({ route, navigation }) {
   const listRef = useRef(null);
   const { data: messages, setData, loading, reload } = useApiList(() => api.getMessages(conv.autre_id));
   const [text, setText] = useState('');
-  const { rafraichirCompteurs } = useRealtime();
+  const { rafraichirCompteurs, emettre } = useRealtime();
+  const [ecrit, setEcrit] = useState(false); // l'autre est en train d'ecrire
+  const minuterieEcrit = useRef(null);
+  const dernierSignal = useRef(0);
 
   // En-tete : photo + nom, touchable pour voir le profil
   useLayoutEffect(() => {
@@ -25,15 +30,41 @@ export default function ConversationScreen({ route, navigation }) {
       headerTitle: () => (
         <TouchableOpacity style={styles.header} onPress={() => navigation.navigate('ProfilEtudiant', { id: conv.autre_id })} activeOpacity={0.7}>
           <Avatar name={`${conv.prenom} ${conv.nom}`} size={34} index={conv.autre_id} avatar={conv.avatar} />
-          <Text style={styles.headerName} numberOfLines={1}>{conv.prenom} {conv.nom}</Text>
+          <View style={{ flexShrink: 1 }}>
+            <Text style={styles.headerName} numberOfLines={1}>{conv.prenom} {conv.nom}</Text>
+            {ecrit ? <Text style={styles.ecrit}>en train d'ecrire...</Text> : null}
+          </View>
         </TouchableOpacity>
       ),
     });
-  }, [navigation, conv, styles]);
+  }, [navigation, conv, styles, ecrit]);
+
+  // "en train d'ecrire..." : affiche 4 s apres le dernier signal de l'autre
+  useEvenement('typing_indicator', (d) => {
+    if (d.user_id !== conv.autre_id) return;
+    setEcrit(true);
+    clearTimeout(minuterieEcrit.current);
+    minuterieEcrit.current = setTimeout(() => setEcrit(false), 4000);
+  });
+  useEffect(() => () => clearTimeout(minuterieEcrit.current), []);
+
+  // l'autre a ouvert la conversation : mes messages passent en "Vu"
+  useEvenement('messages_lus', (d) => {
+    if (d.par === conv.autre_id) setData((m) => m.map((x) => (x.expediteur_id === conv.autre_id ? x : { ...x, lu: 1 })));
+  });
+
+  const surSaisie = (t) => {
+    setText(t);
+    if (t && Date.now() - dernierSignal.current > 2500) { // au plus un signal toutes les 2,5 s
+      dernierSignal.current = Date.now();
+      emettre('typing', { destinataire_id: conv.autre_id });
+    }
+  };
 
   // message de cette conversation : on recharge (ce qui le marque aussi comme lu)
   useEvenement('message_recu', async (m) => {
     if (m.expediteur_id === conv.autre_id || m.destinataire_id === conv.autre_id) {
+      if (m.expediteur_id === conv.autre_id) setEcrit(false);
       await reload();
       rafraichirCompteurs();
     }
@@ -56,6 +87,26 @@ export default function ConversationScreen({ route, navigation }) {
     }
   };
 
+  const envoyerPhoto = async () => {
+    let photo;
+    try {
+      photo = await choisirPhoto('galerie');
+    } catch (e) {
+      Alert.alert('Erreur', "Impossible d'ouvrir la photo");
+      return;
+    }
+    if (!photo) return;
+    const provisoire = { id: `tmp-${Date.now()}`, contenu: '', imageLocale: photo.uri, expediteur_id: -1, date_envoi: new Date().toISOString().slice(0, 19).replace('T', ' '), enAttente: true };
+    setData((m) => [...m, provisoire]);
+    try {
+      await api.sendMessage(conv.autre_id, '', photo.base64);
+      await reload();
+    } catch (e) {
+      setData((m) => m.filter((x) => x.id !== provisoire.id));
+      Alert.alert('Photo non envoyee', e.message);
+    }
+  };
+
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90}>
       {loading ? <Loading /> : (
@@ -74,7 +125,10 @@ export default function ConversationScreen({ route, navigation }) {
               <>
                 {nouveauJour ? <Text style={styles.jour}>{jourLisible(item.date_envoi)}</Text> : null}
                 <View style={[styles.msg, recu ? styles.msgReceived : styles.msgSent, item.enAttente && { opacity: 0.6 }]}>
-                  <Text style={[styles.msgText, !recu && styles.msgTextSent]}>{item.contenu}</Text>
+                  {item.image || item.imageLocale ? (
+                    <PostImage uri={item.imageLocale || api.imageUrl(item.image)} style={styles.photo} />
+                  ) : null}
+                  {item.contenu ? <Text style={[styles.msgText, !recu && styles.msgTextSent]}>{item.contenu}</Text> : null}
                   <View style={styles.meta}>
                     <Text style={[styles.msgTime, !recu && styles.msgTimeSent]}>{heure(item.date_envoi)}</Text>
                     {!recu ? <Ionicons name={item.enAttente ? 'time-outline' : item.lu ? 'checkmark-done' : 'checkmark'} size={13} color="rgba(255,255,255,0.8)" /> : null}
@@ -88,7 +142,10 @@ export default function ConversationScreen({ route, navigation }) {
       )}
 
       <View style={styles.inputBar}>
-        <TextInput style={styles.input} value={text} onChangeText={setText} placeholder="Ecris un message..." placeholderTextColor={colors.textFaint} multiline />
+        <TouchableOpacity style={styles.attache} onPress={envoyerPhoto} hitSlop={6}>
+          <Ionicons name="image-outline" size={24} color={colors.primary} />
+        </TouchableOpacity>
+        <TextInput style={styles.input} value={text} onChangeText={surSaisie} placeholder="Ecris un message..." placeholderTextColor={colors.textFaint} multiline />
         <TouchableOpacity style={[styles.sendBtn, !text.trim() && { opacity: 0.4 }]} onPress={handleSend} disabled={!text.trim()}>
           <Ionicons name="send" size={18} color={colors.white} />
         </TouchableOpacity>
@@ -101,6 +158,9 @@ const useStyles = creerStyles(({ colors }) => ({
   container: { flex: 1, backgroundColor: colors.bg },
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, maxWidth: 240 },
   headerName: { fontWeight: '800', fontSize: 16, color: colors.text },
+  ecrit: { fontSize: 12, color: colors.accent, fontStyle: 'italic' },
+  photo: { width: 220, marginBottom: 4, borderRadius: 14 },
+  attache: { height: 44, justifyContent: 'center', paddingHorizontal: 4 },
   messageList: { flex: 1 },
   jour: { alignSelf: 'center', fontSize: 11, fontWeight: '700', color: colors.textMuted, backgroundColor: colors.card, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill, marginVertical: spacing.sm, overflow: 'hidden' },
   msg: { marginBottom: 6, maxWidth: '80%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20 },

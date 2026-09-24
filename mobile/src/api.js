@@ -171,10 +171,10 @@ export const getConversations = () => request('/api/conversations');
 
 export const getMessages = (avec) => request(`/api/messages?avec=${avec}`);
 
-export const sendMessage = (destinataire_id, contenu) =>
+export const sendMessage = (destinataire_id, contenu, image = null) =>
   request('/api/messages', {
     method: 'POST',
-    body: JSON.stringify({ destinataire_id, contenu }),
+    body: JSON.stringify(image ? { destinataire_id, contenu, image } : { destinataire_id, contenu }),
   });
 
 // Notifications

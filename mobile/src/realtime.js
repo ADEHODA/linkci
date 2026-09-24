@@ -8,6 +8,7 @@ const RealtimeContext = createContext({
   compteurs: { messages: 0, notifications: 0 },
   rafraichirCompteurs: () => {},
   abonner: () => () => {},
+  emettre: () => {},
 });
 
 export function RealtimeProvider({ token, children }) {
@@ -38,6 +39,8 @@ export function RealtimeProvider({ token, children }) {
     socket.on('notification_update', (data) => { rafraichirCompteurs(); diffuser('notification_update')(data); });
     socket.on('message_recu', (data) => { rafraichirCompteurs(); diffuser('message_recu')(data); });
     socket.on('groupe_message', diffuser('groupe_message'));
+    socket.on('typing_indicator', diffuser('typing_indicator')); // "en train d'ecrire..."
+    socket.on('messages_lus', diffuser('messages_lus')); // "Vu" en direct
 
     // Au retour dans l'app (et toutes les minutes en secours) : compteurs a jour
     const sub = AppState.addEventListener('change', (etat) => {
@@ -57,8 +60,13 @@ export function RealtimeProvider({ token, children }) {
     };
   }, [token, rafraichirCompteurs]);
 
+  // Envoie un evenement au serveur (ignore si la connexion temps reel est coupee)
+  const emettre = useCallback((evenement, data) => {
+    if (socketRef.current?.connected) socketRef.current.emit(evenement, data);
+  }, []);
+
   return (
-    <RealtimeContext.Provider value={{ compteurs, rafraichirCompteurs, abonner }}>
+    <RealtimeContext.Provider value={{ compteurs, rafraichirCompteurs, abonner, emettre }}>
       {children}
     </RealtimeContext.Provider>
   );

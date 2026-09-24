@@ -562,6 +562,13 @@ def init_db():
         conn.execute("UPDATE users SET role = 'admin' WHERE lower(email) = ?", (email,))
     conn.commit()
 
+    # Photos dans les messages prives
+    try:
+        conn.execute('ALTER TABLE messages ADD COLUMN image TEXT')
+        conn.commit()
+    except Exception:
+        pass
+
     # Verification de l'e-mail : DEFAULT 1 pour que les comptes existants restent
     # actifs ; les nouvelles inscriptions sont creees avec email_verifie = 0.
     try:
@@ -1377,7 +1384,7 @@ def messagerie():
         SELECT DISTINCT 
             CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END as autre_id,
             users.prenom, users.nom,
-            (SELECT contenu FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
+            (SELECT CASE WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
             (SELECT date_envoi FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as date_dernier,
             (SELECT COUNT(*) FROM messages WHERE destinataire_id = ? AND expediteur_id = users.id AND lu = 0) as non_lu
         FROM messages
@@ -1439,7 +1446,7 @@ def conversation(autre_id):
         SELECT DISTINCT 
             CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END as autre_id,
             users.prenom, users.nom,
-            (SELECT contenu FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
+            (SELECT CASE WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
             (SELECT date_envoi FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as date_dernier,
             (SELECT COUNT(*) FROM messages WHERE destinataire_id = ? AND expediteur_id = users.id AND lu = 0) as non_lu
         FROM messages
@@ -1875,11 +1882,11 @@ def signaler_bourse(id):
     conn.close()
     return redirect(url_for('bourses'))
 
-def diffuser_message(expediteur_id, destinataire_id, message_id, contenu):
+def diffuser_message(expediteur_id, destinataire_id, message_id, contenu, image=None):
     """Temps reel (app mobile) : previent l'expediteur et le destinataire d'un nouveau message prive.
     Evenement distinct de 'new_message' (utilise par la page web de conversation) pour eviter les doublons."""
     data = {'id': message_id, 'expediteur_id': int(expediteur_id), 'destinataire_id': int(destinataire_id),
-            'contenu': contenu, 'date_envoi': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}
+            'contenu': contenu, 'image': image, 'date_envoi': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}
     for uid in {int(expediteur_id), int(destinataire_id)}:
         try:
             socketio.emit('message_recu', data, room='user_' + str(uid))
@@ -3297,9 +3304,15 @@ def api_messages():
         WHERE (expediteur_id = ? AND destinataire_id = ?) OR (expediteur_id = ? AND destinataire_id = ?)
         ORDER BY date_envoi ASC
     ''', (user_id, autre_id, autre_id, user_id)).fetchall()
-    conn.execute('UPDATE messages SET lu = 1 WHERE expediteur_id = ? AND destinataire_id = ?', (autre_id, user_id))
+    non_lus = conn.execute('UPDATE messages SET lu = 1 WHERE expediteur_id = ? AND destinataire_id = ? AND lu = 0',
+                           (autre_id, user_id)).rowcount
     conn.commit()
     conn.close()
+    if non_lus:
+        try:  # "Vu" en direct chez l'expediteur
+            socketio.emit('messages_lus', {'par': user_id}, room='user_' + str(autre_id))
+        except Exception:
+            pass
     return jsonify([dict(m) for m in messages])
 
 @app.route('/api/messages', methods=['POST'])
@@ -3307,12 +3320,13 @@ def api_send_message():
     user_id = api_require_auth()
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
-    data = request.json
-    if not data or not data.get('contenu', '').strip() or not data.get('destinataire_id'):
-        return jsonify({'error': 'contenu et destinataire_id requis'}), 400
+    data = request.get_json(silent=True) or {}
+    # une photo seule (sans texte) est acceptee
+    if not (str(data.get('contenu') or '').strip() or data.get('image')) or not data.get('destinataire_id'):
+        return jsonify({'error': 'contenu (ou image) et destinataire_id requis'}), 400
     if trop_rapide('message', user_id, 30, 60) or trop_rapide('message_heure', user_id, 300, 3600):
         return jsonify({'error': 'Tu vas trop vite. Patiente une minute.'}), 429
-    contenu = sanitize_text(data['contenu'], FIELD_MAXLEN['message'])
+    contenu = sanitize_text(str(data.get('contenu') or ''), FIELD_MAXLEN['message'])
     try:
         destinataire_id = int(data['destinataire_id'])
     except (TypeError, ValueError):
@@ -3325,14 +3339,18 @@ def api_send_message():
     if not conn.execute('SELECT 1 FROM users WHERE id = ?', (destinataire_id,)).fetchone():
         conn.close()
         return jsonify({'error': 'Destinataire introuvable'}), 404
-    msg_id = conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu) VALUES (?, ?, ?)',
-                          (user_id, destinataire_id, contenu)).lastrowid
+    image, erreur = image_depuis_base64(data.get('image'))
+    if erreur:
+        conn.close()
+        return jsonify({'error': erreur}), 400
+    msg_id = conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu, image) VALUES (?, ?, ?, ?)',
+                          (user_id, destinataire_id, contenu, image)).lastrowid
     conn.commit()
     auteur = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (user_id,)).fetchone()
     conn.close()
-    diffuser_message(user_id, destinataire_id, msg_id, contenu)
+    diffuser_message(user_id, destinataire_id, msg_id, contenu, image)
     nom = f"{auteur['prenom']} {auteur['nom']}" if auteur else "quelqu'un"
-    creer_notification(destinataire_id, 'message', f"Nouveau message de {nom}", f"/conversation/{user_id}")
+    creer_notification(destinataire_id, 'message', f"{'Photo' if image and not contenu else 'Nouveau message'} de {nom}", f"/conversation/{user_id}")
     return jsonify({'message': 'Envoye', 'id': msg_id}), 201
 
 @app.route('/api/conversations')
@@ -3345,7 +3363,7 @@ def api_conversations():
         SELECT DISTINCT
             CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END as autre_id,
             users.prenom, users.nom, users.universite, users.avatar,
-            (SELECT contenu FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
+            (SELECT CASE WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
             (SELECT date_envoi FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as date_dernier,
             (SELECT COUNT(*) FROM messages WHERE destinataire_id = ? AND expediteur_id = users.id AND lu = 0) as non_lu
         FROM messages JOIN users ON users.id = CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END
@@ -3816,8 +3834,11 @@ def handle_send_message(data):
 def handle_typing(data):
     if 'user_id' not in session:
         return
-    destinataire_id = data.get('destinataire_id')
-    if destinataire_id:
+    try:
+        destinataire_id = int((data or {}).get('destinataire_id'))
+    except (TypeError, ValueError, AttributeError):
+        return
+    if destinataire_id != session['user_id'] and not blocage_entre(session['user_id'], destinataire_id):
         emit('typing_indicator', {
             'user_id': session['user_id'],
             'prenom': session.get('user_nom', '').split()[0]

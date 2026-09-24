@@ -178,6 +178,7 @@
                         {% endif %}
                         <div class="msg-bubble-row {{ 'moi' if msg.expediteur_id == session.user_id else 'autre' }}">
                             <div class="msg-bubble">
+                                {% if msg.image %}<a href="/static/uploads/{{ msg.image }}" target="_blank" rel="noopener"><img src="/static/uploads/{{ msg.image }}" alt="Photo" style="display:block;max-width:220px;max-height:260px;border-radius:10px;margin-bottom:0.3rem;object-fit:cover;"></a>{% endif %}
                                 {{ msg.contenu }}
                                 <span class="msg-bubble-time">{{ msg.date_envoi[11:16] }}</span>
                             </div>
