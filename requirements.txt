@@ -7,4 +7,3 @@ gunicorn
 python-dotenv
 requests
 psycopg[binary]
-psycopg_pool>=3.2

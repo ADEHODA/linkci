@@ -12,7 +12,6 @@ Hypotheses (vraies pour le schema de LinkCI) :
 - les dates sont stockees en TEXT 'YYYY-MM-DD HH:MM:SS' comme dans SQLite,
   pour que les comparaisons et les [:10] du code restent valables.
 """
-import atexit
 import os
 import re
 import sqlite3
@@ -23,7 +22,6 @@ IS_PG = DATABASE_URL.startswith(('postgres://', 'postgresql://'))
 
 if IS_PG:
     import psycopg
-    from psycopg_pool import ConnectionPool
     IntegrityError = (sqlite3.IntegrityError, psycopg.IntegrityError)
 else:
     IntegrityError = sqlite3.IntegrityError
@@ -102,26 +100,20 @@ def split_script(script):
 
 # ---------------------------------------------------------------- connexion
 
-_pool = None
-
-
-def _get_pool():
-    global _pool
-    if _pool is None:
-        _pool = ConnectionPool(
-            DATABASE_URL,
-            min_size=1,
-            max_size=int(os.environ.get('DB_POOL_SIZE', '10')),
-            timeout=15,  # echouer vite plutot que de bloquer 30 s
-            # autocommit : une erreur (ex. IntegrityError attrapee par le code)
-            # n'invalide pas la suite, comme avec SQLite.
-            # prepare_threshold=None : compatible avec les poolers PgBouncer (Neon).
-            kwargs={'autocommit': True, 'row_factory': _row_factory, 'prepare_threshold': None},
-            check=ConnectionPool.check_connection,  # Neon coupe les connexions inactives
-            open=True,
-        )
-        atexit.register(_pool.close)  # sinon erreur bruyante a l'arret de Python
-    return _pool
+# Pas de pool partage : chaque get_db() ouvre sa propre connexion et close()
+# la ferme. Le pool psycopg_pool se bloquait en production (connexions non
+# rendues, puis verrou non reentrant repris depuis __del__ -> PoolTimeout
+# pour toutes les requetes). Neon a son propre gestionnaire de connexions.
+def _ouvrir():
+    return psycopg.connect(
+        DATABASE_URL,
+        # autocommit : une erreur (ex. IntegrityError attrapee par le code)
+        # n'invalide pas la suite, comme avec SQLite.
+        autocommit=True,
+        row_factory=_row_factory,
+        prepare_threshold=None,  # compatible avec les poolers PgBouncer (Neon)
+        connect_timeout=10,
+    )
 
 
 class PgCursor:
@@ -147,11 +139,10 @@ class PgCursor:
 
 
 class PgConnection:
-    """Connexion empruntee au pool, rendue par close()."""
+    """Connexion PostgreSQL propre a l'appelant, fermee par close()."""
 
     def __init__(self):
-        self._pool = _get_pool()
-        self._conn = self._pool.getconn()
+        self._conn = _ouvrir()
         self.total_changes = 0
 
     def execute(self, sql, params=()):
@@ -174,13 +165,12 @@ class PgConnection:
 
     def close(self):
         if self._conn is not None:
-            self._pool.putconn(self._conn)
-            self._conn = None
+            conn, self._conn = self._conn, None
+            conn.close()
 
     def __del__(self):
         # Filet de securite : une connexion oubliee (return avant close(),
-        # exception...) est rendue au pool des qu'elle n'est plus referencee,
-        # au lieu de bloquer le pool jusqu'au PoolTimeout.
+        # exception...) est fermee des qu'elle n'est plus referencee.
         try:
             self.close()
         except Exception:

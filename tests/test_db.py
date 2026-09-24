@@ -262,21 +262,18 @@ def test_notifications_push(client, monkeypatch):
     assert client.delete('/api/expo_push_token', json={'token': jeton}, headers=ha).status_code == 200
 
 
-class _FauxPool:
+class _FausseConnexion:
+    ouvertes = 0
     def __init__(self):
-        self.pretees = 0
-    def getconn(self):
-        self.pretees += 1
-        return object()
-    def putconn(self, conn):
-        self.pretees -= 1
+        _FausseConnexion.ouvertes += 1
+    def close(self):
+        _FausseConnexion.ouvertes -= 1
 
 
-def test_connexion_oubliee_rendue_au_pool(monkeypatch):
-    """Une page qui oublie close() ne doit pas epuiser le pool (PoolTimeout en production)."""
+def test_connexion_oubliee_fermee(monkeypatch):
+    """Une page qui oublie close() ne doit laisser aucune connexion ouverte."""
     import db
-    pool = _FauxPool()
-    monkeypatch.setattr(db, '_get_pool', lambda: pool)
+    monkeypatch.setattr(db, '_ouvrir', _FausseConnexion)
 
     def page_qui_oublie_close():
         conn = db.PgConnection()
@@ -284,8 +281,8 @@ def test_connexion_oubliee_rendue_au_pool(monkeypatch):
 
     for _ in range(50):
         page_qui_oublie_close()
-    assert pool.pretees == 0
+    assert _FausseConnexion.ouvertes == 0
 
     conn = db.PgConnection()
     conn.close(); conn.close()  # double close sans effet
-    assert pool.pretees == 0
+    assert _FausseConnexion.ouvertes == 0
