@@ -104,6 +104,27 @@
             </table>
         </div>
         {% endif %}
+        <div class="admin-section">
+            <h3>📣 Annonce à tous les étudiants</h3>
+            <form method="POST" action="/admin/annonce" style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                <input name="message" required minlength="5" maxlength="300" placeholder="Ex. Les inscriptions pour la bourse X ferment vendredi" style="flex:1;min-width:220px;padding:0.6rem;border-radius:8px;border:1px solid var(--border);">
+                <button type="submit" class="btn btn-orange" onclick="return confirm('Envoyer cette annonce (notification) a TOUS les etudiants ?')">Envoyer</button>
+            </form>
+        </div>
+        <div class="admin-section">
+            <h3>Activité des 14 derniers jours</h3>
+            <p style="font-size:0.85rem;color:var(--text-muted);">Actifs sur 7 jours : <strong>{{ stats_jours.totaux.actifs_7j }}</strong> · Comptes non vérifiés : {{ stats_jours.totaux.non_verifies }} · Bannis : {{ stats_jours.totaux.bannis }}</p>
+            {% for serie, titre, couleur in [(stats_jours.inscriptions, 'Inscriptions', 'var(--orange)'), (stats_jours.publications, 'Publications', '#009E60')] %}
+            {% set maxi = (serie|map(attribute='nb')|max) or 1 %}
+            <div style="margin:0.75rem 0;">
+                <div style="font-size:0.8rem;font-weight:700;margin-bottom:0.3rem;">{{ titre }} ({{ serie|sum(attribute='nb') }})</div>
+                <div style="display:flex;align-items:flex-end;gap:3px;height:70px;">
+                    {% for j in serie %}<div title="{{ j.jour }} : {{ j.nb }}" style="flex:1;background:{{ couleur }};border-radius:3px 3px 0 0;height:{{ (j.nb * 100 / maxi)|round|int if j.nb else 2 }}%;opacity:{{ 1 if j.nb else 0.25 }};"></div>{% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
         {% if posts_signales %}
         <div class="admin-section">
             <h3>Publications signalees ({{ posts_signales|length }})</h3>

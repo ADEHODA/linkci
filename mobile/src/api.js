@@ -143,6 +143,16 @@ export const meilleureReponse = (id, reponse_id) => request(`/api/questions/${id
 export const supprimerQuestion = (id) => request(`/api/questions/${id}`, { method: 'DELETE' });
 export const getClassementEntraide = () => request('/api/entraide/classement');
 
+// Administration (reserve aux admins)
+export const getAdminStats = () => request('/api/admin/stats');
+export const getAdminModeration = () => request('/api/admin/moderation');
+export const modererProposition = (genre, id, decision) => request(`/api/admin/moderation/${genre}/${id}/${decision}`, { method: 'POST' });
+export const ignorerSignalement = (postId) => request(`/api/admin/signalements/${postId}`, { method: 'POST' });
+export const supprimerPostSignale = (postId) => request(`/api/admin/signalements/${postId}`, { method: 'DELETE' });
+export const envoyerAnnonce = (message) => request('/api/admin/annonce', { method: 'POST', body: JSON.stringify({ message }) });
+export const getAdminUtilisateurs = (q = '') => request(`/api/admin/utilisateurs?q=${encodeURIComponent(q)}`);
+export const bannirUtilisateur = (id) => request(`/api/admin/utilisateurs/${id}/bannir`, { method: 'POST' });
+
 // Stories (24 h)
 export const getStories = () => request('/api/stories');
 export const creerStory = (image, texte) => request('/api/stories', { method: 'POST', body: JSON.stringify({ image, texte }) });

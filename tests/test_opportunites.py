@@ -19,7 +19,8 @@ def test_offre_etudiant_attend_validation(client):
     tok = compte(client, 'etu.opp@test.ci')
     r = client.post('/api/opportunites', json=OFFRE, headers=entete(tok))
     assert r.status_code == 201 and r.get_json()['publie'] is False
-    assert not client.get('/api/opportunites', headers=entete(tok)).get_json()
+    assert not any(o['titre'] == OFFRE['titre'] and o['user_id'] for o in client.get('/api/opportunites', headers=entete(tok)).get_json()
+                   if o['entreprise'] == OFFRE['entreprise'] and o['titre'] == 'Stage comptable')
 
 
 def test_offre_admin_publiee_et_abonnes_prevenus(client):

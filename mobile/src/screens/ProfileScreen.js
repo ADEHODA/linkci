@@ -79,6 +79,16 @@ export default function ProfileScreen({ navigation, onLogout }) {
               </TouchableOpacity>
             </View>
           </View>
+          {user.est_admin ? (
+            <TouchableOpacity style={styles.admin} onPress={() => navigation.navigate('Admin')} activeOpacity={0.85}>
+              <Ionicons name="shield-checkmark" size={22} color={colors.white} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.adminTitre}>Administration</Text>
+                <Text style={styles.adminTexte}>Statistiques, moderation, annonces</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.white} />
+            </TouchableOpacity>
+          ) : null}
           <Apparence />
           <Text style={styles.sectionTitle}>Mes publications</Text>
         </>
@@ -139,6 +149,9 @@ function Stat({ valeur, label }) {
 }
 
 const useStyles = creerStyles(({ colors, font, shadow }) => ({
+  admin: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: '#7C3AED', borderRadius: radius.lg, padding: spacing.lg, marginHorizontal: spacing.md, marginBottom: spacing.md },
+  adminTitre: { color: colors.white, fontWeight: '800', fontSize: 16 },
+  adminTexte: { color: 'rgba(255,255,255,0.85)', fontSize: 13 },
   container: { flex: 1, backgroundColor: colors.bg },
   banner: { height: 90, backgroundColor: colors.primary },
   header: { backgroundColor: colors.card, alignItems: 'center', paddingHorizontal: spacing.xl, paddingBottom: spacing.xl, borderBottomLeftRadius: radius.xl, borderBottomRightRadius: radius.xl, ...shadow },

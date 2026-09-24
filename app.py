@@ -1950,7 +1950,8 @@ def diffuser_message_groupe(groupe_id, auteur_id):
 TITRES_PUSH = {
     'message': 'Nouveau message', 'like': "J'aime", 'commentaire': 'Nouveau commentaire',
     'mention': 'Tu es mentionne', 'suivi': 'Nouvel abonne', 'bourse': 'Nouvelle bourse',
-    'document': 'Nouveau document', 'formation': 'Nouvelle formation',
+    'document': 'Nouveau document', 'formation': 'Nouvelle formation', 'annonce': 'LinkCI',
+    'opportunite': 'Nouvelle offre', 'entraide': 'Entraide', 'signalement': 'Signalement',
 }
 
 def _envoyer_push_expo(messages):
@@ -2435,7 +2436,8 @@ def admin_dashboard():
         FROM signalements_posts s JOIN posts ON posts.id = s.post_id JOIN users ON users.id = posts.user_id
         GROUP BY posts.id, posts.contenu, users.prenom, users.nom ORDER BY nb DESC''').fetchall()
     conn.close()
-    return render_template('admin.html', stats=stats, derniers_inscrits=derniers_inscrits, derniers_posts=derniers_posts,
+    stats_jours = statistiques_admin()
+    return render_template('admin.html', stats=stats, stats_jours=stats_jours, derniers_inscrits=derniers_inscrits, derniers_posts=derniers_posts,
                            bourses_attente=bourses_attente, formations_attente=formations_attente, posts_signales=posts_signales,
                            opportunites_attente=opportunites_attente)
 
@@ -2458,31 +2460,41 @@ def prevenir_admins(type, message):
     for a in admins:
         creer_notification(a['id'], type, message, '/admin')
 
-@app.route('/admin/moderation/<genre>/<int:id>/<decision>', methods=['POST'])
-def admin_moderation(genre, id, decision):
-    if not admin_required():
-        flash('Acces reserve', 'error')
-        return redirect(url_for('feed'))
-    table = {'bourse': 'bourses', 'formation': 'formations', 'opportunite': 'opportunites'}.get(genre)
+TABLES_MODERATION = {'bourse': 'bourses', 'formation': 'formations', 'opportunite': 'opportunites'}
+
+def moderer(genre, id, decision):
+    """Publie ou refuse une proposition. Renvoie le message a afficher, ou None si introuvable."""
+    table = TABLES_MODERATION.get(genre)
     if not table or decision not in ('valider', 'refuser'):
-        return redirect(url_for('admin_dashboard'))
+        return None
     conn = get_db()
     ligne = conn.execute(f'SELECT * FROM {table} WHERE id = ? AND valide = 0', (id,)).fetchone()
+    message = None
     if ligne and decision == 'valider':
         conn.execute(f'UPDATE {table} SET valide = 1 WHERE id = ?', (id,))
         conn.commit()
         if genre == 'opportunite':
             annoncer_opportunite(dict(ligne))
-            flash('Offre publiee et annoncee aux etudiants abonnes.', 'success')
+            message = 'Offre publiee et annoncee aux etudiants abonnes.'
         else:
             nom = ligne['titre'] if genre == 'bourse' else ligne['nom']
             notifier_tous(genre, ('Nouvelle bourse : ' if genre == 'bourse' else 'Nouvelle formation disponible : ') + nom, '/' + table)
-            flash('Publie et annonce a tous les etudiants.', 'success')
+            message = 'Publie et annonce a tous les etudiants.'
     elif ligne:
         conn.execute(f'DELETE FROM {table} WHERE id = ?', (id,))
         conn.commit()
-        flash('Proposition refusee.', 'success')
+        message = 'Proposition refusee.'
     conn.close()
+    return message
+
+@app.route('/admin/moderation/<genre>/<int:id>/<decision>', methods=['POST'])
+def admin_moderation(genre, id, decision):
+    if not admin_required():
+        flash('Acces reserve', 'error')
+        return redirect(url_for('feed'))
+    message = moderer(genre, id, decision)
+    if message:
+        flash(message, 'success')
     return redirect(url_for('admin_dashboard'))
 
 # ===================== ADMIN MODERATION =====================
@@ -2817,6 +2829,7 @@ def api_me():
         return jsonify({'error': 'Utilisateur introuvable'}), 404
     result = dict(user)
     result['badges'] = [dict(b) for b in badges]
+    result['est_admin'] = api_est_admin(user_id)
     return jsonify(result)
 
 @app.route('/api/posts', methods=['GET'])
@@ -3719,6 +3732,187 @@ def api_classement_entraide():
     moi = conn.execute('SELECT ' + SQL_POINTS + ' AS points FROM users WHERE users.id = ?', (user_id,)).fetchone()
     conn.close()
     return jsonify({'classement': [dict(l) for l in lignes], 'mes_points': moi['points'] if moi else 0})
+
+# ===================== ADMINISTRATION DANS L'APP =====================
+def api_est_admin(user_id):
+    conn = get_db()
+    u = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    return est_admin(u)
+
+def api_admin_requis():
+    """Renvoie (user_id, None) pour un admin, sinon (None, reponse d'erreur)."""
+    user_id = api_require_auth()
+    if not user_id:
+        return None, (jsonify({'error': 'Non authentifie'}), 401)
+    if not api_est_admin(user_id):
+        return None, (jsonify({'error': 'Reserve aux administrateurs'}), 403)
+    return user_id, None
+
+def statistiques_admin(jours=14):
+    conn = get_db()
+    compte = lambda sql_, *a: conn.execute(sql_, a).fetchone()['nb']
+    debut = (date.today() - timedelta(days=jours - 1)).isoformat()
+    il_y_a_7j = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
+
+    def par_jour(table, colonne):
+        lignes = conn.execute(f'SELECT substr({colonne}, 1, 10) AS jour, COUNT(*) AS nb FROM {table} '
+                              f'WHERE substr({colonne}, 1, 10) >= ? GROUP BY substr({colonne}, 1, 10)', (debut,)).fetchall()
+        valeurs = {l['jour']: l['nb'] for l in lignes}
+        return [{'jour': (date.today() - timedelta(days=jours - 1 - k)).isoformat(),
+                 'nb': valeurs.get((date.today() - timedelta(days=jours - 1 - k)).isoformat(), 0)} for k in range(jours)]
+
+    actifs = conn.execute('''SELECT COUNT(DISTINCT uid) AS nb FROM (
+        SELECT user_id AS uid FROM posts WHERE date_post >= ?
+        UNION SELECT user_id FROM commentaires WHERE date_commentaire >= ?
+        UNION SELECT expediteur_id FROM messages WHERE date_envoi >= ?) t''', (il_y_a_7j,) * 3).fetchone()['nb']
+    stats = {
+        'totaux': {
+            'utilisateurs': compte('SELECT COUNT(*) AS nb FROM users'),
+            'bannis': compte('SELECT COUNT(*) AS nb FROM users WHERE COALESCE(banni, 0) = 1'),
+            'non_verifies': compte('SELECT COUNT(*) AS nb FROM users WHERE COALESCE(email_verifie, 1) = 0'),
+            'publications': compte('SELECT COUNT(*) AS nb FROM posts'),
+            'messages': compte('SELECT COUNT(*) AS nb FROM messages'),
+            'annonces': compte('SELECT COUNT(*) AS nb FROM annonces'),
+            'offres': compte('SELECT COUNT(*) AS nb FROM opportunites WHERE valide = 1'),
+            'questions': compte('SELECT COUNT(*) AS nb FROM questions'),
+            'documents': compte('SELECT COUNT(*) AS nb FROM documents'),
+            'actifs_7j': actifs,
+        },
+        'inscriptions': par_jour('users', 'date_inscription'),
+        'publications': par_jour('posts', 'date_post'),
+        'universites': [dict(l) for l in conn.execute(
+            "SELECT universite, COUNT(*) AS nb FROM users WHERE COALESCE(universite, '') != '' "
+            "GROUP BY universite ORDER BY nb DESC LIMIT 5").fetchall()],
+    }
+    conn.close()
+    return stats
+
+@app.route('/api/admin/stats')
+def api_admin_stats():
+    _, erreur = api_admin_requis()
+    if erreur:
+        return erreur
+    return jsonify(statistiques_admin())
+
+@app.route('/api/admin/moderation')
+def api_admin_moderation():
+    _, erreur = api_admin_requis()
+    if erreur:
+        return erreur
+    conn = get_db()
+    propositions = []
+    for genre, table in TABLES_MODERATION.items():
+        for l in conn.execute(f'SELECT * FROM {table} WHERE valide = 0').fetchall():
+            l = dict(l)
+            propositions.append({'genre': genre, 'id': l['id'], 'titre': l.get('titre') or l.get('nom'),
+                                 'details': ' · '.join(str(l.get(k)) for k in ('entreprise', 'organisme', 'universite', 'type', 'ville') if l.get(k)),
+                                 'lien': lien_sur(l.get('lien') or l.get('site_web') or '')})
+    signales = conn.execute('''
+        SELECT posts.id, posts.contenu, posts.image, users.prenom, users.nom, COUNT(s.id) AS nb, MAX(s.motif) AS motif
+        FROM signalements_posts s JOIN posts ON posts.id = s.post_id JOIN users ON users.id = posts.user_id
+        GROUP BY posts.id, posts.contenu, posts.image, users.prenom, users.nom ORDER BY nb DESC''').fetchall()
+    conn.close()
+    return jsonify({'propositions': propositions, 'signalements': [dict(x) for x in signales]})
+
+@app.route('/api/admin/moderation/<genre>/<int:id>/<decision>', methods=['POST'])
+def api_admin_moderer(genre, id, decision):
+    _, erreur = api_admin_requis()
+    if erreur:
+        return erreur
+    message = moderer(genre, id, decision)
+    if not message:
+        return jsonify({'error': 'Proposition introuvable'}), 404
+    return jsonify({'message': message})
+
+@app.route('/api/admin/signalements/<int:post_id>', methods=['POST', 'DELETE'])
+def api_admin_signalement(post_id):
+    """POST : ignorer le signalement. DELETE : supprimer la publication."""
+    _, erreur = api_admin_requis()
+    if erreur:
+        return erreur
+    conn = get_db()
+    post = conn.execute('SELECT image FROM posts WHERE id = ?', (post_id,)).fetchone()
+    conn.execute('DELETE FROM signalements_posts WHERE post_id = ?', (post_id,))
+    if request.method == 'DELETE' and post:
+        for table in ('likes', 'commentaires', 'reactions', 'post_sondage_votes', 'post_sondage_options'):
+            conn.execute(f'DELETE FROM {table} WHERE post_id = ?', (post_id,))
+        conn.execute('DELETE FROM posts WHERE id = ?', (post_id,))
+    conn.commit()
+    conn.close()
+    if request.method == 'DELETE' and post and post['image']:
+        supprimer_fichier('static/uploads/' + post['image'])
+    return jsonify({'message': 'Publication supprimee' if request.method == 'DELETE' else 'Signalement ignore'})
+
+def annoncer_a_tous(message):
+    """Notification + push a tous les etudiants actifs."""
+    notifier_tous('annonce', message, '/notifications')
+
+@app.route('/api/admin/annonce', methods=['POST'])
+def api_admin_annonce():
+    user_id, erreur = api_admin_requis()
+    if erreur:
+        return erreur
+    if trop_rapide('annonce_tous', user_id, 3, 3600):
+        return jsonify({'error': 'Maximum 3 annonces par heure.'}), 429
+    message = sanitize_text(str((request.get_json(silent=True) or {}).get('message') or ''), 300)
+    if len(message) < 5:
+        return jsonify({'error': 'Message trop court'}), 400
+    annoncer_a_tous('📣 ' + message)
+    return jsonify({'message': 'Annonce envoyee a tous les etudiants'})
+
+@app.route('/api/admin/utilisateurs')
+def api_admin_utilisateurs():
+    _, erreur = api_admin_requis()
+    if erreur:
+        return erreur
+    q = request.args.get('q', '').strip().lower()[:100]
+    sql_ = '''SELECT id, prenom, nom, email, universite, date_inscription, COALESCE(banni, 0) AS banni, role,
+                     COALESCE(email_verifie, 1) AS email_verifie FROM users'''
+    params = []
+    if q:
+        sql_ += ' WHERE lower(prenom) LIKE ? OR lower(nom) LIKE ? OR lower(email) LIKE ?'
+        params = ['%' + q + '%'] * 3
+    sql_ += ' ORDER BY date_inscription DESC LIMIT 100'
+    conn = get_db()
+    lignes = conn.execute(sql_, params).fetchall()
+    conn.close()
+    return jsonify([dict(l) for l in lignes])
+
+@app.route('/api/admin/utilisateurs/<int:uid>/bannir', methods=['POST'])
+def api_admin_bannir(uid):
+    _, erreur = api_admin_requis()
+    if erreur:
+        return erreur
+    conn = get_db()
+    cible = conn.execute('SELECT * FROM users WHERE id = ?', (uid,)).fetchone()
+    if not cible:
+        conn.close()
+        return jsonify({'error': 'Utilisateur introuvable'}), 404
+    if est_admin(cible):
+        conn.close()
+        return jsonify({'error': 'Impossible de bannir un administrateur'}), 400
+    nouvel_etat = 0 if cible['banni'] else 1
+    conn.execute('UPDATE users SET banni = ? WHERE id = ?', (nouvel_etat, uid))
+    conn.commit()
+    conn.close()
+    return jsonify({'banni': bool(nouvel_etat)})
+
+@app.route('/admin/annonce', methods=['POST'])
+def admin_annonce_web():
+    u = admin_required()
+    if not u:
+        flash('Acces reserve', 'error')
+        return redirect(url_for('feed'))
+    message = sanitize_text(request.form.get('message', ''), 300)
+    if trop_rapide('annonce_tous', u['id'], 3, 3600):
+        flash('Maximum 3 annonces par heure.', 'error')
+    elif len(message) < 5:
+        flash('Message trop court.', 'error')
+    else:
+        annoncer_a_tous('📣 ' + message)
+        flash('Annonce envoyee a tous les etudiants.', 'success')
+    return redirect(url_for('admin_dashboard'))
 
 @app.route('/api/formations')
 def api_formations():
