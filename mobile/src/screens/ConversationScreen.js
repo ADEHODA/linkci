@@ -38,8 +38,27 @@ export default function ConversationScreen({ route, navigation }) {
           </View>
         </TouchableOpacity>
       ),
+      headerRight: () => (
+        <TouchableOpacity onPress={menu} hitSlop={10} style={{ marginRight: 4 }}>
+          <Ionicons name="ellipsis-vertical" size={20} color={colors.textMuted} />
+        </TouchableOpacity>
+      ),
     });
-  }, [navigation, conv, styles, ecrit]);
+  }, [navigation, conv, styles, ecrit]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Menu de la discussion : effacer l'historique (pour moi seulement)
+  const menu = () => Alert.alert(`${conv.prenom} ${conv.nom}`, undefined, [
+    { text: 'Voir le profil', onPress: () => navigation.navigate('ProfilEtudiant', { id: conv.autre_id }) },
+    {
+      text: "Effacer l'historique",
+      style: 'destructive',
+      onPress: () => Alert.alert("Effacer l'historique ?", `Les messages disparaissent pour toi seulement ; ${conv.prenom} garde les siens.`, [
+        { text: 'Annuler', style: 'cancel' },
+        { text: 'Effacer', style: 'destructive', onPress: () => api.effacerConversation(conv.autre_id).then(reload).catch((e) => Alert.alert('Erreur', e.message)) },
+      ]),
+    },
+    { text: 'Fermer', style: 'cancel' },
+  ]);
 
   // "en train d'ecrire..." : affiche 4 s apres le dernier signal de l'autre
   useEvenement('typing_indicator', (d) => {

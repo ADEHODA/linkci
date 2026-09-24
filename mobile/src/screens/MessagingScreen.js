@@ -1,4 +1,7 @@
-import React from 'react';
+import React, { useCallback, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
+import { ouvrirMessages } from '../verrou';
 import { View, Text, FlatList, TouchableOpacity } from 'react-native';
 import * as api from '../api';
 import Avatar from '../components/Avatar';
@@ -8,7 +11,26 @@ import { radius, spacing, creerStyles } from '../theme';
 import { dateRelative } from '../utils';
 import { useEvenement } from '../realtime';
 
-export default function MessagingScreen({ navigation }) {
+// Code sur les discussions : demande l'empreinte avant d'afficher la liste
+export default function MessagingScreen(props) {
+  const styles = useStyles();
+  const [ouvert, setOuvert] = useState(null);
+  const verifier = useCallback(() => { ouvrirMessages().then(setOuvert); }, []);
+  useFocusEffect(verifier);
+  if (ouvert === null) return <View style={styles.container} />;
+  if (!ouvert) {
+    return (
+      <View style={[styles.container, styles.verrou]}>
+        <Ionicons name="lock-closed" size={48} color="#FF6B35" />
+        <Text style={styles.verrouTexte}>Tes discussions sont protegees</Text>
+        <PrimaryButton title="Deverrouiller" icon="finger-print" onPress={verifier} />
+      </View>
+    );
+  }
+  return <ListeConversations {...props} />;
+}
+
+function ListeConversations({ navigation }) {
   const styles = useStyles();
   const { data: conversations, loading, refreshing, refresh, reload } = useApiList(api.getConversations);
 
@@ -54,6 +76,8 @@ export default function MessagingScreen({ navigation }) {
 }
 
 const useStyles = creerStyles(({ colors }) => ({
+  verrou: { alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32 },
+  verrouTexte: { fontSize: 16, fontWeight: '700', color: colors.textMuted },
   container: { flex: 1, backgroundColor: colors.bg },
   listContent: { paddingVertical: spacing.sm, flexGrow: 1 },
   convItem: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.lg, paddingVertical: spacing.md, backgroundColor: colors.card, gap: spacing.md, marginHorizontal: spacing.md, marginVertical: 3, borderRadius: radius.lg },

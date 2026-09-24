@@ -27,6 +27,7 @@ import EntraideScreen from '../screens/EntraideScreen';
 import QuestionScreen from '../screens/QuestionScreen';
 import AdminScreen from '../screens/AdminScreen';
 import ScannerScreen from '../screens/ScannerScreen';
+import SettingsScreen from '../screens/SettingsScreen';
 import VerifyEmailScreen from '../screens/VerifyEmailScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import { useTheme } from '../theme';
@@ -124,6 +125,9 @@ export default function AppNavigator({ token, onLogin, onLogout, accueilVu }) {
             <Stack.Screen name="Question" component={QuestionScreen} options={{ title: 'Question' }} />
             <Stack.Screen name="Admin" component={AdminScreen} options={{ title: 'Administration' }} />
             <Stack.Screen name="Scanner" component={ScannerScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="Parametres" options={{ title: 'Parametres' }}>
+              {(props) => <SettingsScreen {...props} onLogin={onLogin} onLogout={onLogout} />}
+            </Stack.Screen>
             <Stack.Screen name="Formations" component={FormationsScreen} />
             <Stack.Screen name="Documents" component={DocumentsScreen} />
             <Stack.Screen name="Groupes" component={GroupsScreen} />

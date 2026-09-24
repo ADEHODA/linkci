@@ -570,6 +570,15 @@ def init_db():
         except Exception:
             pass
 
+    # Parametres : qui peut m'ecrire ('tous' / 'abonnes'), masquer le "Vu",
+    # types de notifications coupes (liste separee par des virgules)
+    for colonne in ("qui_peut_ecrire TEXT DEFAULT 'tous'", 'masquer_vu INTEGER DEFAULT 0', "notifs_coupees TEXT DEFAULT ''"):
+        try:
+            conn.execute('ALTER TABLE users ADD COLUMN ' + colonne)
+            conn.commit()
+        except Exception:
+            pass
+
     # Verification de l'e-mail : DEFAULT 1 pour que les comptes existants restent
     # actifs ; les nouvelles inscriptions sont creees avec email_verifie = 0.
     try:
@@ -662,6 +671,12 @@ def init_db():
             reponse_id INTEGER NOT NULL,
             user_id INTEGER NOT NULL,
             PRIMARY KEY (reponse_id, user_id))''',
+        # "Effacer la discussion" : cache les messages anterieurs, pour moi seulement
+        '''CREATE TABLE IF NOT EXISTS conversations_effacees (
+            user_id INTEGER NOT NULL,
+            autre_id INTEGER NOT NULL,
+            date_effacement TEXT NOT NULL,
+            PRIMARY KEY (user_id, autre_id))''',
         # Blocages : bloqueur ne voit plus les publications de bloque, et plus
         # aucun message ne passe entre eux
         '''CREATE TABLE IF NOT EXISTS blocages (
@@ -945,6 +960,22 @@ def ouvrir_session(user):
     session['user_nom'] = user['prenom'] + ' ' + user['nom']
     session['user_email'] = user['email']
     session['v'] = user['jeton_version'] or 0
+
+# ---- Qui peut ecrire a qui (blocages + reglage "seulement les personnes que je suis")
+def peut_ecrire(expediteur_id, destinataire_id):
+    if blocage_entre(expediteur_id, destinataire_id):
+        return False
+    conn = get_db()
+    dest = conn.execute('SELECT qui_peut_ecrire FROM users WHERE id = ?', (destinataire_id,)).fetchone()
+    ok = True
+    if dest and (dest['qui_peut_ecrire'] or 'tous') == 'abonnes':
+        exp = conn.execute('SELECT * FROM users WHERE id = ?', (expediteur_id,)).fetchone()
+        ok = (est_admin(exp)
+              or bool(conn.execute('SELECT 1 FROM follows WHERE follower_id = ? AND followed_id = ?', (destinataire_id, expediteur_id)).fetchone())
+              # il m'a deja ecrit : je peux lui repondre
+              or bool(conn.execute('SELECT 1 FROM messages WHERE expediteur_id = ? AND destinataire_id = ?', (destinataire_id, expediteur_id)).fetchone()))
+    conn.close()
+    return ok
 
 # ---- Blocages entre etudiants
 def blocage_entre(a, b):
@@ -1445,7 +1476,7 @@ def envoyer_message(destinataire_id):
         return redirect(url_for('connexion'))
     contenu = sanitize_text(request.form.get('contenu', ''), 5000)
     if contenu and (trop_rapide('message', session['user_id'], 30, 60) or destinataire_id == session['user_id']
-                    or blocage_entre(session['user_id'], destinataire_id)):
+                    or not peut_ecrire(session['user_id'], destinataire_id)):
         flash("Message non envoye (trop de messages, ou destinataire invalide).", 'error')
         return redirect(url_for('conversation', autre_id=destinataire_id))
     if contenu:
@@ -1977,6 +2008,12 @@ def _envoyer_push_expo(messages):
             conn.commit()
             conn.close()
 
+# Types de notification regroupes comme dans les Parametres de l'app
+CATEGORIE_NOTIF = {'message': 'messages', 'like': 'reactions', 'commentaire': 'commentaires', 'mention': 'commentaires',
+                   'suivi': 'abonnes', 'bourse': 'nouveautes', 'formation': 'nouveautes', 'document': 'nouveautes',
+                   'opportunite': 'offres', 'entraide': 'entraide', 'annonce': 'annonces'}
+CATEGORIES_NOTIF = ('messages', 'reactions', 'commentaires', 'abonnes', 'nouveautes', 'offres', 'entraide', 'annonces')
+
 def envoyer_push(user_ids, type, message, lien=''):
     """Notification sur le telephone (meme app fermee) pour ces utilisateurs."""
     if app.config.get('TESTING') or not user_ids:
@@ -1985,7 +2022,12 @@ def envoyer_push(user_ids, type, message, lien=''):
     marques = ','.join('?' * len(user_ids))
     jetons = conn.execute(f'SELECT user_id, token FROM expo_push_tokens WHERE user_id IN ({marques})',
                           tuple(user_ids)).fetchall()
+    # types coupes par chaque etudiant dans ses parametres
+    coupes = {u['id']: set(filter(None, (u['notifs_coupees'] or '').split(','))) for u in conn.execute(
+        f'SELECT id, notifs_coupees FROM users WHERE id IN ({marques})', tuple(user_ids)).fetchall()}
     conn.close()
+    categorie = CATEGORIE_NOTIF.get(type, type)
+    jetons = [j for j in jetons if categorie not in coupes.get(j['user_id'], set())]
     messages = [{'to': j['token'], 'title': TITRES_PUSH.get(type, 'LINK CI'), 'body': message[:180],
                  'sound': 'default', 'channelId': 'default', 'data': {'type': type, 'lien': lien}}
                 for j in jetons if str(j['token']).startswith('ExponentPushToken[')]
@@ -3915,6 +3957,95 @@ def admin_annonce_web():
         flash('Annonce envoyee a tous les etudiants.', 'success')
     return redirect(url_for('admin_dashboard'))
 
+# ===================== PARAMETRES =====================
+def parametres_de(user_id):
+    conn = get_db()
+    u = conn.execute('SELECT qui_peut_ecrire, masquer_vu, notifs_coupees FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    coupees = set(filter(None, (u['notifs_coupees'] or '').split(',')))
+    return {'qui_peut_ecrire': u['qui_peut_ecrire'] or 'tous', 'masquer_vu': bool(u['masquer_vu']),
+            'notifications': {c: c not in coupees for c in CATEGORIES_NOTIF}}
+
+@app.route('/api/parametres', methods=['GET', 'PUT'])
+def api_parametres():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if request.method == 'PUT':
+        data = request.get_json(silent=True) or {}
+        conn = get_db()
+        if data.get('qui_peut_ecrire') in ('tous', 'abonnes'):
+            conn.execute('UPDATE users SET qui_peut_ecrire = ? WHERE id = ?', (data['qui_peut_ecrire'], user_id))
+        if 'masquer_vu' in data:
+            conn.execute('UPDATE users SET masquer_vu = ? WHERE id = ?', (1 if data['masquer_vu'] else 0, user_id))
+        if isinstance(data.get('notifications'), dict):
+            coupees = [c for c in CATEGORIES_NOTIF if data['notifications'].get(c) is False]
+            conn.execute('UPDATE users SET notifs_coupees = ? WHERE id = ?', (','.join(coupees), user_id))
+        conn.commit()
+        conn.close()
+    return jsonify(parametres_de(user_id))
+
+@app.route('/api/mot_de_passe', methods=['POST'])
+def api_changer_mot_de_passe():
+    """Change le mot de passe (l'actuel est exige) et deconnecte les autres appareils."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if not check_rate_limit(f'changer_mdp:{user_id}', max_reqs=5, window=900):
+        return jsonify({'error': 'Trop de tentatives. Reessaie dans 15 minutes.'}), 429
+    data = request.get_json(silent=True) or {}
+    conn = get_db()
+    user = conn.execute('SELECT mot_de_passe FROM users WHERE id = ?', (user_id,)).fetchone()
+    if not check_password(data.get('actuel', ''), user['mot_de_passe']):
+        conn.close()
+        return jsonify({'error': 'Mot de passe actuel incorrect'}), 400
+    if not validate_password(data.get('nouveau', '')):
+        conn.close()
+        return jsonify({'error': f'Nouveau mot de passe trop court (min {MDP_MIN} caracteres)'}), 400
+    conn.execute('UPDATE users SET mot_de_passe = ?, jeton_version = COALESCE(jeton_version, 0) + 1 WHERE id = ?',
+                 (hash_password(data['nouveau']), user_id))
+    conn.commit()
+    conn.close()
+    # nouveau jeton pour ce telephone ; tous les autres appareils sont deconnectes
+    return jsonify({'message': 'Mot de passe modifie', 'token': api_token(user_id)})
+
+@app.route('/api/deconnecter_partout', methods=['POST'])
+def api_deconnecter_partout():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    conn.execute('UPDATE users SET jeton_version = COALESCE(jeton_version, 0) + 1 WHERE id = ?', (user_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Tous les autres appareils sont deconnectes', 'token': api_token(user_id)})
+
+@app.route('/api/conversations/<int:autre_id>/effacer', methods=['POST'])
+def api_effacer_conversation(autre_id):
+    """Efface l'historique de la discussion pour moi seulement (l'autre garde le sien)."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    maintenant = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    conn = get_db()
+    conn.execute('DELETE FROM conversations_effacees WHERE user_id = ? AND autre_id = ?', (user_id, autre_id))
+    conn.execute('INSERT INTO conversations_effacees (user_id, autre_id, date_effacement) VALUES (?, ?, ?)', (user_id, autre_id, maintenant))
+    conn.execute('UPDATE messages SET lu = 1 WHERE expediteur_id = ? AND destinataire_id = ?', (autre_id, user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Discussion effacee'})
+
+@app.route('/api/aide/contact')
+def api_aide_contact():
+    """Administrateur a contacter depuis la page Aide."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    admin = conn.execute("SELECT id, prenom, nom, avatar FROM users WHERE role = 'admin' AND id != ? ORDER BY id LIMIT 1", (user_id,)).fetchone()
+    conn.close()
+    return jsonify(dict(admin) if admin else {})
+
 @app.route('/api/formations')
 def api_formations():
     user_id = api_require_auth()
@@ -3934,22 +4065,33 @@ def api_messages():
     if not autre_id:
         return jsonify({'error': 'Parametre "avec" requis'}), 400
     conn = get_db()
+    efface = conn.execute('SELECT date_effacement FROM conversations_effacees WHERE user_id = ? AND autre_id = ?',
+                          (user_id, autre_id)).fetchone()
     messages = conn.execute('''
         SELECT messages.*, users.prenom, users.nom
         FROM messages JOIN users ON messages.expediteur_id = users.id
-        WHERE (expediteur_id = ? AND destinataire_id = ?) OR (expediteur_id = ? AND destinataire_id = ?)
+        WHERE ((expediteur_id = ? AND destinataire_id = ?) OR (expediteur_id = ? AND destinataire_id = ?))
+          AND date_envoi > ?
         ORDER BY date_envoi ASC
-    ''', (user_id, autre_id, autre_id, user_id)).fetchall()
+    ''', (user_id, autre_id, autre_id, user_id, efface['date_effacement'] if efface else '')).fetchall()
+    # "Vu" masque si l'un des deux l'a desactive (reciproque, comme WhatsApp)
+    vu_masque = bool(conn.execute('SELECT 1 FROM users WHERE id IN (?, ?) AND COALESCE(masquer_vu, 0) = 1',
+                                  (user_id, autre_id)).fetchone())
     non_lus = conn.execute('UPDATE messages SET lu = 1 WHERE expediteur_id = ? AND destinataire_id = ? AND lu = 0',
                            (autre_id, user_id)).rowcount
     conn.commit()
     conn.close()
-    if non_lus:
+    if non_lus and not vu_masque:
         try:  # "Vu" en direct chez l'expediteur
             socketio.emit('messages_lus', {'par': user_id}, room='user_' + str(autre_id))
         except Exception:
             pass
-    return jsonify([dict(m) for m in messages])
+    resultat = [dict(m) for m in messages]
+    if vu_masque:
+        for m in resultat:
+            if m['expediteur_id'] == user_id:
+                m['lu'] = 0
+    return jsonify(resultat)
 
 @app.route('/api/messages', methods=['POST'])
 def api_send_message():
@@ -3969,7 +4111,7 @@ def api_send_message():
         return jsonify({'error': 'destinataire_id invalide'}), 400
     if destinataire_id == user_id:
         return jsonify({'error': "Tu ne peux pas t'envoyer un message"}), 400
-    if blocage_entre(user_id, destinataire_id):
+    if not peut_ecrire(user_id, destinataire_id):
         return jsonify({'error': "Tu ne peux pas ecrire a cette personne."}), 409  # pas 403 : l'app y voit une session expiree
     conn = get_db()
     if not conn.execute('SELECT 1 FROM users WHERE id = ?', (destinataire_id,)).fetchone():
@@ -4017,7 +4159,7 @@ def api_message_vocal():
         return jsonify({'error': 'destinataire_id et duree requis'}), 400
     if destinataire_id == user_id:
         return jsonify({'error': "Tu ne peux pas t'envoyer un message"}), 400
-    if blocage_entre(user_id, destinataire_id):
+    if not peut_ecrire(user_id, destinataire_id):
         return jsonify({'error': 'Tu ne peux pas ecrire a cette personne.'}), 409
     fichier = request.files.get('audio')
     data = fichier.read(VOCAL_TAILLE_MAX + 1) if fichier else b''
@@ -4058,8 +4200,10 @@ def api_conversations():
         WHERE expediteur_id = ? OR destinataire_id = ?
         ORDER BY date_dernier DESC
     ''', (user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id, user_id)).fetchall()
+    effacees = {e['autre_id']: e['date_effacement'] for e in conn.execute(
+        'SELECT autre_id, date_effacement FROM conversations_effacees WHERE user_id = ?', (user_id,)).fetchall()}
     conn.close()
-    return jsonify([dict(c) for c in convs])
+    return jsonify([dict(c) for c in convs if (c['date_dernier'] or '') > effacees.get(c['autre_id'], '')])
 
 @app.route('/api/notifications')
 def api_notifications():
@@ -4489,7 +4633,7 @@ def handle_send_message(data):
     contenu = sanitize_text(str(data.get('contenu') or ''), FIELD_MAXLEN['message'])
     if not contenu or destinataire_id == session['user_id'] or trop_rapide('message', session['user_id'], 30, 60):
         return
-    if blocage_entre(session['user_id'], destinataire_id):
+    if not peut_ecrire(session['user_id'], destinataire_id):
         return
 
     conn = get_db()

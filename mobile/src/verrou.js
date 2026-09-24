@@ -30,6 +30,42 @@ export async function changerVerrou(activer) {
   return null;
 }
 
+// ---- Code sur les discussions : l'onglet Messages demande l'empreinte
+const CLE_MESSAGES = 'linkci_verrou_messages';
+let messagesDeverrouilles = false; // jusqu'a la prochaine sortie de l'app
+AppState.addEventListener('change', (etat) => { if (etat === 'background') messagesDeverrouilles = false; });
+
+export async function verrouMessagesActif() {
+  try {
+    return (await AsyncStorage.getItem(CLE_MESSAGES)) === '1';
+  } catch (e) {
+    return false;
+  }
+}
+
+export async function changerVerrouMessages(activer) {
+  if (activer) {
+    const materiel = await LocalAuthentication.hasHardwareAsync();
+    const enregistre = await LocalAuthentication.isEnrolledAsync();
+    if (!materiel || !enregistre) return "Ajoute d'abord une empreinte ou un visage dans les reglages de ton telephone.";
+  }
+  await AsyncStorage.setItem(CLE_MESSAGES, activer ? '1' : '0').catch(() => {});
+  messagesDeverrouilles = activer; // pas de nouvelle demande juste apres l'activation
+  return null;
+}
+
+// Renvoie true si les discussions peuvent s'afficher (deverrouillees ou verrou inactif)
+export async function ouvrirMessages() {
+  if (messagesDeverrouilles || !(await verrouMessagesActif())) return true;
+  try {
+    const r = await LocalAuthentication.authenticateAsync({ promptMessage: 'Ouvrir tes discussions', cancelLabel: 'Annuler' });
+    messagesDeverrouilles = r.success;
+    return r.success;
+  } catch (e) {
+    return false;
+  }
+}
+
 // Ecran de verrouillage affiche par-dessus l'app tant que l'etudiant n'est pas reconnu
 export function Verrou({ actif, children }) {
   const styles = useStyles();

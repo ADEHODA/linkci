@@ -153,6 +153,14 @@ export const envoyerAnnonce = (message) => request('/api/admin/annonce', { metho
 export const getAdminUtilisateurs = (q = '') => request(`/api/admin/utilisateurs?q=${encodeURIComponent(q)}`);
 export const bannirUtilisateur = (id) => request(`/api/admin/utilisateurs/${id}/bannir`, { method: 'POST' });
 
+// Parametres
+export const getParametres = () => request('/api/parametres');
+export const setParametres = (changement) => request('/api/parametres', { method: 'PUT', body: JSON.stringify(changement) });
+export const changerMotDePasse = (actuel, nouveau) => request('/api/mot_de_passe', { method: 'POST', body: JSON.stringify({ actuel, nouveau }) });
+export const deconnecterPartout = () => request('/api/deconnecter_partout', { method: 'POST' });
+export const effacerConversation = (autreId) => request(`/api/conversations/${autreId}/effacer`, { method: 'POST' });
+export const getContactAide = () => request('/api/aide/contact');
+
 // Stories (24 h)
 export const getStories = () => request('/api/stories');
 export const creerStory = (image, texte) => request('/api/stories', { method: 'POST', body: JSON.stringify({ image, texte }) });

@@ -1,12 +1,10 @@
 import React from 'react';
-import { View, Text, FlatList, TouchableOpacity, Alert, StyleSheet, Switch, Modal } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Alert, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import Avatar from '../components/Avatar';
 import PostImage from '../components/PostImage';
 import useApiList from '../hooks/useApiList';
-import QRCode from 'react-native-qrcode-svg';
-import { verrouActif, changerVerrou } from '../verrou';
 import { Card, Loading, EmptyState, pullToRefresh, SkeletonList } from '../components/ui';
 import { colors, radius, spacing, font, shadow, creerStyles, useTheme } from '../theme';
 import { dateRelative, parseDate, MOIS } from '../utils';
@@ -91,8 +89,14 @@ export default function ProfileScreen({ navigation, onLogout }) {
               <Ionicons name="chevron-forward" size={20} color={colors.white} />
             </TouchableOpacity>
           ) : null}
-          <Apparence />
-          <Securite user={user} />
+          <TouchableOpacity style={styles.parametres} onPress={() => navigation.navigate('Parametres')} activeOpacity={0.85}>
+            <Ionicons name="settings-outline" size={22} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.parametresTitre}>Parametres</Text>
+              <Text style={styles.parametresTexte}>Compte, confidentialite, notifications, aide</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.textFaint} />
+          </TouchableOpacity>
           <Text style={styles.sectionTitle}>Mes publications</Text>
         </>
       }
@@ -114,32 +118,6 @@ export default function ProfileScreen({ navigation, onLogout }) {
   );
 }
 
-// Choix du theme : suit le telephone, ou force clair / sombre (memorise)
-function Apparence() {
-  const styles = useStyles();
-  const { colors, preference, setPreference } = useTheme();
-  const options = [
-    { cle: 'auto', label: 'Automatique', icone: 'phone-portrait-outline' },
-    { cle: 'clair', label: 'Clair', icone: 'sunny-outline' },
-    { cle: 'sombre', label: 'Sombre', icone: 'moon-outline' },
-  ];
-  return (
-    <View style={styles.apparence}>
-      <Text style={styles.apparenceTitre}>Apparence</Text>
-      <View style={styles.segment}>
-        {options.map((o) => {
-          const actif = preference === o.cle;
-          return (
-            <TouchableOpacity key={o.cle} style={[styles.segBtn, actif && styles.segActif]} onPress={() => setPreference(o.cle)} activeOpacity={0.8}>
-              <Ionicons name={o.icone} size={16} color={actif ? colors.white : colors.textMuted} />
-              <Text style={[styles.segTexte, actif && { color: colors.white }]}>{o.label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-    </View>
-  );
-}
 
 function Stat({ valeur, label }) {
   const styles = useStyles();
@@ -152,6 +130,9 @@ function Stat({ valeur, label }) {
 }
 
 const useStyles = creerStyles(({ colors, font, shadow }) => ({
+  parametres: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: colors.card, borderRadius: radius.lg, padding: spacing.lg, marginHorizontal: spacing.md, marginBottom: spacing.md },
+  parametresTitre: { color: colors.text, fontWeight: '800', fontSize: 16 },
+  parametresTexte: { color: colors.textMuted, fontSize: 13 },
   ligneReglage: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 10 },
   ligneReglageTexte: { flex: 1, fontSize: 15, fontWeight: '600', color: colors.text },
   qrFond: { flex: 1, backgroundColor: colors.overlay, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
@@ -197,44 +178,3 @@ const useStyles = creerStyles(({ colors, font, shadow }) => ({
   segActif: { backgroundColor: colors.primary },
   segTexte: { fontSize: 12, fontWeight: '700', color: colors.textMuted },
 }));
-
-// Mon QR code (a faire scanner) et verrouillage par empreinte
-function Securite({ user }) {
-  const styles = useStyles();
-  const { colors } = useTheme();
-  const [qr, setQr] = React.useState(false);
-  const [verrou, setVerrou] = React.useState(false);
-  React.useEffect(() => { verrouActif().then(setVerrou); }, []);
-
-  const basculer = async (valeur) => {
-    const erreur = await changerVerrou(valeur);
-    if (erreur) Alert.alert('Verrouillage', erreur);
-    else setVerrou(valeur);
-  };
-
-  return (
-    <View style={styles.apparence}>
-      <TouchableOpacity style={styles.ligneReglage} onPress={() => setQr(true)} activeOpacity={0.8}>
-        <Ionicons name="qr-code-outline" size={20} color={colors.primary} />
-        <Text style={styles.ligneReglageTexte}>Mon QR code</Text>
-        <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
-      </TouchableOpacity>
-      <View style={styles.ligneReglage}>
-        <Ionicons name="finger-print" size={20} color={colors.primary} />
-        <Text style={styles.ligneReglageTexte}>Verrouiller avec l'empreinte</Text>
-        <Switch value={verrou} onValueChange={basculer} trackColor={{ true: colors.primary }} thumbColor={colors.white} />
-      </View>
-      <Modal visible={qr} transparent animationType="fade" onRequestClose={() => setQr(false)}>
-        <TouchableOpacity style={styles.qrFond} activeOpacity={1} onPress={() => setQr(false)}>
-          <View style={styles.qrCarte}>
-            <Text style={styles.qrNom}>{user.prenom} {user.nom}</Text>
-            <View style={styles.qrCadre}>
-              <QRCode value={`https://linkci.onrender.com/profil/${user.id}`} size={210} color="#111" backgroundColor="#fff" />
-            </View>
-            <Text style={styles.qrAide}>Fais scanner ce code : ton camarade ouvre ton profil LinkCI (Explorer > icone QR).</Text>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-    </View>
-  );
-}
