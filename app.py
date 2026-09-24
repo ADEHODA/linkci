@@ -7,7 +7,7 @@ from datetime import datetime, date, timedelta, timezone
 
 load_dotenv()
 import db  # apres load_dotenv : lit DATABASE_URL
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_file, g, has_app_context
 try:
     from flask_socketio import SocketIO, emit, join_room, leave_room
     SOCKETIO_AVAILABLE = True
@@ -209,10 +209,22 @@ DB_PATH = os.path.join(os.path.dirname(__file__), 'linkci.db')
 
 def get_db():
     if db.IS_PG:
-        return db.connect()
+        conn = db.connect()
+        if has_app_context():
+            g.setdefault('connexions_db', []).append(conn)  # rendue au pool en fin de requete
+        return conn
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+@app.teardown_appcontext
+def rendre_connexions_db(exc):
+    # Toute connexion encore ouverte en fin de requete retourne au pool
+    for conn in g.pop('connexions_db', []):
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 # ===================== FICHIERS (images, avatars, documents) =====================
 # Les fichiers sont ecrits sur disque ET dans la table `fichiers`. Le disque

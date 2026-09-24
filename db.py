@@ -111,7 +111,8 @@ def _get_pool():
         _pool = ConnectionPool(
             DATABASE_URL,
             min_size=1,
-            max_size=int(os.environ.get('DB_POOL_SIZE', '5')),
+            max_size=int(os.environ.get('DB_POOL_SIZE', '10')),
+            timeout=15,  # echouer vite plutot que de bloquer 30 s
             # autocommit : une erreur (ex. IntegrityError attrapee par le code)
             # n'invalide pas la suite, comme avec SQLite.
             # prepare_threshold=None : compatible avec les poolers PgBouncer (Neon).
@@ -175,6 +176,15 @@ class PgConnection:
         if self._conn is not None:
             self._pool.putconn(self._conn)
             self._conn = None
+
+    def __del__(self):
+        # Filet de securite : une connexion oubliee (return avant close(),
+        # exception...) est rendue au pool des qu'elle n'est plus referencee,
+        # au lieu de bloquer le pool jusqu'au PoolTimeout.
+        try:
+            self.close()
+        except Exception:
+            pass
 
     def __enter__(self):
         return self
