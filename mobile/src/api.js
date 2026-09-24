@@ -150,6 +150,12 @@ export const deletePost = (postId) =>
 // Bourses
 export const getBourses = () => request('/api/bourses');
 
+// Stages et emplois
+export const getOpportunites = () => request('/api/opportunites');
+export const creerOpportunite = (offre) => request('/api/opportunites', { method: 'POST', body: JSON.stringify(offre) });
+export const getAlertesOpportunites = () => request('/api/opportunites/alertes');
+export const setAlertesOpportunites = (types) => request('/api/opportunites/alertes', { method: 'PUT', body: JSON.stringify({ types }) });
+
 // Formations
 export const getFormations = () => request('/api/formations');
 

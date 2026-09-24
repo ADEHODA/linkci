@@ -60,9 +60,9 @@
             <div class="admin-stat"><div class="num">{{ stats.groupes }}</div><div class="label">Groupes</div></div>
             <div class="admin-stat"><div class="num">{{ stats.evenements }}</div><div class="label">Événements</div></div>
         </div>
-        {% if bourses_attente or formations_attente %}
+        {% if bourses_attente or formations_attente or opportunites_attente %}
         <div class="admin-section">
-            <h3>Propositions a valider ({{ (bourses_attente|length) + (formations_attente|length) }})</h3>
+            <h3>Propositions a valider ({{ (bourses_attente|length) + (formations_attente|length) + (opportunites_attente|length) }})</h3>
             <table class="admin-table">
                 <tr><th>Type</th><th>Titre</th><th>Details</th><th>Lien</th><th>Decision</th></tr>
                 {% for b in bourses_attente %}
@@ -86,6 +86,18 @@
                     <td>
                         <form method="POST" action="/admin/moderation/formation/{{ f.id }}/valider" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-ban actif">Publier</button></form>
                         <form method="POST" action="/admin/moderation/formation/{{ f.id }}/refuser" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-ban banni">Refuser</button></form>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% for o in opportunites_attente %}
+                <tr>
+                    <td>Offre</td>
+                    <td>{{ o.titre }}</td>
+                    <td>{{ o.entreprise }} · {{ o.type }}{% if o.ville %} · {{ o.ville }}{% endif %}{% if o.contact %}<br><small>Contact : {{ o.contact }}</small>{% endif %}</td>
+                    <td>{% if o.lien|lien_sur %}<a href="{{ o.lien|lien_sur }}" target="_blank" rel="noopener noreferrer nofollow">verifier</a>{% else %}-{% endif %}</td>
+                    <td>
+                        <form method="POST" action="/admin/moderation/opportunite/{{ o.id }}/valider" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-ban actif">Publier</button></form>
+                        <form method="POST" action="/admin/moderation/opportunite/{{ o.id }}/refuser" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-ban banni">Refuser</button></form>
                     </td>
                 </tr>
                 {% endfor %}

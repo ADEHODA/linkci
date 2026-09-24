@@ -59,7 +59,7 @@ export function destinationNotification(n) {
   const cibles = {
     message: ['Home', { screen: 'Messages' }], like: ['Home', { screen: 'Accueil' }],
     commentaire: ['Home', { screen: 'Accueil' }], mention: ['Home', { screen: 'Accueil' }],
-    bourse: ['Bourses'], formation: ['Formations'], document: ['Documents'],
+    bourse: ['Bourses'], formation: ['Formations'], document: ['Documents'], opportunite: ['Opportunites'],
   };
   return (n && cibles[n.type]) || null;
 }

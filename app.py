@@ -584,6 +584,21 @@ def init_db():
             motif TEXT,
             date_signalement TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             UNIQUE (post_id, user_id))''',
+        # Stages, emplois, jobs etudiants, alternances
+        '''CREATE TABLE IF NOT EXISTS opportunites (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            type TEXT NOT NULL,
+            titre TEXT NOT NULL,
+            entreprise TEXT NOT NULL,
+            ville TEXT DEFAULT '',
+            domaine TEXT DEFAULT '',
+            description TEXT DEFAULT '',
+            lien TEXT DEFAULT '',
+            contact TEXT DEFAULT '',
+            date_limite TEXT DEFAULT '',
+            valide INTEGER DEFAULT 1,
+            date_publication TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''',
         # Blocages : bloqueur ne voit plus les publications de bloque, et plus
         # aucun message ne passe entre eux
         '''CREATE TABLE IF NOT EXISTS blocages (
@@ -2351,6 +2366,7 @@ def admin_dashboard():
     derniers_posts = conn.execute('SELECT posts.id, posts.contenu, posts.date_post, users.prenom, users.nom FROM posts JOIN users ON posts.user_id = users.id ORDER BY posts.date_post DESC LIMIT 10').fetchall()
     bourses_attente = conn.execute('SELECT * FROM bourses WHERE valide = 0 ORDER BY date_publication DESC').fetchall()
     formations_attente = conn.execute('SELECT * FROM formations WHERE valide = 0 ORDER BY date_ajout DESC').fetchall()
+    opportunites_attente = conn.execute('SELECT * FROM opportunites WHERE valide = 0 ORDER BY date_publication DESC').fetchall()
     posts_signales = conn.execute('''
         SELECT posts.id, posts.contenu, users.prenom, users.nom, COUNT(s.id) AS nb,
                MAX(s.motif) AS motif
@@ -2358,7 +2374,8 @@ def admin_dashboard():
         GROUP BY posts.id, posts.contenu, users.prenom, users.nom ORDER BY nb DESC''').fetchall()
     conn.close()
     return render_template('admin.html', stats=stats, derniers_inscrits=derniers_inscrits, derniers_posts=derniers_posts,
-                           bourses_attente=bourses_attente, formations_attente=formations_attente, posts_signales=posts_signales)
+                           bourses_attente=bourses_attente, formations_attente=formations_attente, posts_signales=posts_signales,
+                           opportunites_attente=opportunites_attente)
 
 @app.route('/admin/ignorer_signalement/<int:post_id>', methods=['POST'])
 def admin_ignorer_signalement(post_id):
@@ -2384,7 +2401,7 @@ def admin_moderation(genre, id, decision):
     if not admin_required():
         flash('Acces reserve', 'error')
         return redirect(url_for('feed'))
-    table = {'bourse': 'bourses', 'formation': 'formations'}.get(genre)
+    table = {'bourse': 'bourses', 'formation': 'formations', 'opportunite': 'opportunites'}.get(genre)
     if not table or decision not in ('valider', 'refuser'):
         return redirect(url_for('admin_dashboard'))
     conn = get_db()
@@ -2392,9 +2409,13 @@ def admin_moderation(genre, id, decision):
     if ligne and decision == 'valider':
         conn.execute(f'UPDATE {table} SET valide = 1 WHERE id = ?', (id,))
         conn.commit()
-        nom = ligne['titre'] if genre == 'bourse' else ligne['nom']
-        notifier_tous(genre, ('Nouvelle bourse : ' if genre == 'bourse' else 'Nouvelle formation disponible : ') + nom, '/' + table)
-        flash('Publie et annonce a tous les etudiants.', 'success')
+        if genre == 'opportunite':
+            annoncer_opportunite(dict(ligne))
+            flash('Offre publiee et annoncee aux etudiants abonnes.', 'success')
+        else:
+            nom = ligne['titre'] if genre == 'bourse' else ligne['nom']
+            notifier_tous(genre, ('Nouvelle bourse : ' if genre == 'bourse' else 'Nouvelle formation disponible : ') + nom, '/' + table)
+            flash('Publie et annonce a tous les etudiants.', 'success')
     elif ligne:
         conn.execute(f'DELETE FROM {table} WHERE id = ?', (id,))
         conn.commit()
@@ -2889,6 +2910,159 @@ def api_bourses():
     bourses = conn.execute('SELECT * FROM bourses WHERE COALESCE(valide, 1) = 1 ORDER BY expiree ASC, date_publication DESC').fetchall()
     conn.close()
     return jsonify([dict(b) for b in bourses])
+
+# ===================== OPPORTUNITES (stages, emplois) =====================
+TYPES_OPPORTUNITE = {'stage': 'Stage', 'emploi': 'Emploi', 'job': 'Job etudiant', 'alternance': 'Alternance'}
+
+def lire_opportunite(data):
+    """Valide un formulaire d'offre. Renvoie (champs, None) ou (None, erreur)."""
+    champ = lambda k, n: sanitize_text(str(data.get(k) or ''), n)
+    o = {'type': champ('type', 20).lower(), 'titre': champ('titre', 150), 'entreprise': champ('entreprise', 120),
+         'ville': champ('ville', 80), 'domaine': champ('domaine', 100), 'description': champ('description', 3000),
+         'lien': lien_sur(champ('lien', 500)), 'contact': champ('contact', 150), 'date_limite': champ('date_limite', 10)}
+    if o['type'] not in TYPES_OPPORTUNITE:
+        return None, 'Type invalide (stage, emploi, job ou alternance)'
+    if not o['titre'] or not o['entreprise']:
+        return None, "Titre et entreprise requis"
+    if not (o['lien'] or o['contact']):
+        return None, 'Indique un lien pour postuler ou un contact'
+    if o['date_limite'] and not re.match(r'^\d{4}-\d{2}-\d{2}$', o['date_limite']):
+        return None, 'Date limite au format AAAA-MM-JJ'
+    return o, None
+
+def annoncer_opportunite(o):
+    """Previent les etudiants abonnes a ce type d'offre."""
+    conn = get_db()
+    abonnes = [r['user_id'] for r in conn.execute(
+        'SELECT user_id FROM abonnements_alertes WHERE type = ? AND COALESCE(actif, 1) = 1 AND user_id != ?',
+        ('opportunite_' + o['type'], o['user_id'])).fetchall()]
+    conn.close()
+    message = f"{TYPES_OPPORTUNITE[o['type']]} : {o['titre']} chez {o['entreprise']}"
+    for uid in abonnes:
+        creer_notification(uid, 'opportunite', message, '/opportunites')
+    if abonnes:
+        envoyer_push(abonnes, 'opportunite', message, '/opportunites')
+
+def creer_opportunite(user, o):
+    """Publie (admin) ou soumet a validation (etudiant). Renvoie True si publiee."""
+    publie = est_admin(user)
+    conn = get_db()
+    oid = conn.execute('''INSERT INTO opportunites (user_id, type, titre, entreprise, ville, domaine, description,
+                          lien, contact, date_limite, valide) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                       (user['id'], o['type'], o['titre'], o['entreprise'], o['ville'], o['domaine'], o['description'],
+                        o['lien'], o['contact'], o['date_limite'], 1 if publie else 0)).lastrowid
+    conn.commit()
+    conn.close()
+    if publie:
+        annoncer_opportunite({**o, 'user_id': user['id']})
+    else:
+        prevenir_admins('opportunite', f"Offre a valider : {o['titre']} ({o['entreprise']})")
+    return oid, publie
+
+def liste_opportunites(type_offre='', ville='', q=''):
+    aujourdhui = date.today().isoformat()
+    sql_ = '''SELECT o.*, users.prenom, users.nom FROM opportunites o JOIN users ON users.id = o.user_id
+              WHERE o.valide = 1 AND (o.date_limite = '' OR o.date_limite >= ?)'''
+    params = [aujourdhui]
+    if type_offre in TYPES_OPPORTUNITE:
+        sql_ += ' AND o.type = ?'
+        params.append(type_offre)
+    if ville:
+        sql_ += ' AND lower(o.ville) LIKE ?'
+        params.append('%' + ville.lower()[:80] + '%')
+    if q:
+        sql_ += ' AND (lower(o.titre) LIKE ? OR lower(o.entreprise) LIKE ? OR lower(o.domaine) LIKE ? OR lower(o.description) LIKE ?)'
+        params += ['%' + q.lower()[:100] + '%'] * 4
+    sql_ += ' ORDER BY o.date_publication DESC LIMIT 200'
+    conn = get_db()
+    lignes = conn.execute(sql_, params).fetchall()
+    conn.close()
+    return [dict(l) for l in lignes]
+
+@app.route('/api/opportunites')
+def api_opportunites():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    return jsonify(liste_opportunites(request.args.get('type', ''), request.args.get('ville', '').strip(),
+                                      request.args.get('q', '').strip()))
+
+@app.route('/api/opportunites', methods=['POST'])
+def api_creer_opportunite():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if trop_rapide('proposition', user_id, 5, 3600):
+        return jsonify({'error': 'Trop de propositions. Reessaie plus tard.'}), 429
+    o, erreur = lire_opportunite(request.get_json(silent=True) or {})
+    if erreur:
+        return jsonify({'error': erreur}), 400
+    conn = get_db()
+    user = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    oid, publie = creer_opportunite(user, o)
+    return jsonify({'id': oid, 'publie': publie,
+                    'message': 'Offre publiee.' if publie else "Merci ! Ton offre sera visible apres verification par un administrateur."}), 201
+
+@app.route('/api/opportunites/<int:oid>', methods=['DELETE'])
+def api_supprimer_opportunite(oid):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    o = conn.execute('SELECT user_id FROM opportunites WHERE id = ?', (oid,)).fetchone()
+    moi = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+    if not o:
+        conn.close()
+        return jsonify({'error': 'Introuvable'}), 404
+    if o['user_id'] != user_id and not est_admin(moi):
+        conn.close()
+        return jsonify({'error': 'Non autorise'}), 403
+    conn.execute('DELETE FROM opportunites WHERE id = ?', (oid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Offre supprimee'})
+
+@app.route('/api/opportunites/alertes', methods=['GET', 'PUT'])
+def api_alertes_opportunites():
+    """GET : types suivis. PUT {"types": ["stage", ...]} : remplace la liste."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    if request.method == 'PUT':
+        types = [t for t in ((request.get_json(silent=True) or {}).get('types') or []) if t in TYPES_OPPORTUNITE]
+        conn.execute("DELETE FROM abonnements_alertes WHERE user_id = ? AND type LIKE 'opportunite_%'", (user_id,))
+        for t in types:
+            conn.execute('INSERT INTO abonnements_alertes (user_id, type, actif) VALUES (?, ?, 1)', (user_id, 'opportunite_' + t))
+        conn.commit()
+    lignes = conn.execute("SELECT type FROM abonnements_alertes WHERE user_id = ? AND type LIKE 'opportunite_%' AND COALESCE(actif, 1) = 1",
+                          (user_id,)).fetchall()
+    conn.close()
+    return jsonify({'types': [l['type'][len('opportunite_'):] for l in lignes]})
+
+@app.route('/opportunites', methods=['GET', 'POST'])
+def opportunites_web():
+    if 'user_id' not in session:
+        return redirect(url_for('connexion'))
+    if request.method == 'POST':
+        if trop_rapide('proposition', session['user_id'], 5, 3600):
+            flash('Trop de propositions. Reessaie plus tard.', 'error')
+            return redirect(url_for('opportunites_web'))
+        o, erreur = lire_opportunite(request.form)
+        if erreur:
+            flash(erreur, 'error')
+            return redirect(url_for('opportunites_web'))
+        conn = get_db()
+        user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
+        conn.close()
+        _, publie = creer_opportunite(user, o)
+        flash('Offre publiee.' if publie else 'Merci ! Ton offre sera visible apres verification.', 'success')
+        return redirect(url_for('opportunites_web'))
+    type_offre = request.args.get('type', '')
+    return render_template('opportunites.html', offres=liste_opportunites(type_offre, request.args.get('ville', '').strip(),
+                                                                         request.args.get('q', '').strip()),
+                           types=TYPES_OPPORTUNITE, type_actif=type_offre)
 
 @app.route('/api/formations')
 def api_formations():

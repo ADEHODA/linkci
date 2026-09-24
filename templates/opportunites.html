@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stages & emplois — LINK CI</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <script src="/static/js/main.js" defer></script>
+</head>
+<body>
+{% with messages = get_flashed_messages(with_categories=true) %}
+{% if messages %}
+<div class="flash-container">
+{% for category, message in messages %}
+<div class="flash {{ category }}">{{ message }}</div>
+{% endfor %}
+</div>
+{% endif %}
+{% endwith %}
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
+            <div class="nav-links">
+                <a href="/feed" class="nav-link">Fil</a>
+                <a href="/bourses" class="nav-link">Bourses</a>
+                <a href="/opportunites" class="nav-link active">Stages</a>
+                <a href="/calendrier" class="nav-link">Calendrier</a>
+                <a href="/groupes" class="nav-link">Groupes</a>
+                <a href="/notifications" class="nav-link" id="notif-link">Alerts <span id="notif-count" style="background:var(--primary);color:white;border-radius:50%;padding:0.1rem 0.4rem;font-size:0.7rem;display:none;"></span></a>
+                <a href="/messagerie" class="nav-link">Messages</a>
+                <a href="/documents" class="nav-link">Cours</a>
+                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
+                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container" style="max-width:900px;">
+        <div class="documents-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;">
+            <div>
+                <h2>Stages & emplois</h2>
+                <p>Stages, jobs étudiants, alternances et premiers emplois</p>
+            </div>
+            <button class="btn btn-orange btn-round" onclick="document.getElementById('proposer').toggleAttribute('hidden')">+ Proposer une offre</button>
+        </div>
+
+        <form id="proposer" method="POST" hidden class="card" style="padding:1rem;margin:1rem 0;display:grid;gap:0.6rem;">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <select name="type" required>{% for k, v in types.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+            <input name="titre" required maxlength="150" placeholder="Intitulé (ex. Stage assistant comptable)">
+            <input name="entreprise" required maxlength="120" placeholder="Entreprise">
+            <input name="ville" maxlength="80" placeholder="Ville (ex. Abidjan)">
+            <input name="domaine" maxlength="100" placeholder="Domaine (ex. Finance, Informatique)">
+            <textarea name="description" maxlength="3000" rows="4" placeholder="Description, profil recherché..."></textarea>
+            <input name="lien" type="url" maxlength="500" placeholder="Lien pour postuler (https://...)">
+            <input name="contact" maxlength="150" placeholder="Ou contact (e-mail / téléphone)">
+            <label style="font-size:0.85rem;">Date limite <input name="date_limite" type="date"></label>
+            <button type="submit" class="btn btn-orange">Envoyer</button>
+            <small style="color:var(--text-muted);">Les offres proposées par les étudiants sont vérifiées par un administrateur avant publication.</small>
+        </form>
+
+        <form method="GET" style="display:flex;gap:0.5rem;flex-wrap:wrap;margin:1rem 0;">
+            <a href="/opportunites" class="btn btn-sm {{ 'btn-orange' if not type_actif else '' }}">Toutes</a>
+            {% for k, v in types.items() %}<a href="/opportunites?type={{ k }}" class="btn btn-sm {{ 'btn-orange' if type_actif == k else '' }}">{{ v }}</a>{% endfor %}
+            <input type="hidden" name="type" value="{{ type_actif }}">
+            <input name="q" placeholder="Rechercher..." value="{{ request.args.get('q', '') }}" style="flex:1;min-width:140px;">
+            <input name="ville" placeholder="Ville" value="{{ request.args.get('ville', '') }}" style="width:120px;">
+            <button type="submit" class="btn btn-sm">🔍</button>
+        </form>
+
+        {% for o in offres %}
+        <div class="card" style="padding:1rem;margin-bottom:0.75rem;">
+            <div style="display:flex;justify-content:space-between;gap:0.5rem;flex-wrap:wrap;">
+                <strong style="font-size:1.05rem;">{{ o.titre }}</strong>
+                <span class="badge" style="background:var(--orange-light);color:var(--orange);padding:0.15rem 0.6rem;border-radius:999px;font-size:0.75rem;font-weight:700;">{{ types.get(o.type, o.type) }}</span>
+            </div>
+            <div style="color:var(--text-muted);font-size:0.9rem;margin:0.25rem 0;">🏢 {{ o.entreprise }}{% if o.ville %} · 📍 {{ o.ville }}{% endif %}{% if o.domaine %} · {{ o.domaine }}{% endif %}</div>
+            {% if o.description %}<p style="white-space:pre-line;margin:0.5rem 0;">{{ o.description }}</p>{% endif %}
+            <div style="display:flex;gap:1rem;align-items:center;flex-wrap:wrap;font-size:0.85rem;">
+                {% if o.lien|lien_sur %}<a href="{{ o.lien|lien_sur }}" target="_blank" rel="noopener noreferrer nofollow" class="btn btn-orange btn-sm">Postuler</a>{% endif %}
+                {% if o.contact %}<span>📞 {{ o.contact }}</span>{% endif %}
+                {% if o.date_limite %}<span style="color:var(--text-muted);">⏳ Jusqu'au {{ o.date_limite }}</span>{% endif %}
+            </div>
+        </div>
+        {% else %}
+        <p style="text-align:center;color:var(--text-muted);margin:2rem 0;">Aucune offre pour le moment. Sois le premier à en partager une !</p>
+        {% endfor %}
+    </div>
+</body>
+</html>
