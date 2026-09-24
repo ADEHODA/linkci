@@ -187,3 +187,23 @@ def test_lien_javascript_deja_en_base_neutralise(client):
     connecter(client, 'lecteur@test.ci')
     page = client.get('/bourses').get_data(as_text=True)
     assert 'javascript:alert(1)' not in page
+
+
+def test_envoi_email_par_brevo(monkeypatch):
+    appels = []
+
+    class Reponse:
+        status_code = 201
+        text = '{"messageId": "x"}'
+
+    import requests
+    monkeypatch.setattr(requests, 'post', lambda url, **kw: appels.append((url, kw)) or Reponse())
+    monkeypatch.setenv('BREVO_API_KEY', 'cle-de-test')
+    monkeypatch.setenv('EMAIL_EXPEDITEUR', 'expediteur@test.ci')
+    assert linkci_app.envoyer_email('etudiant@test.ci', 'Sujet', 'Texte') is True
+    url, kw = appels[0]
+    assert url == 'https://api.brevo.com/v3/smtp/email'
+    assert kw['headers']['api-key'] == 'cle-de-test'
+    assert kw['json']['to'] == [{'email': 'etudiant@test.ci'}] and kw['json']['sender']['email'] == 'expediteur@test.ci'
+    monkeypatch.delenv('EMAIL_EXPEDITEUR')
+    assert linkci_app.envoyer_email('etudiant@test.ci', 'Sujet', 'Texte') is False  # expediteur obligatoire

@@ -794,6 +794,29 @@ def _hash_jeton(jeton):
     return hashlib.sha256(jeton.encode()).hexdigest()
 
 def envoyer_email(destinataire, sujet, texte):
+    """Envoie un e-mail. Renvoie True si le service l'a accepte.
+    1. Brevo (API web) si BREVO_API_KEY est defini : fonctionne sur Render gratuit,
+       qui bloque les ports SMTP. EMAIL_EXPEDITEUR = adresse validee dans Brevo.
+    2. Sinon SMTP (SMTP_HOST, SMTP_USER, SMTP_PASS...), pratique en local."""
+    cle_brevo = os.environ.get('BREVO_API_KEY', '').strip()
+    if cle_brevo:
+        expediteur = os.environ.get('EMAIL_EXPEDITEUR', '').strip()
+        if not expediteur:
+            app.logger.error('EMAIL_EXPEDITEUR manquant : email non envoye (%s)', sujet)
+            return False
+        try:
+            import requests as http_req
+            r = http_req.post('https://api.brevo.com/v3/smtp/email', timeout=15,
+                              headers={'api-key': cle_brevo, 'accept': 'application/json'},
+                              json={'sender': {'name': 'LINK CI', 'email': expediteur},
+                                    'to': [{'email': destinataire}], 'subject': sujet, 'textContent': texte})
+            if r.status_code in (200, 201, 202):
+                return True
+            app.logger.error("Brevo a refuse l'email (%s) : %s", r.status_code, r.text[:300])
+        except Exception as e:
+            app.logger.error("Echec d'envoi via Brevo : %s", e)
+        return False
+
     smtp_host = os.environ.get('SMTP_HOST', '')
     smtp_user = os.environ.get('SMTP_USER', '')
     smtp_pass = os.environ.get('SMTP_PASS', '')
