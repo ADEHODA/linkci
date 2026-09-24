@@ -100,10 +100,12 @@
                         <button style="padding:0.5rem 0.75rem;background:var(--bg);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:0.8rem;color:var(--text-light);">Signaler expiré</button>
                     </form>
                     {% endif %}
+                    {% if utilisateur_est_admin() %}
                     <form method="POST" action="/bourses/supprimer/{{ b.id }}" style="flex:0;" onsubmit="return confirm('Supprimer ?')">
                         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                         <button style="padding:0.5rem 0.75rem;background:transparent;border:none;cursor:pointer;font-size:1.1rem;color:var(--text-light);">×</button>
                     </form>
+                    {% endif %}
                 </div>
 
                 <div style="margin-top:0.75rem;font-size:0.75rem;color:var(--text-light);">Publié le {{ b.date_publication[:10] }}</div>

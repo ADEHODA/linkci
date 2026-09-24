@@ -25,7 +25,12 @@ except ImportError:
 def hash_password(mdp):
     return bcrypt.hashpw(mdp.encode(), bcrypt.gensalt()).decode()
 
+_HASH_FACTICE = bcrypt.hashpw(b'linkci-factice', bcrypt.gensalt()).decode()
+
 def check_password(mdp, hashed):
+    if not hashed:  # compte inexistant : on calcule quand meme un bcrypt
+        bcrypt.checkpw((mdp or '').encode(), _HASH_FACTICE.encode())
+        return False
     if hashed.startswith('$2'):
         return bcrypt.checkpw(mdp.encode(), hashed.encode())
     return hashlib.sha256(mdp.encode()).hexdigest() == hashed
@@ -136,7 +141,7 @@ def check_csrf():
         if not request.path.startswith('/api') and request.path not in csrf_exempt_routes:
             if not validate_csrf():
                 flash('Formulaire invalide (CSRF). Reessaie.', 'error')
-                return redirect(request.referrer or url_for('index'))
+                return redirection_sure(request.referrer, url_for('index'))
     # Ban check for authenticated users (pas pour les fichiers statiques : evite une requete SQL par image)
     if 'user_id' in session and request.endpoint != 'static':
         try:
@@ -157,7 +162,8 @@ def check_csrf():
 
 @app.context_processor
 def inject_csrf():
-    return dict(csrf_token=generate_csrf_token)
+    # utilisateur_est_admin() : pour n'afficher les boutons d'administration qu'aux admins
+    return dict(csrf_token=generate_csrf_token, utilisateur_est_admin=lambda: bool(admin_required()))
 
 # Input validation helpers
 import re
@@ -174,6 +180,19 @@ def validate_password(password):
 
 def normaliser_email(email):
     return (email or '').strip().lower()
+
+def trop_rapide(action, qui, max_reqs, fenetre):
+    """Anti-spam : True si `qui` a depasse `max_reqs` `action` sur `fenetre` secondes."""
+    return not check_rate_limit(f'{action}:{qui}', max_reqs=max_reqs, window=fenetre)
+
+def redirection_sure(url, defaut):
+    """N'accepte qu'un chemin interne ('/...') : bloque les redirections vers d'autres sites."""
+    if url:
+        from urllib.parse import urlparse
+        u = urlparse(url)
+        if (not u.netloc or u.netloc == request.host) and u.path.startswith('/') and not u.path.startswith('//'):
+            return redirect(u.path + (('?' + u.query) if u.query else ''))
+    return redirect(defaut)
 
 def lien_sur(url):
     """N'accepte que les liens http(s) : bloque javascript:, data:, intent:..."""
@@ -520,6 +539,14 @@ def init_db():
         );
     ''')
 
+    # Moderation : les propositions des etudiants attendent la validation d'un admin
+    for table in ('bourses', 'formations'):
+        try:
+            conn.execute(f'ALTER TABLE {table} ADD COLUMN valide INTEGER DEFAULT 1')
+            conn.commit()
+        except Exception:
+            pass
+
     # Securite : role (admin) et version des jetons (revocation des sessions de l'app)
     for colonne in ("role TEXT DEFAULT 'etudiant'", 'jeton_version INTEGER DEFAULT 0'):
         try:
@@ -741,7 +768,7 @@ def index():
     conn = get_db()
     nb_users = conn.execute('SELECT COUNT(*) as nb FROM users').fetchone()['nb']
     nb_posts = conn.execute('SELECT COUNT(*) as nb FROM posts').fetchone()['nb']
-    nb_formations = conn.execute('SELECT COUNT(*) as nb FROM formations').fetchone()['nb']
+    nb_formations = conn.execute('SELECT COUNT(*) as nb FROM formations WHERE COALESCE(valide, 1) = 1').fetchone()['nb']
     conn.close()
     return render_template('index.html', nb_users=nb_users, nb_posts=nb_posts, nb_formations=nb_formations)
 
@@ -800,7 +827,9 @@ def connexion():
             return render_template('connexion.html')
         conn = get_db()
         user = conn.execute('SELECT * FROM users WHERE lower(email) = ?', (email,)).fetchone()
-        if user and not check_password(request.form.get('mot_de_passe', ''), user['mot_de_passe']):
+        if not user:
+            check_password(request.form.get('mot_de_passe', ''), None)
+        elif not check_password(request.form.get('mot_de_passe', ''), user['mot_de_passe']):
             user = None
         elif user and not user['mot_de_passe'].startswith('$2'):
             nouveau = hash_password(request.form['mot_de_passe'])
@@ -1012,6 +1041,9 @@ def commenter(post_id):
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
     contenu = sanitize_text(request.form.get('contenu', ''), 2000)
+    if contenu and trop_rapide('commentaire', session['user_id'], 20, 60):
+        flash('Tu commentes trop vite. Patiente un peu.', 'error')
+        return redirect(url_for('feed'))
     if contenu:
         conn = get_db()
         cur = conn.execute('INSERT INTO commentaires (user_id, post_id, contenu) VALUES (?, ?, ?)',
@@ -1122,8 +1154,15 @@ def envoyer_message(destinataire_id):
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
     contenu = sanitize_text(request.form.get('contenu', ''), 5000)
+    if contenu and (trop_rapide('message', session['user_id'], 30, 60) or destinataire_id == session['user_id']):
+        flash("Message non envoye (trop de messages, ou destinataire invalide).", 'error')
+        return redirect(url_for('conversation', autre_id=destinataire_id))
     if contenu:
         conn = get_db()
+        if not conn.execute('SELECT 1 FROM users WHERE id = ?', (destinataire_id,)).fetchone():
+            conn.close()
+            flash('Destinataire introuvable', 'error')
+            return redirect(url_for('messagerie'))
         msg_id = conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu) VALUES (?, ?, ?)',
                               (session['user_id'], destinataire_id, contenu)).lastrowid
         conn.commit()
@@ -1420,24 +1459,24 @@ def recherche():
             safe = q.replace("'", "''")
             resultats['bourses'] = [dict(r) for r in conn.execute('''
                 SELECT bourses.id, titre, organisme, type FROM bourses_fts JOIN bourses ON bourses_fts.rowid = bourses.id
-                WHERE bourses_fts MATCH ? ORDER BY rank LIMIT 10
+                WHERE bourses.COALESCE(valide, 1) = 1 AND bourses_fts MATCH ? ORDER BY rank LIMIT 10
             ''', (safe,)).fetchall()]
         except Exception:
             resultats['bourses'] = [dict(r) for r in conn.execute('''
                 SELECT id, titre, organisme, type FROM bourses
-                WHERE titre LIKE ? OR description LIKE ? OR organisme LIKE ?
+                WHERE COALESCE(valide, 1) = 1 AND (titre LIKE ? OR description LIKE ? OR organisme LIKE ?)
                 ORDER BY date_publication DESC LIMIT 10
             ''', ('%' + q + '%', '%' + q + '%', '%' + q + '%')).fetchall()]
         try:
             safe = q.replace("'", "''")
             resultats['formations'] = [dict(r) for r in conn.execute('''
                 SELECT formations.id, nom, universite, niveau FROM formations_fts JOIN formations ON formations_fts.rowid = formations.id
-                WHERE formations_fts MATCH ? ORDER BY rank LIMIT 10
+                WHERE formations.COALESCE(valide, 1) = 1 AND formations_fts MATCH ? ORDER BY rank LIMIT 10
             ''', (safe,)).fetchall()]
         except Exception:
             resultats['formations'] = [dict(r) for r in conn.execute('''
                 SELECT id, nom, universite, niveau FROM formations
-                WHERE nom LIKE ? OR description LIKE ? OR universite LIKE ?
+                WHERE COALESCE(valide, 1) = 1 AND (nom LIKE ? OR description LIKE ? OR universite LIKE ?)
                 LIMIT 10
             ''', ('%' + q + '%', '%' + q + '%', '%' + q + '%')).fetchall()]
         try:
@@ -1485,22 +1524,22 @@ def api_recherche():
         try:
             resultats['bourses'] = [dict(r) for r in conn.execute('''
                 SELECT bourses.id, titre, organisme, type FROM bourses_fts JOIN bourses ON bourses_fts.rowid = bourses.id
-                WHERE bourses_fts MATCH ? ORDER BY rank LIMIT 5
+                WHERE bourses.COALESCE(valide, 1) = 1 AND bourses_fts MATCH ? ORDER BY rank LIMIT 5
             ''', (safe,)).fetchall()]
         except Exception:
             resultats['bourses'] = [dict(r) for r in conn.execute('''
                 SELECT id, titre, organisme, type FROM bourses
-                WHERE titre LIKE ? OR description LIKE ? LIMIT 5
+                WHERE COALESCE(valide, 1) = 1 AND (titre LIKE ? OR description LIKE ?) LIMIT 5
             ''', ('%' + q + '%', '%' + q + '%')).fetchall()]
         try:
             resultats['formations'] = [dict(r) for r in conn.execute('''
                 SELECT formations.id, nom, universite, niveau FROM formations_fts JOIN formations ON formations_fts.rowid = formations.id
-                WHERE formations_fts MATCH ? ORDER BY rank LIMIT 5
+                WHERE formations.COALESCE(valide, 1) = 1 AND formations_fts MATCH ? ORDER BY rank LIMIT 5
             ''', (safe,)).fetchall()]
         except Exception:
             resultats['formations'] = [dict(r) for r in conn.execute('''
                 SELECT id, nom, universite, niveau FROM formations
-                WHERE nom LIKE ? OR description LIKE ? LIMIT 5
+                WHERE COALESCE(valide, 1) = 1 AND (nom LIKE ? OR description LIKE ?) LIMIT 5
             ''', ('%' + q + '%', '%' + q + '%')).fetchall()]
         try:
             resultats['users'] = [dict(r) for r in conn.execute('''
@@ -1527,8 +1566,8 @@ def bourses():
     conn.execute("UPDATE bourses SET expiree = 1 WHERE deadline != '' AND deadline < ? AND expiree = 0", (aujourdhui,))
     conn.commit()
 
-    toutes = conn.execute('SELECT * FROM bourses ORDER BY expiree ASC, date_publication DESC').fetchall()
-    types = conn.execute('SELECT DISTINCT type FROM bourses').fetchall()
+    toutes = conn.execute('SELECT * FROM bourses WHERE COALESCE(valide, 1) = 1 ORDER BY expiree ASC, date_publication DESC').fetchall()
+    types = conn.execute('SELECT DISTINCT type FROM bourses WHERE COALESCE(valide, 1) = 1').fetchall()
     conn.close()
     return render_template('bourses.html', bourses=toutes, types=types, aujourdhui=aujourdhui)
 
@@ -1549,12 +1588,20 @@ def ajouter_bourse():
         if not titre or not organisme or not type_:
             flash('Titre, organisme et type requis.', 'error')
             return render_template('ajouter_bourse.html')
+        admin = admin_required()
+        if not admin and trop_rapide('proposition', session['user_id'], 5, 3600):
+            flash('Trop de propositions. Reessaie plus tard.', 'error')
+            return redirect(url_for('bourses'))
         conn = get_db()
-        conn.execute('INSERT INTO bourses (titre, organisme, description, montant, type, cible, deadline, lien, pays) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-            (titre, organisme, description, montant, type_, cible, deadline, lien, pays))
+        conn.execute('INSERT INTO bourses (titre, organisme, description, montant, type, cible, deadline, lien, pays, valide) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (titre, organisme, description, montant, type_, cible, deadline, lien, pays, 1 if admin else 0))
         conn.commit()
         conn.close()
-        notifier_tous('bourse', f"Nouvelle bourse : {titre}", "/bourses")
+        if admin:
+            notifier_tous('bourse', f"Nouvelle bourse : {titre}", "/bourses")
+        else:
+            prevenir_admins('bourse', f"Bourse proposee a valider : {titre}")
+            flash('Merci ! Ta proposition sera publiee apres verification par un administrateur.', 'success')
         return redirect(url_for('bourses'))
     return render_template('ajouter_bourse.html')
 
@@ -1562,6 +1609,9 @@ def ajouter_bourse():
 def supprimer_bourse(id):
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
+    if not admin_required():
+        flash('Seuls les administrateurs peuvent supprimer une bourse.', 'error')
+        return redirect(url_for('bourses'))
     conn = get_db()
     conn.execute('DELETE FROM bourses WHERE id = ?', (id,))
     conn.commit()
@@ -1572,9 +1622,16 @@ def supprimer_bourse(id):
 def signaler_bourse(id):
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
+    # un admin la marque expiree ; un etudiant previent les admins (pas d'effet direct)
     conn = get_db()
-    conn.execute('UPDATE bourses SET expiree = 1 WHERE id = ?', (id,))
-    conn.commit()
+    bourse = conn.execute('SELECT titre FROM bourses WHERE id = ?', (id,)).fetchone()
+    if bourse and admin_required():
+        conn.execute('UPDATE bourses SET expiree = 1 WHERE id = ?', (id,))
+        conn.commit()
+    elif bourse and not trop_rapide('signalement', session['user_id'], 10, 3600):
+        for a in conn.execute("SELECT id FROM users WHERE role = 'admin'").fetchall():
+            creer_notification(a['id'], 'bourse', f"Bourse signalee comme expiree : {bourse['titre']}", '/bourses')
+        flash('Merci ! Un administrateur va verifier cette bourse.', 'success')
     conn.close()
     return redirect(url_for('bourses'))
 
@@ -1688,11 +1745,9 @@ def lire_notification(id):
     conn = get_db()
     conn.execute('UPDATE notifications SET lu = 1 WHERE id = ? AND user_id = ?', (id, session['user_id']))
     conn.commit()
-    n = conn.execute('SELECT lien FROM notifications WHERE id = ?', (id,)).fetchone()
+    n = conn.execute('SELECT lien FROM notifications WHERE id = ? AND user_id = ?', (id, session['user_id'])).fetchone()
     conn.close()
-    if n and n['lien']:
-        return redirect(n['lien'])
-    return redirect(url_for('notifications'))
+    return redirection_sure(n['lien'] if n else None, url_for('notifications'))
 
 @app.route('/notifications/tout_lire', methods=['POST'])
 def tout_lire():
@@ -1719,12 +1774,12 @@ def formations():
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
     conn = get_db()
-    uvs = conn.execute('SELECT DISTINCT universite FROM formations ORDER BY universite').fetchall()
+    uvs = conn.execute('SELECT DISTINCT universite FROM formations WHERE COALESCE(valide, 1) = 1 ORDER BY universite').fetchall()
     niveau_filter = request.args.get('niveau', '')
     uni_filter = request.args.get('universite', '')
     query = 'SELECT * FROM formations'
     params = []
-    clauses = []
+    clauses = ['COALESCE(valide, 1) = 1']
     if niveau_filter:
         clauses.append('niveau = ?')
         params.append(niveau_filter)
@@ -1735,7 +1790,7 @@ def formations():
         query += ' WHERE ' + ' AND '.join(clauses)
     query += ' ORDER BY universite, nom'
     formations = conn.execute(query, params).fetchall()
-    niveaux = conn.execute('SELECT DISTINCT niveau FROM formations ORDER BY niveau').fetchall()
+    niveaux = conn.execute('SELECT DISTINCT niveau FROM formations WHERE COALESCE(valide, 1) = 1 ORDER BY niveau').fetchall()
     conn.close()
     return render_template('formations.html', formations=formations, universites=uvs, niveaux=niveaux,
                          niveau_filter=niveau_filter, uni_filter=uni_filter)
@@ -1756,12 +1811,20 @@ def ajouter_formation():
         if not nom or not universite or not niveau:
             flash('Nom, universite et niveau requis.', 'error')
             return render_template('ajouter_formation.html')
+        admin = admin_required()
+        if not admin and trop_rapide('proposition', session['user_id'], 5, 3600):
+            flash('Trop de propositions. Reessaie plus tard.', 'error')
+            return redirect(url_for('formations'))
         conn = get_db()
-        conn.execute('INSERT INTO formations (nom, universite, niveau, description, duree, debouches, frais, site_web) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-            (nom, universite, niveau, description, duree, debouches, frais, site_web))
+        conn.execute('INSERT INTO formations (nom, universite, niveau, description, duree, debouches, frais, site_web, valide) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            (nom, universite, niveau, description, duree, debouches, frais, site_web, 1 if admin else 0))
         conn.commit()
         conn.close()
-        notifier_tous('formation', 'Nouvelle formation disponible : ' + nom, '/formations')
+        if admin:
+            notifier_tous('formation', 'Nouvelle formation disponible : ' + nom, '/formations')
+        else:
+            prevenir_admins('formation', f"Formation proposee a valider : {nom}")
+            flash('Merci ! Ta proposition sera publiee apres verification par un administrateur.', 'success')
         return redirect(url_for('formations'))
     return render_template('ajouter_formation.html')
 
@@ -1770,7 +1833,7 @@ def detail_formation(id):
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
     conn = get_db()
-    f = conn.execute('SELECT * FROM formations WHERE id = ?', (id,)).fetchone()
+    f = conn.execute('SELECT * FROM formations WHERE id = ? AND COALESCE(valide, 1) = 1', (id,)).fetchone()
     conn.close()
     if not f:
         return redirect(url_for('formations'))
@@ -1780,6 +1843,9 @@ def detail_formation(id):
 def seed_formations():
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
+    if not admin_required():
+        flash('Acces reserve', 'error')
+        return redirect(url_for('formations'))
     conn = get_db()
     if conn.execute('SELECT COUNT(*) as nb FROM formations').fetchone()['nb'] > 0:
         conn.close()
@@ -1870,8 +1936,12 @@ def supprimer_evenement(id):
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
     conn = get_db()
-    conn.execute('DELETE FROM evenements WHERE id = ?', (id,))
-    conn.commit()
+    ev = conn.execute('SELECT user_id FROM evenements WHERE id = ?', (id,)).fetchone()
+    if ev and (ev['user_id'] == session['user_id'] or admin_required()):
+        conn.execute('DELETE FROM evenements WHERE id = ?', (id,))
+        conn.commit()
+    else:
+        flash("Tu ne peux supprimer que tes propres evenements.", 'error')
     conn.close()
     return redirect(url_for('calendrier'))
 
@@ -1910,6 +1980,9 @@ def creer_groupe():
     nom = sanitize_text(request.form.get('nom', ''), 100)
     description = sanitize_text(request.form.get('description', ''), 500)
     universite = sanitize_text(request.form.get('universite', ''), 100)
+    if nom and trop_rapide('groupe', session['user_id'], 5, 3600):
+        flash('Trop de groupes crees. Reessaie plus tard.', 'error')
+        return redirect(url_for('groupes'))
     if nom:
         conn = get_db()
         c = conn.execute('INSERT INTO groupes (nom, description, universite, createur_id) VALUES (?, ?, ?, ?)',
@@ -1972,8 +2045,15 @@ def envoyer_message_groupe(id):
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
     contenu = sanitize_text(request.form.get('contenu', ''), 5000)
+    if contenu and trop_rapide('message', session['user_id'], 30, 60):
+        flash("Tu envoies trop de messages. Patiente un peu.", 'error')
+        return redirect(url_for('discussion_groupe', id=id))
     if contenu:
         conn = get_db()
+        if not conn.execute('SELECT 1 FROM groupe_membres WHERE groupe_id = ? AND user_id = ?', (id, session['user_id'])).fetchone():
+            conn.close()
+            flash('Tu dois rejoindre ce groupe', 'error')
+            return redirect(url_for('groupes'))
         conn.execute('INSERT INTO groupe_messages (groupe_id, user_id, contenu) VALUES (?, ?, ?)',
                      (id, session['user_id'], contenu))
         conn.commit()
@@ -2056,8 +2136,41 @@ def admin_dashboard():
     stats['evenements'] = conn.execute('SELECT COUNT(*) as nb FROM evenements').fetchone()['nb']
     derniers_inscrits = conn.execute('SELECT id, prenom, nom, email, universite, date_inscription FROM users ORDER BY date_inscription DESC LIMIT 10').fetchall()
     derniers_posts = conn.execute('SELECT posts.id, posts.contenu, posts.date_post, users.prenom, users.nom FROM posts JOIN users ON posts.user_id = users.id ORDER BY posts.date_post DESC LIMIT 10').fetchall()
+    bourses_attente = conn.execute('SELECT * FROM bourses WHERE valide = 0 ORDER BY date_publication DESC').fetchall()
+    formations_attente = conn.execute('SELECT * FROM formations WHERE valide = 0 ORDER BY date_ajout DESC').fetchall()
     conn.close()
-    return render_template('admin.html', stats=stats, derniers_inscrits=derniers_inscrits, derniers_posts=derniers_posts)
+    return render_template('admin.html', stats=stats, derniers_inscrits=derniers_inscrits, derniers_posts=derniers_posts,
+                           bourses_attente=bourses_attente, formations_attente=formations_attente)
+
+def prevenir_admins(type, message):
+    conn = get_db()
+    admins = conn.execute("SELECT id FROM users WHERE role = 'admin'").fetchall()
+    conn.close()
+    for a in admins:
+        creer_notification(a['id'], type, message, '/admin')
+
+@app.route('/admin/moderation/<genre>/<int:id>/<decision>', methods=['POST'])
+def admin_moderation(genre, id, decision):
+    if not admin_required():
+        flash('Acces reserve', 'error')
+        return redirect(url_for('feed'))
+    table = {'bourse': 'bourses', 'formation': 'formations'}.get(genre)
+    if not table or decision not in ('valider', 'refuser'):
+        return redirect(url_for('admin_dashboard'))
+    conn = get_db()
+    ligne = conn.execute(f'SELECT * FROM {table} WHERE id = ? AND valide = 0', (id,)).fetchone()
+    if ligne and decision == 'valider':
+        conn.execute(f'UPDATE {table} SET valide = 1 WHERE id = ?', (id,))
+        conn.commit()
+        nom = ligne['titre'] if genre == 'bourse' else ligne['nom']
+        notifier_tous(genre, ('Nouvelle bourse : ' if genre == 'bourse' else 'Nouvelle formation disponible : ') + nom, '/' + table)
+        flash('Publie et annonce a tous les etudiants.', 'success')
+    elif ligne:
+        conn.execute(f'DELETE FROM {table} WHERE id = ?', (id,))
+        conn.commit()
+        flash('Proposition refusee.', 'success')
+    conn.close()
+    return redirect(url_for('admin_dashboard'))
 
 # ===================== ADMIN MODERATION =====================
 
@@ -2125,7 +2238,7 @@ def admin_supprimer_post(post_id):
     conn.commit()
     conn.close()
     flash('Publication supprimee', 'success')
-    return redirect(request.referrer or url_for('admin_dashboard'))
+    return redirection_sure(request.referrer, url_for('admin_dashboard'))
 
 @app.route('/admin/supprimer_document/<int:doc_id>', methods=['POST'])
 def admin_supprimer_document(doc_id):
@@ -2280,7 +2393,7 @@ def api_login():
         return jsonify({'error': 'Trop de tentatives sur ce compte. Reessaie dans 15 minutes.'}), 429
     conn = get_db()
     user = conn.execute('SELECT * FROM users WHERE lower(email) = ?', (email,)).fetchone()
-    if not user or not check_password(data.get('mot_de_passe', ''), user['mot_de_passe']):
+    if not check_password(data.get('mot_de_passe', ''), user['mot_de_passe'] if user else None):
         conn.close()
         return jsonify({'error': 'Email ou mot de passe incorrect'}), 401
     if user['banni']:
@@ -2417,10 +2530,13 @@ def api_add_comment(post_id):
     data = request.json
     if not data or not data.get('contenu', '').strip():
         return jsonify({'error': 'Contenu requis'}), 400
-    contenu = sanitize_text(data['contenu'].strip())
-    if len(contenu) > FIELD_MAXLEN.get('contenu', 5000):
-        return jsonify({'error': f'Maximum {FIELD_MAXLEN.get("contenu", 5000)} caracteres'}), 400
+    if trop_rapide('commentaire', user_id, 20, 60):
+        return jsonify({'error': 'Tu vas trop vite. Patiente une minute.'}), 429
+    contenu = sanitize_text(data['contenu'].strip(), 2000)
     conn = get_db()
+    if not conn.execute('SELECT 1 FROM posts WHERE id = ?', (post_id,)).fetchone():
+        conn.close()
+        return jsonify({'error': 'Publication introuvable'}), 404
     commentaire_id = conn.execute('INSERT INTO commentaires (user_id, post_id, contenu) VALUES (?, ?, ?)',
                  (user_id, post_id, contenu)).lastrowid
     conn.commit()
@@ -2460,7 +2576,7 @@ def api_bourses():
     conn = get_db()
     conn.execute("UPDATE bourses SET expiree = 1 WHERE deadline != '' AND deadline < ? AND expiree = 0", (aujourdhui,))
     conn.commit()
-    bourses = conn.execute('SELECT * FROM bourses ORDER BY expiree ASC, date_publication DESC').fetchall()
+    bourses = conn.execute('SELECT * FROM bourses WHERE COALESCE(valide, 1) = 1 ORDER BY expiree ASC, date_publication DESC').fetchall()
     conn.close()
     return jsonify([dict(b) for b in bourses])
 
@@ -2470,7 +2586,7 @@ def api_formations():
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
     conn = get_db()
-    formations = conn.execute('SELECT * FROM formations ORDER BY universite, nom').fetchall()
+    formations = conn.execute('SELECT * FROM formations WHERE COALESCE(valide, 1) = 1 ORDER BY universite, nom').fetchall()
     conn.close()
     return jsonify([dict(f) for f in formations])
 
@@ -2502,6 +2618,8 @@ def api_send_message():
     data = request.json
     if not data or not data.get('contenu', '').strip() or not data.get('destinataire_id'):
         return jsonify({'error': 'contenu et destinataire_id requis'}), 400
+    if trop_rapide('message', user_id, 30, 60) or trop_rapide('message_heure', user_id, 300, 3600):
+        return jsonify({'error': 'Tu vas trop vite. Patiente une minute.'}), 429
     contenu = sanitize_text(data['contenu'], FIELD_MAXLEN['message'])
     try:
         destinataire_id = int(data['destinataire_id'])
@@ -2743,6 +2861,14 @@ def api_supprimer_evenement(id):
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
     conn = get_db()
+    ev = conn.execute('SELECT user_id FROM evenements WHERE id = ?', (id,)).fetchone()
+    moi = conn.execute('SELECT role FROM users WHERE id = ?', (user_id,)).fetchone()
+    if not ev:
+        conn.close()
+        return jsonify({'error': 'Evenement introuvable'}), 404
+    if ev['user_id'] != user_id and not est_admin(moi):
+        conn.close()
+        return jsonify({'error': 'Tu ne peux supprimer que tes propres evenements'}), 403
     conn.execute('DELETE FROM evenements WHERE id = ?', (id,))
     conn.commit()
     conn.close()
@@ -2777,9 +2903,12 @@ def api_creer_groupe():
     data = request.json
     if not data or not data.get('nom', '').strip():
         return jsonify({'error': 'Nom du groupe requis'}), 400
+    if trop_rapide('groupe', user_id, 5, 3600):
+        return jsonify({'error': 'Trop de groupes crees. Reessaie plus tard.'}), 429
     conn = get_db()
     c = conn.execute('INSERT INTO groupes (nom, description, universite, createur_id) VALUES (?, ?, ?, ?)',
-                     (data['nom'].strip(), data.get('description', ''), data.get('universite', ''), user_id))
+                     (sanitize_text(data['nom'], 100), sanitize_text(data.get('description', ''), 500),
+                      sanitize_text(data.get('universite', ''), 100), user_id))
     gid = c.lastrowid
     conn.execute('INSERT INTO groupe_membres (groupe_id, user_id, role) VALUES (?, ?, ?)', (gid, user_id, 'admin'))
     conn.commit()
@@ -2828,6 +2957,8 @@ def api_envoyer_message_groupe(id):
     data = request.json
     if not data or not data.get('contenu', '').strip():
         return jsonify({'error': 'Contenu requis'}), 400
+    if trop_rapide('message', user_id, 30, 60):
+        return jsonify({'error': 'Tu vas trop vite. Patiente une minute.'}), 429
     conn = get_db()
     membre = conn.execute('SELECT id FROM groupe_membres WHERE groupe_id = ? AND user_id = ?', (id, user_id)).fetchone()
     if not membre:
@@ -2948,12 +3079,20 @@ def handle_join_conversation(data):
 def handle_send_message(data):
     if 'user_id' not in session:
         return
-    destinataire_id = data.get('destinataire_id')
-    contenu = data.get('contenu', '').strip()
-    if not destinataire_id or not contenu:
+    if not isinstance(data, dict):
+        return
+    try:
+        destinataire_id = int(data.get('destinataire_id'))
+    except (TypeError, ValueError):
+        return
+    contenu = sanitize_text(str(data.get('contenu') or ''), FIELD_MAXLEN['message'])
+    if not contenu or destinataire_id == session['user_id'] or trop_rapide('message', session['user_id'], 30, 60):
         return
 
     conn = get_db()
+    if not conn.execute('SELECT 1 FROM users WHERE id = ?', (destinataire_id,)).fetchone():
+        conn.close()
+        return
     msg_id = conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu) VALUES (?, ?, ?)',
                  (session['user_id'], destinataire_id, contenu)).lastrowid
     conn.commit()

@@ -47,9 +47,9 @@
                     <form method="POST" action="/admin/bannir/{{ u.id }}" style="display:inline;">
                         <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                         {% if u.banni %}
-                        <button type="submit" class="btn-toggle unban" onclick="return confirm('Réactiver {{ u.prenom }} {{ u.nom }} ?')">Réactiver</button>
+                        <button type="submit" class="btn-toggle unban" data-nom="{{ u.prenom }} {{ u.nom }}" onclick="return confirm('Réactiver ' + this.dataset.nom + ' ?')">Réactiver</button>
                         {% else %}
-                        <button type="submit" class="btn-toggle ban" onclick="return confirm('Bannir {{ u.prenom }} {{ u.nom }} ?')">Bannir</button>
+                        <button type="submit" class="btn-toggle ban" data-nom="{{ u.prenom }} {{ u.nom }}" onclick="return confirm('Bannir ' + this.dataset.nom + ' ?')">Bannir</button>
                         {% endif %}
                     </form>
                 </td>

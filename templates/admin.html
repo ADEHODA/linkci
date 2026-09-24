@@ -50,6 +50,38 @@
             <div class="admin-stat"><div class="num">{{ stats.groupes }}</div><div class="label">Groupes</div></div>
             <div class="admin-stat"><div class="num">{{ stats.evenements }}</div><div class="label">Événements</div></div>
         </div>
+        {% if bourses_attente or formations_attente %}
+        <div class="admin-section">
+            <h3>Propositions a valider ({{ (bourses_attente|length) + (formations_attente|length) }})</h3>
+            <table class="admin-table">
+                <tr><th>Type</th><th>Titre</th><th>Details</th><th>Lien</th><th>Decision</th></tr>
+                {% for b in bourses_attente %}
+                <tr>
+                    <td>Bourse</td>
+                    <td>{{ b.titre }}</td>
+                    <td>{{ b.organisme }}{% if b.deadline %} · limite {{ b.deadline }}{% endif %}</td>
+                    <td>{% if b.lien|lien_sur %}<a href="{{ b.lien|lien_sur }}" target="_blank" rel="noopener noreferrer nofollow">verifier</a>{% else %}-{% endif %}</td>
+                    <td>
+                        <form method="POST" action="/admin/moderation/bourse/{{ b.id }}/valider" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-ban">Publier</button></form>
+                        <form method="POST" action="/admin/moderation/bourse/{{ b.id }}/refuser" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-ban actif">Refuser</button></form>
+                    </td>
+                </tr>
+                {% endfor %}
+                {% for f in formations_attente %}
+                <tr>
+                    <td>Formation</td>
+                    <td>{{ f.nom }}</td>
+                    <td>{{ f.universite }} · {{ f.niveau }}</td>
+                    <td>{% if f.site_web|lien_sur %}<a href="{{ f.site_web|lien_sur }}" target="_blank" rel="noopener noreferrer nofollow">verifier</a>{% else %}-{% endif %}</td>
+                    <td>
+                        <form method="POST" action="/admin/moderation/formation/{{ f.id }}/valider" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-ban">Publier</button></form>
+                        <form method="POST" action="/admin/moderation/formation/{{ f.id }}/refuser" style="display:inline;"><input type="hidden" name="_csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn-ban actif">Refuser</button></form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        {% endif %}
         <div class="admin-section">
             <h3>Derniers inscrits</h3>
             <table class="admin-table">
@@ -63,7 +95,7 @@
                     <td>
                         <form method="POST" action="/admin/bannir/{{ u.id }}" style="display:inline;">
                             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                            <button type="submit" class="btn-ban actif" onclick="return confirm('Bannir {{ u.prenom }} {{ u.nom }} ?')">Bannir</button>
+                            <button type="submit" class="btn-ban actif" data-nom="{{ u.prenom }} {{ u.nom }}" onclick="return confirm('Bannir ' + this.dataset.nom + ' ?')">Bannir</button>
                         </form>
                     </td>
                 </tr>

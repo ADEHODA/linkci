@@ -226,3 +226,101 @@ def test_envoi_document_depuis_l_app(client):
     doc = next(d for d in docs if d['id'] == ok.get_json()['id'])
     assert doc['matiere'] == 'Reseaux'
     linkci_app.supprimer_fichier('uploads/' + doc['fichier'])
+
+
+# ================= Deuxieme passe =================
+
+def _admin(client, email):
+    inscrire(client, email)
+    sql("UPDATE users SET role = 'admin' WHERE email = ?", (email,))
+
+
+def test_etudiant_ne_supprime_pas_une_bourse(client):
+    sql("INSERT INTO bourses (titre, organisme, description, type) VALUES ('A garder', 'X', 'd', 'Licence')")
+    bid = sql("SELECT id FROM bourses WHERE titre = 'A garder'")[0]['id']
+    inscrire(client, 'casseur@test.ci')
+    connecter(client, 'casseur@test.ci')
+    client.post(f'/bourses/supprimer/{bid}')
+    client.post(f'/bourses/signaler/{bid}')
+    b = sql('SELECT expiree FROM bourses WHERE id = ?', (bid,))
+    assert b and not b[0]['expiree']  # toujours la, toujours ouverte
+
+
+def test_proposition_de_bourse_moderee(client):
+    _admin(client, 'modo@test.ci')
+    inscrire(client, 'proposeur@test.ci')
+    connecter(client, 'proposeur@test.ci')
+    client.post('/bourses/ajouter', data={'titre': 'Bourse piege', 'organisme': 'Arnaque', 'description': 'd',
+                                          'type': 'Master', 'lien': 'https://phishing.example'})
+    bid = sql("SELECT id, valide FROM bourses WHERE titre = 'Bourse piege'")[0]
+    assert bid['valide'] == 0
+    assert 'Bourse piege' not in client.get('/bourses').get_data(as_text=True)  # invisible avant validation
+    tok = jeton(client, 'lecteur_api@test.ci')
+    assert all(b['titre'] != 'Bourse piege' for b in client.get('/api/bourses', headers=entete(tok)).get_json())
+    client.get('/deconnexion')
+    connecter(client, 'modo@test.ci')
+    assert 'Bourse piege' in client.get('/admin').get_data(as_text=True)
+    client.post(f"/admin/moderation/bourse/{bid['id']}/valider")
+    assert sql('SELECT valide FROM bourses WHERE id = ?', (bid['id'],))[0]['valide'] == 1
+
+
+def test_evenement_supprime_seulement_par_son_auteur(client):
+    ha, hb = entete(jeton(client, 'ev_a@test.ci')), entete(jeton(client, 'ev_b@test.ci'))
+    client.post('/api/evenements', json={'titre': 'Partiel', 'date_event': '2026-12-01'}, headers=ha)
+    eid = sql("SELECT id FROM evenements WHERE titre = 'Partiel'")[0]['id']
+    assert client.delete(f'/api/evenements/{eid}', headers=hb).status_code == 403
+    assert client.delete(f'/api/evenements/{eid}', headers=ha).status_code == 200
+
+
+def test_ecrire_dans_un_groupe_sans_en_etre_membre(client):
+    tok = jeton(client, 'createur_grp@test.ci')
+    client.post('/api/groupes', json={'nom': 'Groupe prive'}, headers=entete(tok))
+    gid = sql("SELECT id FROM groupes WHERE nom = 'Groupe prive'")[0]['id']
+    inscrire(client, 'intrus@test.ci')
+    connecter(client, 'intrus@test.ci')
+    client.post(f'/groupes/{gid}/envoyer', data={'contenu': 'je suis entre'})
+    assert not sql("SELECT id FROM groupe_messages WHERE contenu = 'je suis entre'")
+
+
+def test_anti_spam_messages(client, monkeypatch):
+    monkeypatch.setitem(linkci_app.app.config, 'TESTING', False)  # active les limites
+    monkeypatch.setattr(linkci_app, 'envoyer_push', lambda *a, **k: None)
+    linkci_app.rate_limits.clear()
+    ha, hb = entete(jeton(client, 'spam_a@test.ci')), entete(jeton(client, 'spam_b@test.ci'))
+    id_b = client.get('/api/me', headers=hb).get_json()['id']
+    codes = [client.post('/api/messages', json={'destinataire_id': id_b, 'contenu': f'spam {i}'}, headers=ha).status_code for i in range(35)]
+    assert codes.count(201) == 30 and codes[-1] == 429
+    linkci_app.rate_limits.clear()
+
+
+def test_socket_message_invalide_ignore(client):
+    inscrire(client, 'sock@test.ci')
+    connecter(client, 'sock@test.ci')
+    sc = linkci_app.socketio.test_client(linkci_app.app, flask_test_client=client)
+    moi = sql("SELECT id FROM users WHERE email = 'sock@test.ci'")[0]['id']
+    avant = sql('SELECT COUNT(*) AS n FROM messages')[0]['n']
+    for d in ({'destinataire_id': 'abc', 'contenu': 'x'}, {'destinataire_id': 999999, 'contenu': 'x'},
+              {'destinataire_id': moi, 'contenu': 'a moi-meme'}, 'pas un objet'):
+        sc.emit('send_message', d)
+    assert sql('SELECT COUNT(*) AS n FROM messages')[0]['n'] == avant
+    sc.disconnect()
+
+
+def test_redirection_ouverte_bloquee(client):
+    inscrire(client, 'redir@test.ci')
+    connecter(client, 'redir@test.ci')
+    linkci_app.app.config['TESTING'] = False  # la verification CSRF est desactivee en mode test
+    try:
+        r = client.post('/publier', data={'contenu': 'x'}, headers={'Referer': 'https://site-pirate.example/piege'})
+    finally:
+        linkci_app.app.config['TESTING'] = True
+    assert r.status_code == 302 and 'site-pirate' not in r.headers['Location']
+
+
+def test_bouton_admin_xss_neutralise(client):
+    _admin(client, 'admin_xss@test.ci')
+    inscrire(client, 'piege@test.ci')
+    sql("UPDATE users SET prenom = ? WHERE email = 'piege@test.ci'", ("x');alert(1);('",))
+    connecter(client, 'admin_xss@test.ci')
+    page = client.get('/admin').get_data(as_text=True)
+    assert "confirm('Bannir x" not in page and 'this.dataset.nom' in page
