@@ -58,7 +58,7 @@
                 {% if user.id == session.user_id %}
                 <div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
                     <a href="/profil/modifier" class="btn-modifier">Modifier le profil</a>
-                    <a href="/admin" class="btn-modifier" style="background:#F3E8FF;color:#7C3AED;">Admin</a>
+                    {% if utilisateur_est_admin() %}<a href="/admin" class="btn-modifier" style="background:#F3E8FF;color:#7C3AED;">Admin</a>{% endif %}
                 </div>
                 {% endif %}
             </div>
