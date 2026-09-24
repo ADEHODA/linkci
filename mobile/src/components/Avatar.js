@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, Image, StyleSheet } from 'react-native';
 import { API_BASE } from '../api';
+import { colors, creerStyles, useTheme } from '../theme';
 
 // Memes couleurs que les avatars du site web
 const COLORS = ['#FF6B35', '#7C3AED', '#009E60', '#DC2626', '#2563EB', '#D97706', '#DB2777', '#0891B2', '#65A30D', '#9333EA'];
@@ -8,6 +9,7 @@ const COLORS = ['#FF6B35', '#7C3AED', '#009E60', '#DC2626', '#2563EB', '#D97706'
 // avatar : nom du fichier renvoye par l'API (users.avatar) ; sinon, initiales en couleur
 // uri : image locale (apercu avant envoi)
 export default function Avatar({ name, size = 40, index = 0, avatar, uri }) {
+  const styles = useStyles();
   const [erreur, setErreur] = useState(false);
   const source = uri || (avatar && avatar !== 'default.png' ? `${API_BASE}/static/avatars/${avatar}` : null);
   const rond = { width: size, height: size, borderRadius: size / 2 };
@@ -26,8 +28,8 @@ export default function Avatar({ name, size = 40, index = 0, avatar, uri }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = creerStyles(({ colors, font, shadow }) => ({
   circle: { alignItems: 'center', justifyContent: 'center' },
-  image: { backgroundColor: '#E9E9EE' },
+  image: { backgroundColor: colors.cardAlt },
   text: { color: 'white', fontWeight: '700' },
-});
+}));

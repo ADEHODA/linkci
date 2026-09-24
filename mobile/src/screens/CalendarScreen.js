@@ -3,13 +3,15 @@ import { View, Text, FlatList, TextInput, TouchableOpacity, Alert, Modal, StyleS
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import useApiList from '../hooks/useApiList';
-import { Card, Loading, EmptyState, PrimaryButton, Fab, pullToRefresh } from '../components/ui';
-import { colors, radius, spacing, font } from '../theme';
+import { Card, Loading, EmptyState, PrimaryButton, Fab, pullToRefresh, SkeletonList } from '../components/ui';
+import { colors, radius, spacing, font, creerStyles, useTheme } from '../theme';
 
 const MOIS = ['Janvier', 'Fevrier', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Aout', 'Septembre', 'Octobre', 'Novembre', 'Decembre'];
 const JOURS = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
 
 export default function CalendarScreen() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { data: events, loading, refreshing, refresh, reload } = useApiList(api.getEvenements);
   const [showAdd, setShowAdd] = useState(false);
   const [title, setTitle] = useState('');
@@ -63,7 +65,7 @@ export default function CalendarScreen() {
     );
   };
 
-  if (loading) return <Loading />;
+  if (loading) return <SkeletonList />;
 
   return (
     <View style={styles.container}>
@@ -95,7 +97,7 @@ export default function CalendarScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = creerStyles(({ colors, font, shadow }) => ({
   container: { flex: 1, backgroundColor: colors.bg },
   hint: { ...font.tiny, textAlign: 'center', marginBottom: spacing.sm },
   card: { flexDirection: 'row', gap: spacing.md, alignItems: 'center' },
@@ -114,4 +116,4 @@ const styles = StyleSheet.create({
   field: { backgroundColor: colors.bg, borderRadius: radius.md, padding: 14, fontSize: 15, marginBottom: spacing.md, color: colors.text, textAlignVertical: 'top' },
   cancel: { alignItems: 'center', paddingTop: spacing.lg },
   cancelText: { color: colors.textMuted, fontWeight: '600' },
-});
+}));

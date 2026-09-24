@@ -627,8 +627,8 @@ def check_and_award_badges(user_id):
         val = stats.get(badge['critere_type'], 0)
         if val >= badge['critere_seuil']:
             try:
-                conn.execute('INSERT OR IGNORE INTO user_badges (user_id, badge_id) VALUES (?, ?)', (user_id, badge['id']))
-                if conn.total_changes > 0:
+                cur = conn.execute('INSERT OR IGNORE INTO user_badges (user_id, badge_id) VALUES (?, ?)', (user_id, badge['id']))
+                if cur.rowcount > 0:  # 0 si le badge etait deja obtenu
                     awarded.append(badge['nom'])
             except:
                 pass
@@ -1437,12 +1437,12 @@ def api_recherche():
             ''', ('%' + q + '%', '%' + q + '%')).fetchall()]
         try:
             resultats['users'] = [dict(r) for r in conn.execute('''
-                SELECT users.id, prenom, nom, filiere FROM users_fts JOIN users ON users_fts.rowid = users.id
+                SELECT users.id, prenom, nom, filiere, universite, avatar FROM users_fts JOIN users ON users_fts.rowid = users.id
                 WHERE users_fts MATCH ? AND users.id != ? ORDER BY rank LIMIT 5
             ''', (safe, user_id)).fetchall()]
         except Exception:
             resultats['users'] = [dict(r) for r in conn.execute('''
-                SELECT id, prenom, nom, filiere FROM users
+                SELECT id, prenom, nom, filiere, universite, avatar FROM users
                 WHERE (prenom || ' ' || nom LIKE ?) AND id != ? LIMIT 5
             ''', ('%' + q + '%', user_id)).fetchall()]
         conn.close()
@@ -2391,8 +2391,16 @@ def api_send_message():
     if not data or not data.get('contenu', '').strip() or not data.get('destinataire_id'):
         return jsonify({'error': 'contenu et destinataire_id requis'}), 400
     contenu = sanitize_text(data['contenu'], FIELD_MAXLEN['message'])
-    destinataire_id = int(data['destinataire_id'])
+    try:
+        destinataire_id = int(data['destinataire_id'])
+    except (TypeError, ValueError):
+        return jsonify({'error': 'destinataire_id invalide'}), 400
+    if destinataire_id == user_id:
+        return jsonify({'error': "Tu ne peux pas t'envoyer un message"}), 400
     conn = get_db()
+    if not conn.execute('SELECT 1 FROM users WHERE id = ?', (destinataire_id,)).fetchone():
+        conn.close()
+        return jsonify({'error': 'Destinataire introuvable'}), 404
     msg_id = conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu) VALUES (?, ?, ?)',
                           (user_id, destinataire_id, contenu)).lastrowid
     conn.commit()
@@ -2412,7 +2420,7 @@ def api_conversations():
     convs = conn.execute('''
         SELECT DISTINCT
             CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END as autre_id,
-            users.prenom, users.nom, users.universite,
+            users.prenom, users.nom, users.universite, users.avatar,
             (SELECT contenu FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
             (SELECT date_envoi FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as date_dernier,
             (SELECT COUNT(*) FROM messages WHERE destinataire_id = ? AND expediteur_id = users.id AND lu = 0) as non_lu
@@ -2655,6 +2663,9 @@ def api_rejoindre_groupe(id):
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
     conn = get_db()
+    if not conn.execute('SELECT 1 FROM groupes WHERE id = ?', (id,)).fetchone():
+        conn.close()
+        return jsonify({'error': 'Groupe introuvable'}), 404
     exists = conn.execute('SELECT id FROM groupe_membres WHERE groupe_id = ? AND user_id = ?', (id, user_id)).fetchone()
     if not exists:
         conn.execute('INSERT INTO groupe_membres (groupe_id, user_id, role) VALUES (?, ?, ?)', (id, user_id, 'membre'))
@@ -2673,7 +2684,7 @@ def api_groupe_messages(id):
         conn.close()
         return jsonify({'error': 'Tu n\'es pas membre'}), 403
     messages = conn.execute('''
-        SELECT gm.*, users.prenom, users.nom
+        SELECT gm.*, users.prenom, users.nom, users.avatar
         FROM groupe_messages gm JOIN users ON gm.user_id = users.id
         WHERE gm.groupe_id = ? ORDER BY gm.date_envoi ASC
     ''', (id,)).fetchall()

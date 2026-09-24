@@ -3,9 +3,10 @@ import { View, Text, TouchableOpacity, Alert, StyleSheet } from 'react-native';
 import * as api from '../api';
 import AuthShell, { Field } from '../components/AuthShell';
 import { PrimaryButton } from '../components/ui';
-import { colors, spacing } from '../theme';
+import { colors, spacing, creerStyles, useTheme } from '../theme';
 
 export default function RegisterScreen({ navigation, onLogin }) {
+  const styles = useStyles();
   const [nom, setNom] = useState('');
   const [prenom, setPrenom] = useState('');
   const [email, setEmail] = useState('');
@@ -50,9 +51,9 @@ export default function RegisterScreen({ navigation, onLogin }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = creerStyles(({ colors, font, shadow }) => ({
   row: { flexDirection: 'row', gap: spacing.sm },
   link: { marginTop: spacing.xl, alignItems: 'center' },
   linkText: { color: colors.textMuted, fontSize: 14 },
   linkStrong: { fontWeight: '800', color: colors.primary },
-});
+}));

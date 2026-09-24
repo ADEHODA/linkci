@@ -2,9 +2,11 @@
 import React, { useState } from 'react';
 import { View, Image, Modal, TouchableOpacity, ActivityIndicator, StatusBar, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, radius } from '../theme';
+import { colors, radius, creerStyles, useTheme } from '../theme';
 
 export default function PostImage({ uri, style }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const [ratio, setRatio] = useState(4 / 3);
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState(false);
@@ -42,10 +44,10 @@ export default function PostImage({ uri, style }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = creerStyles(({ colors, font, shadow }) => ({
   frame: { borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.bg },
   image: { width: '100%' },
   viewer: { flex: 1, backgroundColor: '#000', justifyContent: 'center' },
   full: { width: '100%', height: '100%' },
   close: { position: 'absolute', top: 44, right: 20, width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.15)', alignItems: 'center', justifyContent: 'center' },
-});
+}));

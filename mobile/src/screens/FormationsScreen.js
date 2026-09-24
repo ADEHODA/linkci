@@ -3,13 +3,15 @@ import { View, Text, FlatList, Linking, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import useApiList from '../hooks/useApiList';
-import { Card, Chip, Loading, EmptyState, pullToRefresh } from '../components/ui';
-import { colors, spacing, font } from '../theme';
+import { Card, Chip, Loading, EmptyState, pullToRefresh, SkeletonList } from '../components/ui';
+import { colors, spacing, font, creerStyles, useTheme } from '../theme';
 
 export default function FormationsScreen() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { data: formations, loading, refreshing, refresh } = useApiList(api.getFormations);
 
-  if (loading) return <Loading />;
+  if (loading) return <SkeletonList />;
 
   return (
     <FlatList
@@ -40,7 +42,7 @@ export default function FormationsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = creerStyles(({ colors, font, shadow }) => ({
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.md },
   nom: { ...font.heading, marginTop: spacing.sm },
@@ -50,4 +52,4 @@ const styles = StyleSheet.create({
   meta: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },
   metaText: { fontSize: 13, color: colors.text },
   metaLabel: { color: colors.textFaint, fontWeight: '600' },
-});
+}));

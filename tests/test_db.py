@@ -209,3 +209,27 @@ def test_compteurs_et_lecture_notifications(client):
     client.get(f'/api/messages?avec={_id(client, ha)}', headers=hb)  # ouvrir la conversation marque lu
     client.post('/api/notifications/lire', headers=hb)
     assert client.get('/api/compteurs', headers=hb).get_json() == {'messages': 0, 'notifications': 0}
+
+
+def test_message_destinataire_inexistant_ou_soi_meme(client):
+    h = _jeton_api(client, 'msg_bug@test.ci')
+    moi = _id(client, h)
+    assert client.post('/api/messages', json={'destinataire_id': 999999, 'contenu': 'x'}, headers=h).status_code == 404
+    assert client.post('/api/messages', json={'destinataire_id': moi, 'contenu': 'x'}, headers=h).status_code == 400
+
+
+def test_rejoindre_groupe_inexistant(client):
+    h = _jeton_api(client, 'grp_bug@test.ci')
+    assert client.post('/api/groupes/999999/rejoindre', headers=h).status_code == 404
+
+
+def test_badge_annonce_une_seule_fois(client):
+    h = _jeton_api(client, 'badge@test.ci')
+    uid = _id(client, h)
+    conn = linkci_app.get_db()
+    for i in range(10):
+        conn.execute('INSERT INTO posts (user_id, contenu) VALUES (?, ?)', (uid, f'post {i}'))
+    conn.commit()
+    conn.close()
+    assert 'Causeur' in linkci_app.check_and_award_badges(uid)
+    assert linkci_app.check_and_award_badges(uid) == []  # deja obtenu : rien de nouveau

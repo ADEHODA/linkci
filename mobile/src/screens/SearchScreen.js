@@ -4,10 +4,12 @@ import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import Avatar from '../components/Avatar';
 import { EmptyState } from '../components/ui';
-import { colors, radius, spacing, shadow } from '../theme';
+import { colors, radius, spacing, shadow, creerStyles, useTheme } from '../theme';
 import { dateRelative } from '../utils';
 
 export default function SearchScreen({ navigation }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -77,11 +79,12 @@ export default function SearchScreen({ navigation }) {
                 <TouchableOpacity
                   key={row.id || i}
                   style={[styles.result, i > 0 && styles.resultBorder]}
-                  onPress={() => section.route && navigation.navigate(section.route)}
-                  disabled={!section.route}
+                  onPress={() => section.titre === 'Etudiants'
+                    ? navigation.navigate('ProfilEtudiant', { id: row.id })
+                    : navigation.navigate(section.route)}
                   activeOpacity={0.7}
                 >
-                  {section.titre === 'Etudiants' ? <Avatar name={`${row.prenom} ${row.nom}`} size={38} index={row.id} /> : null}
+                  {section.titre === 'Etudiants' ? <Avatar name={`${row.prenom} ${row.nom}`} size={38} index={row.id} avatar={row.avatar} /> : null}
                   <View style={{ flex: 1 }}>
                     <Text style={styles.resultTitle} numberOfLines={2}>
                       {section.titre === 'Publications' ? row.contenu : row.titre || (row.prenom ? `${row.prenom} ${row.nom}` : row.nom)}
@@ -90,7 +93,7 @@ export default function SearchScreen({ navigation }) {
                       {[row.organisme, row.filiere, row.universite, row.niveau, row.date_post && dateRelative(row.date_post)].filter(Boolean).join(' · ')}
                     </Text>
                   </View>
-                  {section.route ? <Ionicons name="chevron-forward" size={18} color={colors.textFaint} /> : null}
+                  <Ionicons name="chevron-forward" size={18} color={colors.textFaint} />
                 </TouchableOpacity>
               ))}
             </View>
@@ -101,7 +104,7 @@ export default function SearchScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = creerStyles(({ colors, font, shadow }) => ({
   container: { flex: 1, backgroundColor: colors.bg },
   searchBar: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.card, margin: spacing.md, marginBottom: 0, paddingHorizontal: spacing.lg, borderRadius: radius.pill, ...shadow },
   input: { flex: 1, paddingVertical: 13, fontSize: 15, color: colors.text },
@@ -113,4 +116,4 @@ const styles = StyleSheet.create({
   resultBorder: { borderTopWidth: 1, borderTopColor: colors.border },
   resultTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
   resultSub: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
-});
+}));

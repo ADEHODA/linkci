@@ -5,10 +5,12 @@ import * as api from '../api';
 import Avatar from '../components/Avatar';
 import { PrimaryButton } from '../components/ui';
 import { choisirPhoto } from '../photos';
-import { colors, radius, spacing } from '../theme';
+import { colors, radius, spacing, creerStyles, useTheme } from '../theme';
 
 // Recoit l'utilisateur courant en parametre de navigation : navigate('ModifierProfil', { user })
 export default function EditProfileScreen({ route, navigation }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const user = route.params.user;
   const [form, setForm] = useState({
     prenom: user.prenom || '', nom: user.nom || '', universite: user.universite || '',
@@ -80,6 +82,8 @@ export default function EditProfileScreen({ route, navigation }) {
 }
 
 function Champ({ label, style, inputStyle, ...props }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   return (
     <View style={[styles.champ, style]}>
       <Text style={styles.label}>{label}</Text>
@@ -88,7 +92,7 @@ function Champ({ label, style, inputStyle, ...props }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = creerStyles(({ colors, font, shadow }) => ({
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.lg, paddingBottom: 40 },
   avatarBox: { alignItems: 'center', marginBottom: spacing.xl },
@@ -99,4 +103,4 @@ const styles = StyleSheet.create({
   label: { fontSize: 12, fontWeight: '700', color: colors.textMuted, marginBottom: 6, marginLeft: 4 },
   input: { backgroundColor: colors.card, borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: colors.text },
   compteur: { fontSize: 11, color: colors.textFaint, textAlign: 'right', marginTop: -6 },
-});
+}));

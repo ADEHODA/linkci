@@ -1,10 +1,10 @@
 import React, { useCallback } from 'react';
-import { View, Text, FlatList, StyleSheet } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import useApiList from '../hooks/useApiList';
-import { Loading, EmptyState, pullToRefresh } from '../components/ui';
-import { colors, radius, spacing } from '../theme';
+import { Loading, EmptyState, pullToRefresh, SkeletonList } from '../components/ui';
+import { colors, radius, spacing, creerStyles, useTheme } from '../theme';
 import { dateRelative } from '../utils';
 import { useFocusEffect } from '@react-navigation/native';
 import { useEvenement, useRealtime } from '../realtime';
@@ -15,7 +15,21 @@ const ICONS = {
   suivi: ['person-add', '#009E60'], document: ['document-text', '#2563EB'],
 };
 
-export default function NotificationsScreen() {
+// Ou mene une notification quand on la touche
+function destination(n) {
+  const profil = /\/profil\/(\d+)/.exec(n.lien || '');
+  if (profil) return ['ProfilEtudiant', { id: Number(profil[1]) }];
+  const cibles = {
+    message: ['Home', { screen: 'Messages' }], like: ['Home', { screen: 'Accueil' }],
+    commentaire: ['Home', { screen: 'Accueil' }], mention: ['Home', { screen: 'Accueil' }],
+    bourse: ['Bourses'], formation: ['Formations'], document: ['Documents'],
+  };
+  return cibles[n.type] || null;
+}
+
+export default function NotificationsScreen({ navigation }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { data, loading, refreshing, refresh, reload } = useApiList(async () => (await api.getNotifications()).notifications || []);
   const { rafraichirCompteurs } = useRealtime();
 
@@ -27,7 +41,7 @@ export default function NotificationsScreen() {
   }, [rafraichirCompteurs]));
   useEvenement('notification_update', () => reload());
 
-  if (loading) return <Loading />;
+  if (loading) return <SkeletonList />;
 
   return (
     <FlatList
@@ -39,7 +53,8 @@ export default function NotificationsScreen() {
       renderItem={({ item }) => {
         const [icon, couleur] = ICONS[item.type] || ['notifications', colors.primary];
         return (
-          <View style={[styles.item, !item.lu && styles.unread]}>
+          <TouchableOpacity style={[styles.item, !item.lu && styles.unread]} activeOpacity={0.7}
+            onPress={() => { const d = destination(item); if (d) navigation.navigate(...d); }}>
             <View style={[styles.iconBox, { backgroundColor: couleur + '1A' }]}>
               <Ionicons name={icon} size={20} color={couleur} />
             </View>
@@ -48,7 +63,7 @@ export default function NotificationsScreen() {
               <Text style={styles.time}>{dateRelative(item.date_notification)}</Text>
             </View>
             {!item.lu && <View style={styles.dot} />}
-          </View>
+          </TouchableOpacity>
         );
       }}
       ListEmptyComponent={<EmptyState icon="notifications-outline" title="Aucune notification" hint="Tu seras prevenu des likes, messages et nouvelles bourses." />}
@@ -56,7 +71,7 @@ export default function NotificationsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = creerStyles(({ colors, font, shadow }) => ({
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.md },
   item: { flexDirection: 'row', alignItems: 'center', padding: spacing.md, borderRadius: radius.lg, backgroundColor: colors.card, marginBottom: spacing.sm, gap: spacing.md },
@@ -67,4 +82,4 @@ const styles = StyleSheet.create({
   messageUnread: { fontWeight: '700' },
   time: { fontSize: 12, color: colors.textFaint, marginTop: 3 },
   dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.primary },
-});
+}));

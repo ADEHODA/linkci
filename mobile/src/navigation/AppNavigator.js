@@ -1,6 +1,6 @@
 import React from 'react';
 import { TouchableOpacity } from 'react-native';
-import { NavigationContainer, DefaultTheme } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,6 +9,8 @@ import FeedScreen from '../screens/FeedScreen';
 import ExploreScreen from '../screens/ExploreScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import MessagingScreen from '../screens/MessagingScreen';
+import ConversationScreen from '../screens/ConversationScreen';
+import StudentProfileScreen from '../screens/StudentProfileScreen';
 import BoursesScreen from '../screens/BoursesScreen';
 import FormationsScreen from '../screens/FormationsScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
@@ -19,7 +21,7 @@ import SearchScreen from '../screens/SearchScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
-import { colors, headerOptions } from '../theme';
+import { useTheme } from '../theme';
 import { useRealtime } from '../realtime';
 
 const Stack = createStackNavigator();
@@ -33,12 +35,11 @@ const TAB_ICONS = {
   Profil: 'person',
 };
 
-const navTheme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: colors.bg, primary: colors.primary } };
-
 const pastille = (n) => (n > 0 ? (n > 99 ? '99+' : n) : undefined);
 
 function HomeTabs({ onLogout }) {
   const { compteurs } = useRealtime();
+  const { colors, headerOptions } = useTheme();
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -61,14 +62,25 @@ function HomeTabs({ onLogout }) {
           tabBarLabel: 'Accueil',
           headerTitleStyle: { ...headerOptions.headerTitleStyle, color: colors.primary, fontWeight: '900', letterSpacing: 0.5 },
           headerRight: () => (
-            <TouchableOpacity onPress={() => navigation.navigate('Search')} style={{ marginRight: 16 }}>
+            <TouchableOpacity onPress={() => navigation.navigate('Search')} style={{ marginRight: 16 }} hitSlop={10}>
               <Ionicons name="search" size={22} color={colors.text} />
             </TouchableOpacity>
           ),
         })}
       />
       <Tab.Screen name="Explorer" component={ExploreScreen} />
-      <Tab.Screen name="Messages" component={MessagingScreen} options={{ tabBarBadge: pastille(compteurs.messages) }} />
+      <Tab.Screen
+        name="Messages"
+        component={MessagingScreen}
+        options={({ navigation }) => ({
+          tabBarBadge: pastille(compteurs.messages),
+          headerRight: () => (
+            <TouchableOpacity onPress={() => navigation.navigate('Search')} style={{ marginRight: 16 }} hitSlop={10}>
+              <Ionicons name="create-outline" size={24} color={colors.primary} />
+            </TouchableOpacity>
+          ),
+        })}
+      />
       <Tab.Screen name="Alertes" component={NotificationsScreen} options={{ title: 'Notifications', tabBarLabel: 'Alertes', tabBarBadge: pastille(compteurs.notifications) }} />
       <Tab.Screen name="Profil">
         {(props) => <ProfileScreen {...props} onLogout={onLogout} />}
@@ -78,6 +90,12 @@ function HomeTabs({ onLogout }) {
 }
 
 export default function AppNavigator({ token, onLogin, onLogout }) {
+  const { colors, sombre, headerOptions } = useTheme();
+  const base = sombre ? DarkTheme : DefaultTheme;
+  const navTheme = {
+    ...base,
+    colors: { ...base.colors, background: colors.bg, card: colors.card, text: colors.text, border: colors.border, primary: colors.primary },
+  };
   return (
     <NavigationContainer theme={navTheme}>
       <Stack.Navigator screenOptions={{ ...headerOptions, headerBackTitle: 'Retour' }}>
@@ -86,6 +104,8 @@ export default function AppNavigator({ token, onLogin, onLogout }) {
             <Stack.Screen name="Home" options={{ headerShown: false }}>
               {() => <HomeTabs onLogout={onLogout} />}
             </Stack.Screen>
+            <Stack.Screen name="Conversation" component={ConversationScreen} />
+            <Stack.Screen name="ProfilEtudiant" component={StudentProfileScreen} options={{ title: 'Profil' }} />
             <Stack.Screen name="Bourses" component={BoursesScreen} />
             <Stack.Screen name="Formations" component={FormationsScreen} />
             <Stack.Screen name="Documents" component={DocumentsScreen} />

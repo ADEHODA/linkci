@@ -3,9 +3,10 @@ import { Text, TouchableOpacity, Alert, StyleSheet } from 'react-native';
 import * as api from '../api';
 import AuthShell, { Field } from '../components/AuthShell';
 import { PrimaryButton } from '../components/ui';
-import { colors, spacing } from '../theme';
+import { colors, spacing, creerStyles, useTheme } from '../theme';
 
 export default function LoginScreen({ navigation, onLogin }) {
+  const styles = useStyles();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -38,8 +39,8 @@ export default function LoginScreen({ navigation, onLogin }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = creerStyles(({ colors, font, shadow }) => ({
   link: { marginTop: spacing.xl, alignItems: 'center' },
   linkText: { color: colors.textMuted, fontSize: 14 },
   linkStrong: { fontWeight: '800', color: colors.primary },
-});
+}));

@@ -27,4 +27,29 @@ export function heure(s) {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+// Meme jour calendaire (heure locale du telephone)
+export function memeJour(a, b) {
+  const da = parseDate(a);
+  const db = parseDate(b);
+  return !!da && !!db && da.toDateString() === db.toDateString();
+}
+
+// Separateur de discussion : "Aujourd'hui", "Hier", "12 sept.", "12 sept. 2025"
+export function jourLisible(s) {
+  const d = parseDate(s);
+  if (!d) return '';
+  const auj = new Date();
+  const hier = new Date(auj.getTime() - 86400000);
+  if (d.toDateString() === auj.toDateString()) return "Aujourd'hui";
+  if (d.toDateString() === hier.toDateString()) return 'Hier';
+  const annee = d.getFullYear() !== auj.getFullYear() ? ` ${d.getFullYear()}` : '';
+  return `${d.getDate()} ${MOIS[d.getMonth()]}${annee}`;
+}
+
+// "Bonjour", "Bon apres-midi", "Bonsoir" selon l'heure
+export function salutation() {
+  const h = new Date().getHours();
+  return h < 12 ? 'Bonjour' : h < 18 ? 'Bon apres-midi' : 'Bonsoir';
+}
+
 export { MOIS };

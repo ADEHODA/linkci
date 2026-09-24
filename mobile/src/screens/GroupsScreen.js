@@ -4,12 +4,14 @@ import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import Avatar from '../components/Avatar';
 import useApiList from '../hooks/useApiList';
-import { Loading, EmptyState, PrimaryButton, pullToRefresh } from '../components/ui';
-import { colors, radius, spacing, font } from '../theme';
+import { Loading, EmptyState, PrimaryButton, pullToRefresh, SkeletonList } from '../components/ui';
+import { colors, radius, spacing, font, creerStyles, useTheme } from '../theme';
 import { heure } from '../utils';
 import { useEvenement } from '../realtime';
 
-export default function GroupsScreen() {
+export default function GroupsScreen({ navigation }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { data, loading, refreshing, refresh, reload } = useApiList(api.getGroupes, {});
   const [selected, setSelected] = useState(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -40,10 +42,10 @@ export default function GroupsScreen() {
     } catch (e) { Alert.alert('Erreur', e.message); }
   };
 
-  if (loading) return <Loading />;
+  if (loading) return <SkeletonList />;
 
   if (selected) {
-    return <GroupChat groupe={selected} onBack={() => { setSelected(null); reload(); }} />;
+    return <GroupChat groupe={selected} onBack={() => { setSelected(null); reload(); }} onVoirProfil={(id) => navigation.navigate('ProfilEtudiant', { id })} />;
   }
 
   const liste = tab === 'mes' ? mesGroupes : tousGroupes;
@@ -101,6 +103,7 @@ export default function GroupsScreen() {
 }
 
 function Segment({ actif, label, onPress }) {
+  const styles = useStyles();
   return (
     <TouchableOpacity style={[styles.segBtn, actif && styles.segActive]} onPress={onPress}>
       <Text style={[styles.segText, actif && styles.segTextActive]}>{label}</Text>
@@ -108,7 +111,9 @@ function Segment({ actif, label, onPress }) {
   );
 }
 
-function GroupChat({ groupe, onBack }) {
+function GroupChat({ groupe, onBack, onVoirProfil }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const listRef = useRef(null);
   const { data: messages, loading, reload } = useApiList(() => api.getGroupeMessages(groupe.id));
   const [text, setText] = useState('');
@@ -156,7 +161,9 @@ function GroupChat({ groupe, onBack }) {
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
           renderItem={({ item }) => (
             <View style={styles.msgRow}>
-              <Avatar name={`${item.prenom} ${item.nom}`} size={30} index={item.user_id} />
+              <TouchableOpacity onPress={() => onVoirProfil(item.user_id)}>
+                <Avatar name={`${item.prenom} ${item.nom}`} size={30} index={item.user_id} avatar={item.avatar} />
+              </TouchableOpacity>
               <View style={styles.msgBubble}>
                 <Text style={styles.msgUser}>{item.prenom} {item.nom}</Text>
                 <Text style={styles.msgText}>{item.contenu}</Text>
@@ -177,7 +184,7 @@ function GroupChat({ groupe, onBack }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = creerStyles(({ colors, font, shadow }) => ({
   container: { flex: 1, backgroundColor: colors.bg },
   segment: { flexDirection: 'row', backgroundColor: colors.card, margin: spacing.md, marginBottom: 0, borderRadius: radius.pill, padding: 4 },
   segBtn: { flex: 1, paddingVertical: 9, borderRadius: radius.pill, alignItems: 'center' },
@@ -208,4 +215,4 @@ const styles = StyleSheet.create({
   inputBar: { flexDirection: 'row', alignItems: 'flex-end', padding: spacing.sm, backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.sm },
   input: { flex: 1, backgroundColor: colors.bg, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, maxHeight: 110, color: colors.text },
   sendBtn: { backgroundColor: colors.primary, borderRadius: 22, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
-});
+}));

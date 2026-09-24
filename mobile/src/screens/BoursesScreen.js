@@ -3,10 +3,12 @@ import { View, Text, FlatList, Linking, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import useApiList from '../hooks/useApiList';
-import { Card, Chip, Loading, EmptyState, pullToRefresh } from '../components/ui';
-import { colors, spacing, font } from '../theme';
+import { Card, Chip, Loading, EmptyState, pullToRefresh, SkeletonList } from '../components/ui';
+import { colors, spacing, font, creerStyles, useTheme } from '../theme';
 
 export default function BoursesScreen() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { data: bourses, loading, refreshing, refresh } = useApiList(api.getBourses);
 
   const renderBourse = ({ item }) => {
@@ -33,7 +35,7 @@ export default function BoursesScreen() {
     );
   };
 
-  if (loading) return <Loading />;
+  if (loading) return <SkeletonList />;
 
   return (
     <FlatList
@@ -48,7 +50,10 @@ export default function BoursesScreen() {
   );
 }
 
-function Meta({ icon, text, color = colors.textMuted }) {
+function Meta({ icon, text, color: couleur }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const color = couleur || colors.textMuted;
   return (
     <View style={styles.metaItem}>
       <Ionicons name={icon} size={14} color={color} />
@@ -57,7 +62,7 @@ function Meta({ icon, text, color = colors.textMuted }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = creerStyles(({ colors, font, shadow }) => ({
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.md },
   expired: { opacity: 0.55 },
@@ -68,4 +73,4 @@ const styles = StyleSheet.create({
   meta: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.lg },
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   metaText: { fontSize: 13, fontWeight: '500' },
-});
+}));

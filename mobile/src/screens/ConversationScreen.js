@@ -1,0 +1,117 @@
+// Discussion privee avec un etudiant : navigate('Conversation', { autre_id, prenom, nom, avatar })
+import React, { useLayoutEffect, useRef, useState } from 'react';
+import { View, Text, FlatList, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import * as api from '../api';
+import Avatar from '../components/Avatar';
+import useApiList from '../hooks/useApiList';
+import { Loading, EmptyState } from '../components/ui';
+import { radius, spacing, creerStyles, useTheme } from '../theme';
+import { heure, jourLisible, memeJour } from '../utils';
+import { useEvenement, useRealtime } from '../realtime';
+
+export default function ConversationScreen({ route, navigation }) {
+  const conv = route.params;
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const listRef = useRef(null);
+  const { data: messages, setData, loading, reload } = useApiList(() => api.getMessages(conv.autre_id));
+  const [text, setText] = useState('');
+  const { rafraichirCompteurs } = useRealtime();
+
+  // En-tete : photo + nom, touchable pour voir le profil
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      headerTitle: () => (
+        <TouchableOpacity style={styles.header} onPress={() => navigation.navigate('ProfilEtudiant', { id: conv.autre_id })} activeOpacity={0.7}>
+          <Avatar name={`${conv.prenom} ${conv.nom}`} size={34} index={conv.autre_id} avatar={conv.avatar} />
+          <Text style={styles.headerName} numberOfLines={1}>{conv.prenom} {conv.nom}</Text>
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, conv, styles]);
+
+  // message de cette conversation : on recharge (ce qui le marque aussi comme lu)
+  useEvenement('message_recu', async (m) => {
+    if (m.expediteur_id === conv.autre_id || m.destinataire_id === conv.autre_id) {
+      await reload();
+      rafraichirCompteurs();
+    }
+  });
+
+  const handleSend = async () => {
+    if (!text.trim()) return;
+    const contenu = text.trim();
+    setText('');
+    // affichage immediat, remplace par la version du serveur ensuite
+    const provisoire = { id: `tmp-${Date.now()}`, contenu, expediteur_id: -1, date_envoi: new Date().toISOString().slice(0, 19).replace('T', ' '), enAttente: true };
+    setData((m) => [...m, provisoire]);
+    try {
+      await api.sendMessage(conv.autre_id, contenu);
+      await reload();
+    } catch (e) {
+      setData((m) => m.filter((x) => x.id !== provisoire.id));
+      setText(contenu);
+      Alert.alert('Message non envoye', e.message);
+    }
+  };
+
+  return (
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90}>
+      {loading ? <Loading /> : (
+        <FlatList
+          ref={listRef}
+          style={styles.messageList}
+          contentContainerStyle={{ padding: spacing.md, flexGrow: 1 }}
+          data={messages}
+          keyExtractor={(item) => String(item.id)}
+          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+          renderItem={({ item, index }) => {
+            const recu = item.expediteur_id === conv.autre_id;
+            const precedent = messages[index - 1];
+            const nouveauJour = !precedent || !memeJour(precedent.date_envoi, item.date_envoi);
+            return (
+              <>
+                {nouveauJour ? <Text style={styles.jour}>{jourLisible(item.date_envoi)}</Text> : null}
+                <View style={[styles.msg, recu ? styles.msgReceived : styles.msgSent, item.enAttente && { opacity: 0.6 }]}>
+                  <Text style={[styles.msgText, !recu && styles.msgTextSent]}>{item.contenu}</Text>
+                  <View style={styles.meta}>
+                    <Text style={[styles.msgTime, !recu && styles.msgTimeSent]}>{heure(item.date_envoi)}</Text>
+                    {!recu ? <Ionicons name={item.enAttente ? 'time-outline' : item.lu ? 'checkmark-done' : 'checkmark'} size={13} color="rgba(255,255,255,0.8)" /> : null}
+                  </View>
+                </View>
+              </>
+            );
+          }}
+          ListEmptyComponent={<EmptyState icon="hand-left-outline" title="Dis bonjour !" hint={`Envoie ton premier message a ${conv.prenom}.`} />}
+        />
+      )}
+
+      <View style={styles.inputBar}>
+        <TextInput style={styles.input} value={text} onChangeText={setText} placeholder="Ecris un message..." placeholderTextColor={colors.textFaint} multiline />
+        <TouchableOpacity style={[styles.sendBtn, !text.trim() && { opacity: 0.4 }]} onPress={handleSend} disabled={!text.trim()}>
+          <Ionicons name="send" size={18} color={colors.white} />
+        </TouchableOpacity>
+      </View>
+    </KeyboardAvoidingView>
+  );
+}
+
+const useStyles = creerStyles(({ colors }) => ({
+  container: { flex: 1, backgroundColor: colors.bg },
+  header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, maxWidth: 240 },
+  headerName: { fontWeight: '800', fontSize: 16, color: colors.text },
+  messageList: { flex: 1 },
+  jour: { alignSelf: 'center', fontSize: 11, fontWeight: '700', color: colors.textMuted, backgroundColor: colors.card, paddingHorizontal: 10, paddingVertical: 4, borderRadius: radius.pill, marginVertical: spacing.sm, overflow: 'hidden' },
+  msg: { marginBottom: 6, maxWidth: '80%', paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20 },
+  msgSent: { alignSelf: 'flex-end', backgroundColor: colors.primary, borderBottomRightRadius: 6 },
+  msgReceived: { alignSelf: 'flex-start', backgroundColor: colors.card, borderBottomLeftRadius: 6 },
+  msgText: { fontSize: 15, lineHeight: 20, color: colors.text },
+  msgTextSent: { color: colors.white },
+  meta: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 3, marginTop: 3 },
+  msgTime: { fontSize: 10, color: colors.textFaint },
+  msgTimeSent: { color: 'rgba(255,255,255,0.8)' },
+  inputBar: { flexDirection: 'row', alignItems: 'flex-end', padding: spacing.sm, backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.sm },
+  input: { flex: 1, backgroundColor: colors.cardAlt, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, maxHeight: 110, color: colors.text },
+  sendBtn: { backgroundColor: colors.primary, borderRadius: 22, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
+}));

@@ -2,9 +2,11 @@
 import React from 'react';
 import { View, Text, TextInput, ScrollView, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, radius, spacing } from '../theme';
+import { colors, radius, spacing, creerStyles, useTheme } from '../theme';
 
 export default function AuthShell({ titre, sousTitre, children }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
@@ -24,6 +26,8 @@ export default function AuthShell({ titre, sousTitre, children }) {
 }
 
 export function Field({ icon, style, ...props }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   return (
     <View style={[styles.field, style]}>
       {icon ? <Ionicons name={icon} size={18} color={colors.textFaint} /> : null}
@@ -32,7 +36,7 @@ export function Field({ icon, style, ...props }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = creerStyles(({ colors, font, shadow }) => ({
   container: { flex: 1, backgroundColor: colors.primary },
   scroll: { flexGrow: 1, justifyContent: 'flex-end' },
   hero: { alignItems: 'center', paddingTop: 70, paddingBottom: 34, paddingHorizontal: spacing.xl },
@@ -44,4 +48,4 @@ const styles = StyleSheet.create({
   sousTitre: { fontSize: 14, color: colors.textMuted, marginTop: 4, marginBottom: spacing.xl },
   field: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.bg, borderRadius: radius.md, paddingHorizontal: 14, marginBottom: spacing.md },
   input: { flex: 1, paddingVertical: 14, fontSize: 15, color: colors.text },
-});
+}));

@@ -5,6 +5,7 @@ import AppNavigator from './src/navigation/AppNavigator';
 import { Alert } from 'react-native';
 import { setToken, onSessionExpiree } from './src/api';
 import { RealtimeProvider } from './src/realtime';
+import { ThemeProvider, useTheme } from './src/theme';
 
 export default function App() {
   const [token, setTokenState] = useState(null);
@@ -49,9 +50,17 @@ export default function App() {
   if (!ready) return null;
 
   return (
-    <RealtimeProvider token={token}>
-      <StatusBar style="dark" />
-      <AppNavigator token={token} onLogin={handleLogin} onLogout={handleLogout} />
-    </RealtimeProvider>
+    <ThemeProvider>
+      <RealtimeProvider token={token}>
+        <BarreDeStatut />
+        <AppNavigator token={token} onLogin={handleLogin} onLogout={handleLogout} />
+      </RealtimeProvider>
+    </ThemeProvider>
   );
+}
+
+// Icones de la barre d'etat (heure, batterie) claires en mode sombre
+function BarreDeStatut() {
+  const { sombre } = useTheme();
+  return <StatusBar style={sombre ? 'light' : 'dark'} />;
 }

@@ -1,22 +1,33 @@
 import React from 'react';
-import { View, TextInput, TouchableOpacity, Text, Alert, StyleSheet } from 'react-native';
+import { View, TextInput, TouchableOpacity, Text, Alert, Animated } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import Avatar from './Avatar';
 import PostImage from './PostImage';
 import { Card } from './ui';
 import * as api from '../api';
-import { colors, radius, spacing, font } from '../theme';
+import { colors, radius, spacing, font, creerStyles, useTheme } from '../theme';
 import { dateRelative } from '../utils';
 
 export default function PostCard({ post, onRefresh }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const [showComments, setShowComments] = React.useState(false);
   const [comments, setComments] = React.useState([]);
   const [commentText, setCommentText] = React.useState('');
   const [liked, setLiked] = React.useState(!!post.a_like);
   const [nbLikes, setNbLikes] = React.useState(post.nb_likes);
   const [nbComments, setNbComments] = React.useState(post.nb_commentaires);
+  const navigation = useNavigation();
+  const echelleCoeur = React.useRef(new Animated.Value(1)).current;
+  const voirProfil = (id) => navigation.navigate('ProfilEtudiant', { id });
 
   const handleLike = async () => {
+    // petit rebond du coeur
+    Animated.sequence([
+      Animated.spring(echelleCoeur, { toValue: 1.35, speed: 50, bounciness: 12, useNativeDriver: true }),
+      Animated.spring(echelleCoeur, { toValue: 1, speed: 30, bounciness: 8, useNativeDriver: true }),
+    ]).start();
     // Reponse immediate a l'ecran, corrigee par la reponse du serveur
     setLiked(!liked);
     setNbLikes(nbLikes + (liked ? -1 : 1));
@@ -74,11 +85,13 @@ export default function PostCard({ post, onRefresh }) {
   return (
     <Card>
       <View style={styles.header}>
-        <Avatar name={`${post.prenom} ${post.nom}`} size={42} index={post.user_id} avatar={post.avatar} />
-        <View style={styles.headerInfo}>
-          <Text style={styles.name}>{post.prenom} {post.nom}</Text>
-          <Text style={styles.date}>{dateRelative(post.date_post)}</Text>
-        </View>
+        <TouchableOpacity style={styles.auteur} onPress={() => voirProfil(post.user_id)} activeOpacity={0.7}>
+          <Avatar name={`${post.prenom} ${post.nom}`} size={42} index={post.user_id} avatar={post.avatar} />
+          <View style={styles.headerInfo}>
+            <Text style={styles.name}>{post.prenom} {post.nom}</Text>
+            <Text style={styles.date}>{[post.universite, dateRelative(post.date_post)].filter(Boolean).join(' · ')}</Text>
+          </View>
+        </TouchableOpacity>
         {post.est_auteur ? (
           <TouchableOpacity onPress={handleDelete} hitSlop={10}>
             <Ionicons name="ellipsis-horizontal" size={20} color={colors.textFaint} />
@@ -91,7 +104,9 @@ export default function PostCard({ post, onRefresh }) {
 
       <View style={styles.actions}>
         <TouchableOpacity onPress={handleLike} style={[styles.actionBtn, liked && { backgroundColor: colors.likeSoft }]}>
-          <Ionicons name={liked ? 'heart' : 'heart-outline'} size={19} color={liked ? colors.like : colors.textMuted} />
+          <Animated.View style={{ transform: [{ scale: echelleCoeur }] }}>
+            <Ionicons name={liked ? 'heart' : 'heart-outline'} size={19} color={liked ? colors.like : colors.textMuted} />
+          </Animated.View>
           <Text style={[styles.actionText, liked && { color: colors.like }]}>{nbLikes}</Text>
         </TouchableOpacity>
 
@@ -105,9 +120,11 @@ export default function PostCard({ post, onRefresh }) {
         <View style={styles.commentsSection}>
           {comments.map((c) => (
             <View key={c.id} style={styles.comment}>
-              <Avatar name={`${c.prenom} ${c.nom}`} size={28} index={c.user_id} avatar={c.avatar} />
+              <TouchableOpacity onPress={() => voirProfil(c.user_id)}>
+                <Avatar name={`${c.prenom} ${c.nom}`} size={28} index={c.user_id} avatar={c.avatar} />
+              </TouchableOpacity>
               <View style={styles.commentBubble}>
-                <Text style={styles.commentUser}>{c.prenom} {c.nom}</Text>
+                <Text style={styles.commentUser} onPress={() => voirProfil(c.user_id)}>{c.prenom} {c.nom}</Text>
                 <Text style={styles.commentText}>{c.contenu}</Text>
               </View>
             </View>
@@ -130,8 +147,9 @@ export default function PostCard({ post, onRefresh }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = creerStyles(({ colors, font, shadow }) => ({
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
+  auteur: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   headerInfo: { marginLeft: spacing.md, flex: 1 },
   name: { fontWeight: '700', fontSize: 15, color: colors.text },
   date: { ...font.tiny, marginTop: 1 },
@@ -148,4 +166,4 @@ const styles = StyleSheet.create({
   commentForm: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xs, alignItems: 'center' },
   commentInput: { flex: 1, backgroundColor: colors.bg, borderRadius: radius.pill, paddingHorizontal: 14, paddingVertical: 9, fontSize: 14, color: colors.text },
   commentBtn: { backgroundColor: colors.primary, borderRadius: 18, width: 36, height: 36, alignItems: 'center', justifyContent: 'center' },
-});
+}));

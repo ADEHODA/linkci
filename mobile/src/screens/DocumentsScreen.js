@@ -3,8 +3,8 @@ import { View, Text, FlatList, Linking, Alert, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import useApiList from '../hooks/useApiList';
-import { Card, Loading, EmptyState, pullToRefresh } from '../components/ui';
-import { colors, radius, spacing } from '../theme';
+import { Card, Loading, EmptyState, pullToRefresh, SkeletonList } from '../components/ui';
+import { colors, radius, spacing, creerStyles, useTheme } from '../theme';
 
 const DOC_ICONS = {
   pdf: 'document-text', doc: 'document-text', docx: 'document-text',
@@ -13,6 +13,8 @@ const DOC_ICONS = {
 };
 
 export default function DocumentsScreen() {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { data: docs, loading, refreshing, refresh } = useApiList(api.getDocuments);
 
   const telecharger = async (doc) => {
@@ -25,7 +27,7 @@ export default function DocumentsScreen() {
 
   const getIcon = (fichier) => DOC_ICONS[fichier?.split('.').pop()?.toLowerCase()] || 'document';
 
-  if (loading) return <Loading />;
+  if (loading) return <SkeletonList />;
 
   return (
     <FlatList
@@ -52,12 +54,12 @@ export default function DocumentsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = creerStyles(({ colors, font, shadow }) => ({
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.md },
   card: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
-  iconBox: { width: 48, height: 48, borderRadius: radius.md, backgroundColor: '#EAF1FF', alignItems: 'center', justifyContent: 'center' },
+  iconBox: { width: 48, height: 48, borderRadius: radius.md, backgroundColor: '#2563EB22', alignItems: 'center', justifyContent: 'center' },
   title: { fontSize: 15, fontWeight: '700', color: colors.text },
   matiere: { fontSize: 12, color: '#2563EB', fontWeight: '700', marginTop: 2 },
   meta: { fontSize: 12, color: colors.textFaint, marginTop: 3 },
-});
+}));

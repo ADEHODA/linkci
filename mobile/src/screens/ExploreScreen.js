@@ -1,17 +1,19 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, radius, spacing, font, shadow } from '../theme';
+import { colors, radius, spacing, font, shadow, creerStyles, useTheme } from '../theme';
 
 const TUILES = [
-  { route: 'Bourses', icon: 'cash', titre: 'Bourses', texte: 'Financements et aides', couleur: '#FF6B35', fond: '#FFF1EA' },
-  { route: 'Formations', icon: 'school', titre: 'Formations', texte: 'Filieres et universites', couleur: '#009E60', fond: '#E6F6EF' },
-  { route: 'Documents', icon: 'folder-open', titre: 'Documents', texte: 'Cours et sujets partages', couleur: '#2563EB', fond: '#EAF1FF' },
-  { route: 'Groupes', icon: 'people', titre: 'Groupes', texte: "Discute avec ta promo", couleur: '#7C3AED', fond: '#F2ECFF' },
-  { route: 'Calendrier', icon: 'calendar', titre: 'Calendrier', texte: 'Examens et evenements', couleur: '#D97706', fond: '#FFF6E5' },
+  { route: 'Bourses', icon: 'cash', titre: 'Bourses', texte: 'Financements et aides', couleur: '#FF6B35' },
+  { route: 'Formations', icon: 'school', titre: 'Formations', texte: 'Filieres et universites', couleur: '#009E60' },
+  { route: 'Documents', icon: 'folder-open', titre: 'Documents', texte: 'Cours et sujets partages', couleur: '#2563EB' },
+  { route: 'Groupes', icon: 'people', titre: 'Groupes', texte: "Discute avec ta promo", couleur: '#7C3AED' },
+  { route: 'Calendrier', icon: 'calendar', titre: 'Calendrier', texte: 'Examens et evenements', couleur: '#D97706' },
 ];
 
 export default function ExploreScreen({ navigation }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <TouchableOpacity style={styles.search} onPress={() => navigation.navigate('Search')} activeOpacity={0.8}>
@@ -23,7 +25,7 @@ export default function ExploreScreen({ navigation }) {
       <View style={styles.grid}>
         {TUILES.map((t) => (
           <TouchableOpacity key={t.route} style={styles.tile} onPress={() => navigation.navigate(t.route)} activeOpacity={0.8}>
-            <View style={[styles.tileIcon, { backgroundColor: t.fond }]}>
+            <View style={[styles.tileIcon, { backgroundColor: t.couleur + '22' }]}>
               <Ionicons name={t.icon} size={24} color={t.couleur} />
             </View>
             <Text style={styles.tileTitle}>{t.titre}</Text>
@@ -35,7 +37,7 @@ export default function ExploreScreen({ navigation }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = creerStyles(({ colors, font, shadow }) => ({
   container: { flex: 1, backgroundColor: colors.bg },
   content: { padding: spacing.lg },
   search: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.card, borderRadius: radius.pill, paddingHorizontal: spacing.lg, paddingVertical: 13, ...shadow },
@@ -46,4 +48,4 @@ const styles = StyleSheet.create({
   tileIcon: { width: 46, height: 46, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
   tileTitle: { fontSize: 16, fontWeight: '700', color: colors.text },
   tileText: { ...font.small, marginTop: 2 },
-});
+}));

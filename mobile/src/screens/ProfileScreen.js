@@ -5,8 +5,8 @@ import * as api from '../api';
 import Avatar from '../components/Avatar';
 import PostImage from '../components/PostImage';
 import useApiList from '../hooks/useApiList';
-import { Card, Loading, EmptyState, pullToRefresh } from '../components/ui';
-import { colors, radius, spacing, font, shadow } from '../theme';
+import { Card, Loading, EmptyState, pullToRefresh, SkeletonList } from '../components/ui';
+import { colors, radius, spacing, font, shadow, creerStyles, useTheme } from '../theme';
 import { dateRelative, parseDate, MOIS } from '../utils';
 
 async function chargerProfil() {
@@ -16,6 +16,8 @@ async function chargerProfil() {
 }
 
 export default function ProfileScreen({ navigation, onLogout }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const { data, loading, refreshing, refresh } = useApiList(chargerProfil, null);
 
   const handleLogout = () => {
@@ -25,7 +27,7 @@ export default function ProfileScreen({ navigation, onLogout }) {
     ]);
   };
 
-  if (loading || !data) return <Loading />;
+  if (loading || !data) return <SkeletonList lignes={3} avatar />;
   const { user, posts, badges } = data;
   const inscrit = parseDate(user.date_inscription);
   const totalLikes = posts.reduce((n, p) => n + (p.nb_likes || 0), 0);
@@ -77,6 +79,7 @@ export default function ProfileScreen({ navigation, onLogout }) {
               </TouchableOpacity>
             </View>
           </View>
+          <Apparence />
           <Text style={styles.sectionTitle}>Mes publications</Text>
         </>
       }
@@ -98,7 +101,35 @@ export default function ProfileScreen({ navigation, onLogout }) {
   );
 }
 
+// Choix du theme : suit le telephone, ou force clair / sombre (memorise)
+function Apparence() {
+  const styles = useStyles();
+  const { colors, preference, setPreference } = useTheme();
+  const options = [
+    { cle: 'auto', label: 'Automatique', icone: 'phone-portrait-outline' },
+    { cle: 'clair', label: 'Clair', icone: 'sunny-outline' },
+    { cle: 'sombre', label: 'Sombre', icone: 'moon-outline' },
+  ];
+  return (
+    <View style={styles.apparence}>
+      <Text style={styles.apparenceTitre}>Apparence</Text>
+      <View style={styles.segment}>
+        {options.map((o) => {
+          const actif = preference === o.cle;
+          return (
+            <TouchableOpacity key={o.cle} style={[styles.segBtn, actif && styles.segActif]} onPress={() => setPreference(o.cle)} activeOpacity={0.8}>
+              <Ionicons name={o.icone} size={16} color={actif ? colors.white : colors.textMuted} />
+              <Text style={[styles.segTexte, actif && { color: colors.white }]}>{o.label}</Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
 function Stat({ valeur, label }) {
+  const styles = useStyles();
   return (
     <View style={styles.stat}>
       <Text style={styles.statNum}>{valeur}</Text>
@@ -107,7 +138,7 @@ function Stat({ valeur, label }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = creerStyles(({ colors, font, shadow }) => ({
   container: { flex: 1, backgroundColor: colors.bg },
   banner: { height: 90, backgroundColor: colors.primary },
   header: { backgroundColor: colors.card, alignItems: 'center', paddingHorizontal: spacing.xl, paddingBottom: spacing.xl, borderBottomLeftRadius: radius.xl, borderBottomRightRadius: radius.xl, ...shadow },
@@ -136,4 +167,10 @@ const styles = StyleSheet.create({
   metaItem: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   metaText: { fontSize: 13, color: colors.textMuted, fontWeight: '600' },
   postDate: { ...font.tiny, marginLeft: 'auto' },
-});
+  apparence: { backgroundColor: colors.card, marginHorizontal: spacing.md, marginTop: spacing.lg, borderRadius: radius.lg, padding: spacing.lg, ...shadow },
+  apparenceTitre: { ...font.heading, fontSize: 15, marginBottom: spacing.md },
+  segment: { flexDirection: 'row', backgroundColor: colors.cardAlt, borderRadius: radius.pill, padding: 4 },
+  segBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, paddingVertical: 9, borderRadius: radius.pill },
+  segActif: { backgroundColor: colors.primary },
+  segTexte: { fontSize: 12, fontWeight: '700', color: colors.textMuted },
+}));
