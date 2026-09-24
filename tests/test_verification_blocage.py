@@ -132,3 +132,20 @@ def test_message_photo_et_vu(client):
     assert msgs[-1]['image'] and msgs[-1]['contenu'] == ''
     # B a ouvert la conversation : le message de A est lu
     assert client.get(f'/api/messages?avec={id_b}', headers=entete(tok_a)).get_json()[-1]['lu'] == 1
+
+
+def test_note_vocale(client):
+    import io
+    tok_a, id_a = compte(client, 'vocal.a@test.ci')
+    tok_b, id_b = compte(client, 'vocal.b@test.ci')
+    m4a = b'\x00\x00\x00\x1cftypM4A \x00\x00\x02\x00' + b'\x00' * 200
+    r = client.post('/api/messages/vocal', headers=entete(tok_a), content_type='multipart/form-data',
+                    data={'destinataire_id': str(id_b), 'duree': '7', 'audio': (io.BytesIO(m4a), 'note.m4a')})
+    assert r.status_code == 201
+    faux = client.post('/api/messages/vocal', headers=entete(tok_a), content_type='multipart/form-data',
+                       data={'destinataire_id': str(id_b), 'duree': '3', 'audio': (io.BytesIO(b'<?php echo 1; ?>'), 'x.m4a')})
+    assert faux.status_code == 400
+    dernier = client.get(f'/api/messages?avec={id_a}', headers=entete(tok_b)).get_json()[-1]
+    assert dernier['audio'].endswith('.m4a') and dernier['duree'] == 7
+    convs = client.get('/api/conversations', headers=entete(tok_b)).get_json()
+    assert any(c.get('dernier_message') == 'Note vocale' for c in convs)

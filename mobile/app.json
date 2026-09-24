@@ -2,7 +2,7 @@
   "expo": {
     "name": "LINK CI",
     "slug": "link-ci",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -21,7 +21,7 @@
     },
     "android": {
       "package": "com.linkci.app",
-      "versionCode": 2,
+      "versionCode": 3,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#FF6B35",
@@ -49,6 +49,25 @@
         {
           "icon": "./assets/notification-icon.png",
           "color": "#FF6B35"
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "LinkCI utilise le micro pour enregistrer tes notes vocales."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "LinkCI utilise l'appareil photo pour scanner le QR code d'un camarade.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "LinkCI utilise Face ID pour proteger l'ouverture de l'app."
         }
       ]
     ],

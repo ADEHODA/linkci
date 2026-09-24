@@ -6,6 +6,7 @@ import * as api from '../api';
 import Avatar from '../components/Avatar';
 import PostImage from '../components/PostImage';
 import { choisirPhoto } from '../photos';
+import { BulleVocale, Enregistreur } from '../components/NoteVocale';
 import useApiList from '../hooks/useApiList';
 import { Loading, EmptyState } from '../components/ui';
 import { radius, spacing, creerStyles, useTheme } from '../theme';
@@ -21,6 +22,7 @@ export default function ConversationScreen({ route, navigation }) {
   const [text, setText] = useState('');
   const { rafraichirCompteurs, emettre } = useRealtime();
   const [ecrit, setEcrit] = useState(false); // l'autre est en train d'ecrire
+  const [enregistre, setEnregistre] = useState(false); // enregistrement d'une note vocale en cours
   const minuterieEcrit = useRef(null);
   const dernierSignal = useRef(0);
 
@@ -87,6 +89,19 @@ export default function ConversationScreen({ route, navigation }) {
     }
   };
 
+  const envoyerVocal = async (uri, duree) => {
+    setEnregistre(false);
+    const provisoire = { id: `tmp-${Date.now()}`, contenu: '', audioLocal: uri, duree: Math.round(duree), expediteur_id: -1, date_envoi: new Date().toISOString().slice(0, 19).replace('T', ' '), enAttente: true };
+    setData((m) => [...m, provisoire]);
+    try {
+      await api.envoyerVocal(conv.autre_id, uri, duree);
+      await reload();
+    } catch (e) {
+      setData((m) => m.filter((x) => x.id !== provisoire.id));
+      Alert.alert('Note vocale non envoyee', e.message);
+    }
+  };
+
   const envoyerPhoto = async () => {
     let photo;
     try {
@@ -128,6 +143,9 @@ export default function ConversationScreen({ route, navigation }) {
                   {item.image || item.imageLocale ? (
                     <PostImage uri={item.imageLocale || api.imageUrl(item.image)} style={styles.photo} />
                   ) : null}
+                  {item.audio || item.audioLocal ? (
+                    <BulleVocale uri={item.audioLocal || api.imageUrl(item.audio)} duree={item.duree} clair={!recu} />
+                  ) : null}
                   {item.contenu ? <Text style={[styles.msgText, !recu && styles.msgTextSent]}>{item.contenu}</Text> : null}
                   <View style={styles.meta}>
                     <Text style={[styles.msgTime, !recu && styles.msgTimeSent]}>{heure(item.date_envoi)}</Text>
@@ -142,13 +160,25 @@ export default function ConversationScreen({ route, navigation }) {
       )}
 
       <View style={styles.inputBar}>
-        <TouchableOpacity style={styles.attache} onPress={envoyerPhoto} hitSlop={6}>
-          <Ionicons name="image-outline" size={24} color={colors.primary} />
-        </TouchableOpacity>
-        <TextInput style={styles.input} value={text} onChangeText={surSaisie} placeholder="Ecris un message..." placeholderTextColor={colors.textFaint} multiline />
-        <TouchableOpacity style={[styles.sendBtn, !text.trim() && { opacity: 0.4 }]} onPress={handleSend} disabled={!text.trim()}>
-          <Ionicons name="send" size={18} color={colors.white} />
-        </TouchableOpacity>
+        {enregistre ? (
+          <Enregistreur onEnvoyer={envoyerVocal} onAnnuler={() => setEnregistre(false)} />
+        ) : (
+          <>
+            <TouchableOpacity style={styles.attache} onPress={envoyerPhoto} hitSlop={6}>
+              <Ionicons name="image-outline" size={24} color={colors.primary} />
+            </TouchableOpacity>
+            <TextInput style={styles.input} value={text} onChangeText={surSaisie} placeholder="Ecris un message..." placeholderTextColor={colors.textFaint} multiline />
+            {text.trim() ? (
+              <TouchableOpacity style={styles.sendBtn} onPress={handleSend}>
+                <Ionicons name="send" size={18} color={colors.white} />
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.sendBtn} onPress={() => setEnregistre(true)}>
+                <Ionicons name="mic" size={20} color={colors.white} />
+              </TouchableOpacity>
+            )}
+          </>
+        )}
       </View>
     </KeyboardAvoidingView>
   );

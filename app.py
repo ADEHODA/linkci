@@ -562,12 +562,13 @@ def init_db():
         conn.execute("UPDATE users SET role = 'admin' WHERE lower(email) = ?", (email,))
     conn.commit()
 
-    # Photos dans les messages prives
-    try:
-        conn.execute('ALTER TABLE messages ADD COLUMN image TEXT')
-        conn.commit()
-    except Exception:
-        pass
+    # Photos et notes vocales dans les messages prives
+    for colonne in ('image TEXT', 'audio TEXT', 'duree INTEGER'):
+        try:
+            conn.execute('ALTER TABLE messages ADD COLUMN ' + colonne)
+            conn.commit()
+        except Exception:
+            pass
 
     # Verification de l'e-mail : DEFAULT 1 pour que les comptes existants restent
     # actifs ; les nouvelles inscriptions sont creees avec email_verifie = 0.
@@ -1427,7 +1428,7 @@ def messagerie():
         SELECT DISTINCT 
             CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END as autre_id,
             users.prenom, users.nom,
-            (SELECT CASE WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
+            (SELECT CASE WHEN contenu = '' AND audio IS NOT NULL THEN 'Note vocale' WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
             (SELECT date_envoi FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as date_dernier,
             (SELECT COUNT(*) FROM messages WHERE destinataire_id = ? AND expediteur_id = users.id AND lu = 0) as non_lu
         FROM messages
@@ -1489,7 +1490,7 @@ def conversation(autre_id):
         SELECT DISTINCT 
             CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END as autre_id,
             users.prenom, users.nom,
-            (SELECT CASE WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
+            (SELECT CASE WHEN contenu = '' AND audio IS NOT NULL THEN 'Note vocale' WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
             (SELECT date_envoi FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as date_dernier,
             (SELECT COUNT(*) FROM messages WHERE destinataire_id = ? AND expediteur_id = users.id AND lu = 0) as non_lu
         FROM messages
@@ -1925,11 +1926,11 @@ def signaler_bourse(id):
     conn.close()
     return redirect(url_for('bourses'))
 
-def diffuser_message(expediteur_id, destinataire_id, message_id, contenu, image=None):
+def diffuser_message(expediteur_id, destinataire_id, message_id, contenu, image=None, audio=None, duree=None):
     """Temps reel (app mobile) : previent l'expediteur et le destinataire d'un nouveau message prive.
     Evenement distinct de 'new_message' (utilise par la page web de conversation) pour eviter les doublons."""
     data = {'id': message_id, 'expediteur_id': int(expediteur_id), 'destinataire_id': int(destinataire_id),
-            'contenu': contenu, 'image': image, 'date_envoi': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}
+            'contenu': contenu, 'image': image, 'audio': audio, 'duree': duree, 'date_envoi': datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}
     for uid in {int(expediteur_id), int(destinataire_id)}:
         try:
             socketio.emit('message_recu', data, room='user_' + str(uid))
@@ -3988,6 +3989,58 @@ def api_send_message():
     creer_notification(destinataire_id, 'message', f"{'Photo' if image and not contenu else 'Nouveau message'} de {nom}", f"/conversation/{user_id}")
     return jsonify({'message': 'Envoye', 'id': msg_id}), 201
 
+# ---- Notes vocales (enregistrees par l'app en AAC / .m4a)
+VOCAL_TAILLE_MAX = 3 * 1024 * 1024  # ~3 min en qualite voix
+VOCAL_DUREE_MAX = 180  # secondes
+
+def extension_audio(data):
+    """Verifie le contenu reel : conteneur MP4/M4A ou 3GP ('ftyp'), AAC brut (ADTS) ou Ogg."""
+    if len(data) > 12 and data[4:8] == b'ftyp':
+        return '.m4a'
+    if data[:2] in (b'\xff\xf1', b'\xff\xf9'):
+        return '.aac'
+    if data[:4] == b'OggS':
+        return '.ogg'
+    return None
+
+@app.route('/api/messages/vocal', methods=['POST'])
+def api_message_vocal():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if trop_rapide('message', user_id, 30, 60) or trop_rapide('message_heure', user_id, 300, 3600):
+        return jsonify({'error': 'Tu vas trop vite. Patiente une minute.'}), 429
+    try:
+        destinataire_id = int(request.form.get('destinataire_id', ''))
+        duree = max(1, min(VOCAL_DUREE_MAX, int(float(request.form.get('duree', '1')))))
+    except ValueError:
+        return jsonify({'error': 'destinataire_id et duree requis'}), 400
+    if destinataire_id == user_id:
+        return jsonify({'error': "Tu ne peux pas t'envoyer un message"}), 400
+    if blocage_entre(user_id, destinataire_id):
+        return jsonify({'error': 'Tu ne peux pas ecrire a cette personne.'}), 409
+    fichier = request.files.get('audio')
+    data = fichier.read(VOCAL_TAILLE_MAX + 1) if fichier else b''
+    if not data or len(data) > VOCAL_TAILLE_MAX:
+        return jsonify({'error': 'Note vocale absente ou trop longue (3 min max)'}), 400
+    ext = extension_audio(data)
+    if not ext:
+        return jsonify({'error': 'Fichier audio invalide'}), 400
+    conn = get_db()
+    if not conn.execute('SELECT 1 FROM users WHERE id = ?', (destinataire_id,)).fetchone():
+        conn.close()
+        return jsonify({'error': 'Destinataire introuvable'}), 404
+    nom_fichier = f'{uuid.uuid4().hex}{ext}'
+    stocker_fichier('static/uploads/' + nom_fichier, data)
+    msg_id = conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu, audio, duree) VALUES (?, ?, ?, ?, ?)',
+                          (user_id, destinataire_id, '', nom_fichier, duree)).lastrowid
+    conn.commit()
+    auteur = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    diffuser_message(user_id, destinataire_id, msg_id, '', audio=nom_fichier, duree=duree)
+    creer_notification(destinataire_id, 'message', f"Note vocale de {auteur['prenom']} {auteur['nom']}", f'/conversation/{user_id}')
+    return jsonify({'id': msg_id, 'message': 'Envoye'}), 201
+
 @app.route('/api/conversations')
 def api_conversations():
     user_id = api_require_auth()
@@ -3998,7 +4051,7 @@ def api_conversations():
         SELECT DISTINCT
             CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END as autre_id,
             users.prenom, users.nom, users.universite, users.avatar,
-            (SELECT CASE WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
+            (SELECT CASE WHEN contenu = '' AND audio IS NOT NULL THEN 'Note vocale' WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
             (SELECT date_envoi FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as date_dernier,
             (SELECT COUNT(*) FROM messages WHERE destinataire_id = ? AND expediteur_id = users.id AND lu = 0) as non_lu
         FROM messages JOIN users ON users.id = CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END

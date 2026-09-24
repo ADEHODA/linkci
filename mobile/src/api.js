@@ -273,3 +273,20 @@ export const updateProfile = (data) =>
 
 // Recherche
 export const searchAll = (q) => request(`/api/recherche?q=${encodeURIComponent(q)}`);
+
+// Note vocale (fichier .m4a enregistre par le telephone), duree en secondes
+export async function envoyerVocal(destinataire_id, uri, duree) {
+  const form = new FormData();
+  form.append('destinataire_id', String(destinataire_id));
+  form.append('duree', String(Math.max(1, Math.round(duree))));
+  form.append('audio', { uri, name: 'note.m4a', type: 'audio/mp4' });
+  let res;
+  try {
+    res = await fetch(API_BASE + '/api/messages/vocal', { method: 'POST', headers: { Authorization: `Bearer ${_token}` }, body: form });
+  } catch (e) {
+    throw new Error('Pas de connexion internet');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Echec de l'envoi");
+  return data;
+}

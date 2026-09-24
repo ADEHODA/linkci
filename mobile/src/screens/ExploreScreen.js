@@ -19,10 +19,15 @@ export default function ExploreScreen({ navigation }) {
   const { colors } = useTheme();
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <TouchableOpacity style={styles.search} onPress={() => navigation.navigate('Search')} activeOpacity={0.8}>
+      <View style={{ flexDirection: 'row', gap: 10 }}>
+        <TouchableOpacity style={[styles.search, { flex: 1 }]} onPress={() => navigation.navigate('Search')} activeOpacity={0.8}>
         <Ionicons name="search" size={18} color={colors.textFaint} />
         <Text style={styles.searchText}>Rechercher etudiants, bourses, cours...</Text>
       </TouchableOpacity>
+        <TouchableOpacity style={[styles.search, { paddingHorizontal: 14 }]} onPress={() => navigation.navigate('Scanner')} activeOpacity={0.8}>
+          <Ionicons name="qr-code-outline" size={20} color={colors.primary} />
+        </TouchableOpacity>
+      </View>
 
       <Text style={styles.section}>Explorer le campus</Text>
       <View style={styles.grid}>

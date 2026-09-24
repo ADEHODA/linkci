@@ -13,6 +13,7 @@ import BanniereReseau from './src/components/BanniereReseau';
 import { RealtimeProvider } from './src/realtime';
 import { ThemeProvider, useTheme } from './src/theme';
 import { surveillerMisesAJour } from './src/misesAJour';
+import { Verrou } from './src/verrou';
 
 export default function App() {
   const [token, setTokenState] = useState(null);
@@ -82,7 +83,9 @@ export default function App() {
       <ThemeProvider>
         <RealtimeProvider token={token}>
           <BarreDeStatut />
-          <AppNavigator token={token} onLogin={handleLogin} onLogout={handleLogout} accueilVu={accueilVu} />
+          <Verrou actif={!!token}>
+            <AppNavigator token={token} onLogin={handleLogin} onLogout={handleLogout} accueilVu={accueilVu} />
+          </Verrou>
           {token ? <BanniereReseau /> : null}
         </RealtimeProvider>
       </ThemeProvider>
