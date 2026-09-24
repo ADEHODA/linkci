@@ -132,6 +132,17 @@ export const createPost = (contenu, image = null, sondage = null) =>
 export const reagir = (id, emoji) => request(`/api/posts/${id}/reaction`, { method: 'POST', body: JSON.stringify({ emoji }) });
 export const voter = (id, option_id) => request(`/api/posts/${id}/vote`, { method: 'POST', body: JSON.stringify({ option_id }) });
 
+// Entraide
+export const getQuestions = ({ filtre = '', matiere = '' } = {}) =>
+  request(`/api/questions?filtre=${encodeURIComponent(filtre)}&matiere=${encodeURIComponent(matiere)}`);
+export const poserQuestion = (q) => request('/api/questions', { method: 'POST', body: JSON.stringify(q) });
+export const getQuestion = (id) => request(`/api/questions/${id}`);
+export const repondre = (id, contenu) => request(`/api/questions/${id}/reponses`, { method: 'POST', body: JSON.stringify({ contenu }) });
+export const voterReponse = (id) => request(`/api/reponses/${id}/vote`, { method: 'POST' });
+export const meilleureReponse = (id, reponse_id) => request(`/api/questions/${id}/meilleure`, { method: 'POST', body: JSON.stringify({ reponse_id }) });
+export const supprimerQuestion = (id) => request(`/api/questions/${id}`, { method: 'DELETE' });
+export const getClassementEntraide = () => request('/api/entraide/classement');
+
 // Stories (24 h)
 export const getStories = () => request('/api/stories');
 export const creerStory = (image, texte) => request('/api/stories', { method: 'POST', body: JSON.stringify({ image, texte }) });

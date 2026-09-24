@@ -56,6 +56,8 @@ export function salutation() {
 export function destinationNotification(n) {
   const profil = /\/profil\/(\d+)/.exec((n && n.lien) || '');
   if (profil) return ['ProfilEtudiant', { id: Number(profil[1]) }];
+  const question = /\/entraide\/(\d+)/.exec((n && n.lien) || '');
+  if (question) return ['Question', { id: Number(question[1]) }];
   const cibles = {
     message: ['Home', { screen: 'Messages' }], like: ['Home', { screen: 'Accueil' }],
     commentaire: ['Home', { screen: 'Accueil' }], mention: ['Home', { screen: 'Accueil' }],

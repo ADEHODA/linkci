@@ -641,6 +641,26 @@ def init_db():
             image TEXT NOT NULL,
             texte TEXT DEFAULT '',
             date_creation TEXT NOT NULL)''',
+        # Entraide : questions par matiere, reponses, votes sur les reponses
+        '''CREATE TABLE IF NOT EXISTS questions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            matiere TEXT NOT NULL,
+            titre TEXT NOT NULL,
+            contenu TEXT DEFAULT '',
+            image TEXT,
+            meilleure_reponse_id INTEGER,
+            date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''',
+        '''CREATE TABLE IF NOT EXISTS reponses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            question_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            contenu TEXT NOT NULL,
+            date_creation TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''',
+        '''CREATE TABLE IF NOT EXISTS votes_reponses (
+            reponse_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            PRIMARY KEY (reponse_id, user_id))''',
         # Blocages : bloqueur ne voit plus les publications de bloque, et plus
         # aucun message ne passe entre eux
         '''CREATE TABLE IF NOT EXISTS blocages (
@@ -3465,6 +3485,240 @@ def annonces_web():
     categorie = request.args.get('categorie', '')
     return render_template('annonces.html', annonces=liste_annonces(moi, categorie, request.args.get('q', '').strip()),
                            categories=CATEGORIES_ANNONCE, categorie_active=categorie)
+
+# ===================== ENTRAIDE (questions / reponses) =====================
+# Reputation : 1 point par reponse, 2 par vote recu, 10 par meilleure reponse
+SQL_POINTS = '''(
+    (SELECT COUNT(*) FROM reponses r WHERE r.user_id = users.id)
+  + 2 * (SELECT COUNT(*) FROM votes_reponses v JOIN reponses r ON r.id = v.reponse_id WHERE r.user_id = users.id)
+  + 10 * (SELECT COUNT(*) FROM questions q JOIN reponses r ON r.id = q.meilleure_reponse_id WHERE r.user_id = users.id))'''
+SQL_PAS_BLOQUE = '''{col} NOT IN (SELECT bloque_id FROM blocages WHERE bloqueur_id = ?)
+    AND {col} NOT IN (SELECT bloqueur_id FROM blocages WHERE bloque_id = ?)'''
+
+def charger_question(qid):
+    conn = get_db()
+    q = conn.execute('SELECT * FROM questions WHERE id = ?', (qid,)).fetchone()
+    conn.close()
+    return q
+
+def peut_moderer(user_id, auteur_id):
+    if user_id == auteur_id:
+        return True
+    conn = get_db()
+    moi = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    return est_admin(moi)
+
+@app.route('/api/questions')
+def api_questions():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    sql_ = '''SELECT q.id, q.user_id, q.matiere, q.titre, q.contenu, q.image, q.date_creation,
+                     (q.meilleure_reponse_id IS NOT NULL) AS resolue,
+                     (SELECT COUNT(*) FROM reponses r WHERE r.question_id = q.id) AS nb_reponses,
+                     users.prenom, users.nom, users.avatar
+              FROM questions q JOIN users ON users.id = q.user_id
+              WHERE COALESCE(users.banni, 0) = 0 AND ''' + SQL_PAS_BLOQUE.format(col='q.user_id')
+    params = [user_id, user_id]
+    matiere = request.args.get('matiere', '').strip()
+    if matiere:
+        sql_ += ' AND lower(q.matiere) = ?'
+        params.append(matiere.lower()[:60])
+    filtre = request.args.get('filtre', '')
+    if filtre == 'sans_reponse':
+        sql_ += ' AND NOT EXISTS (SELECT 1 FROM reponses r WHERE r.question_id = q.id)'
+    elif filtre == 'miennes':
+        sql_ += ' AND q.user_id = ?'
+        params.append(user_id)
+    recherche = request.args.get('q', '').strip().lower()[:100]
+    if recherche:
+        sql_ += ' AND (lower(q.titre) LIKE ? OR lower(q.contenu) LIKE ? OR lower(q.matiere) LIKE ?)'
+        params += ['%' + recherche + '%'] * 3
+    sql_ += ' ORDER BY q.date_creation DESC LIMIT 200'
+    conn = get_db()
+    lignes = conn.execute(sql_, params).fetchall()
+    matieres = conn.execute('SELECT matiere, COUNT(*) AS nb FROM questions GROUP BY matiere ORDER BY nb DESC LIMIT 20').fetchall()
+    conn.close()
+    return jsonify({'questions': [dict(l) for l in lignes], 'matieres': [m['matiere'] for m in matieres]})
+
+@app.route('/api/questions', methods=['POST'])
+def api_poser_question():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if trop_rapide('question', user_id, 5, 3600):
+        return jsonify({'error': 'Trop de questions. Reessaie dans une heure.'}), 429
+    data = request.get_json(silent=True) or {}
+    matiere = sanitize_text(str(data.get('matiere') or ''), 60)
+    titre = sanitize_text(str(data.get('titre') or ''), 200)
+    contenu = sanitize_text(str(data.get('contenu') or ''), 3000)
+    if not matiere or len(titre) < 5:
+        return jsonify({'error': 'Indique la matiere et une question d\'au moins 5 caracteres'}), 400
+    image, erreur = image_depuis_base64(data.get('image'))
+    if erreur:
+        return jsonify({'error': erreur}), 400
+    conn = get_db()
+    qid = conn.execute('INSERT INTO questions (user_id, matiere, titre, contenu, image) VALUES (?, ?, ?, ?, ?)',
+                       (user_id, matiere, titre, contenu, image)).lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'id': qid, 'message': 'Question publiee'}), 201
+
+@app.route('/api/questions/<int:qid>')
+def api_question(qid):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    q = conn.execute('''SELECT q.*, users.prenom, users.nom, users.avatar FROM questions q JOIN users ON users.id = q.user_id
+                        WHERE q.id = ? AND ''' + SQL_PAS_BLOQUE.format(col='q.user_id'), (qid, user_id, user_id)).fetchone()
+    if not q:
+        conn.close()
+        return jsonify({'error': 'Question introuvable'}), 404
+    reponses = conn.execute('''
+        SELECT r.id, r.user_id, r.contenu, r.date_creation, users.prenom, users.nom, users.avatar,
+               ''' + SQL_POINTS + ''' AS points,
+               (SELECT COUNT(*) FROM votes_reponses v WHERE v.reponse_id = r.id) AS votes,
+               EXISTS(SELECT 1 FROM votes_reponses v WHERE v.reponse_id = r.id AND v.user_id = ?) AS a_vote
+        FROM reponses r JOIN users ON users.id = r.user_id
+        WHERE r.question_id = ? AND COALESCE(users.banni, 0) = 0 AND ''' + SQL_PAS_BLOQUE.format(col='r.user_id') + '''
+        ORDER BY r.date_creation ASC''', (user_id, qid, user_id, user_id)).fetchall()
+    conn.close()
+    reponses = [dict(r) for r in reponses]
+    meilleure = q['meilleure_reponse_id']
+    # meilleure reponse d'abord, puis les plus votees
+    reponses.sort(key=lambda r: (r['id'] != meilleure, -r['votes']))
+    question = dict(q)
+    question['resolue'] = meilleure is not None
+    question['est_auteur'] = q['user_id'] == user_id
+    return jsonify({'question': question, 'reponses': reponses})
+
+@app.route('/api/questions/<int:qid>/reponses', methods=['POST'])
+def api_repondre(qid):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if trop_rapide('reponse', user_id, 20, 3600):
+        return jsonify({'error': 'Trop de reponses. Reessaie plus tard.'}), 429
+    q = charger_question(qid)
+    if not q:
+        return jsonify({'error': 'Question introuvable'}), 404
+    if blocage_entre(user_id, q['user_id']):
+        return jsonify({'error': 'Tu ne peux pas repondre a cette personne.'}), 409
+    contenu = sanitize_text(str((request.get_json(silent=True) or {}).get('contenu') or ''), 5000)
+    if len(contenu) < 2:
+        return jsonify({'error': 'Reponse trop courte'}), 400
+    conn = get_db()
+    rid = conn.execute('INSERT INTO reponses (question_id, user_id, contenu) VALUES (?, ?, ?)', (qid, user_id, contenu)).lastrowid
+    moi = conn.execute('SELECT prenom FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.commit()
+    conn.close()
+    if q['user_id'] != user_id:
+        creer_notification(q['user_id'], 'entraide', f"{moi['prenom']} a repondu a ta question : {q['titre'][:60]}", f'/entraide/{qid}')
+    return jsonify({'id': rid, 'message': 'Reponse publiee'}), 201
+
+@app.route('/api/reponses/<int:rid>/vote', methods=['POST'])
+def api_voter_reponse(rid):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    r = conn.execute('SELECT user_id FROM reponses WHERE id = ?', (rid,)).fetchone()
+    if not r:
+        conn.close()
+        return jsonify({'error': 'Reponse introuvable'}), 404
+    if r['user_id'] == user_id:
+        conn.close()
+        return jsonify({'error': 'Tu ne peux pas voter pour ta propre reponse'}), 400
+    if conn.execute('SELECT 1 FROM votes_reponses WHERE reponse_id = ? AND user_id = ?', (rid, user_id)).fetchone():
+        conn.execute('DELETE FROM votes_reponses WHERE reponse_id = ? AND user_id = ?', (rid, user_id))
+        a_vote = False
+    else:
+        conn.execute('INSERT INTO votes_reponses (reponse_id, user_id) VALUES (?, ?)', (rid, user_id))
+        a_vote = True
+    conn.commit()
+    votes = conn.execute('SELECT COUNT(*) AS nb FROM votes_reponses WHERE reponse_id = ?', (rid,)).fetchone()['nb']
+    conn.close()
+    return jsonify({'a_vote': a_vote, 'votes': votes})
+
+@app.route('/api/questions/<int:qid>/meilleure', methods=['POST'])
+def api_meilleure_reponse(qid):
+    """{"reponse_id": 3} (ou null pour annuler) : reserve a l'auteur de la question."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    q = charger_question(qid)
+    if not q:
+        return jsonify({'error': 'Question introuvable'}), 404
+    if q['user_id'] != user_id:
+        return jsonify({'error': "Seul l'auteur de la question peut choisir"}), 403
+    rid = (request.get_json(silent=True) or {}).get('reponse_id')
+    conn = get_db()
+    if rid is not None:
+        r = conn.execute('SELECT id, user_id FROM reponses WHERE id = ? AND question_id = ?', (rid, qid)).fetchone()
+        if not r:
+            conn.close()
+            return jsonify({'error': 'Reponse invalide'}), 400
+    conn.execute('UPDATE questions SET meilleure_reponse_id = ? WHERE id = ?', (rid, qid))
+    conn.commit()
+    conn.close()
+    if rid is not None and r['user_id'] != user_id:
+        creer_notification(r['user_id'], 'entraide', f"Ta reponse a ete choisie comme meilleure reponse (+10 points) : {q['titre'][:60]}", f'/entraide/{qid}')
+    return jsonify({'meilleure_reponse_id': rid})
+
+@app.route('/api/questions/<int:qid>', methods=['DELETE'])
+def api_supprimer_question(qid):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    q = charger_question(qid)
+    if not q:
+        return jsonify({'error': 'Question introuvable'}), 404
+    if not peut_moderer(user_id, q['user_id']):
+        return jsonify({'error': 'Non autorise'}), 403
+    conn = get_db()
+    conn.execute('DELETE FROM votes_reponses WHERE reponse_id IN (SELECT id FROM reponses WHERE question_id = ?)', (qid,))
+    conn.execute('DELETE FROM reponses WHERE question_id = ?', (qid,))
+    conn.execute('DELETE FROM questions WHERE id = ?', (qid,))
+    conn.commit()
+    conn.close()
+    if q['image']:
+        supprimer_fichier('static/uploads/' + q['image'])
+    return jsonify({'message': 'Question supprimee'})
+
+@app.route('/api/reponses/<int:rid>', methods=['DELETE'])
+def api_supprimer_reponse(rid):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    r = conn.execute('SELECT user_id, question_id FROM reponses WHERE id = ?', (rid,)).fetchone()
+    conn.close()
+    if not r:
+        return jsonify({'error': 'Reponse introuvable'}), 404
+    if not peut_moderer(user_id, r['user_id']):
+        return jsonify({'error': 'Non autorise'}), 403
+    conn = get_db()
+    conn.execute('DELETE FROM votes_reponses WHERE reponse_id = ?', (rid,))
+    conn.execute('DELETE FROM reponses WHERE id = ?', (rid,))
+    conn.execute('UPDATE questions SET meilleure_reponse_id = NULL WHERE meilleure_reponse_id = ?', (rid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Reponse supprimee'})
+
+@app.route('/api/entraide/classement')
+def api_classement_entraide():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    lignes = conn.execute('SELECT * FROM (SELECT users.id, users.prenom, users.nom, users.avatar, users.universite, '
+                          + SQL_POINTS + ''' AS points FROM users WHERE COALESCE(users.banni, 0) = 0) t
+                          WHERE t.points > 0 ORDER BY t.points DESC LIMIT 10''').fetchall()
+    moi = conn.execute('SELECT ' + SQL_POINTS + ' AS points FROM users WHERE users.id = ?', (user_id,)).fetchone()
+    conn.close()
+    return jsonify({'classement': [dict(l) for l in lignes], 'mes_points': moi['points'] if moi else 0})
 
 @app.route('/api/formations')
 def api_formations():

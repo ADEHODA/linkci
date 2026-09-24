@@ -23,6 +23,8 @@ import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import OpportunitesScreen from '../screens/OpportunitesScreen';
 import AnnoncesScreen from '../screens/AnnoncesScreen';
+import EntraideScreen from '../screens/EntraideScreen';
+import QuestionScreen from '../screens/QuestionScreen';
 import VerifyEmailScreen from '../screens/VerifyEmailScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
 import { useTheme } from '../theme';
@@ -116,6 +118,8 @@ export default function AppNavigator({ token, onLogin, onLogout, accueilVu }) {
             <Stack.Screen name="Bourses" component={BoursesScreen} />
             <Stack.Screen name="Opportunites" component={OpportunitesScreen} options={{ title: 'Stages & emplois' }} />
             <Stack.Screen name="Annonces" component={AnnoncesScreen} options={{ title: 'Petites annonces' }} />
+            <Stack.Screen name="Entraide" component={EntraideScreen} />
+            <Stack.Screen name="Question" component={QuestionScreen} options={{ title: 'Question' }} />
             <Stack.Screen name="Formations" component={FormationsScreen} />
             <Stack.Screen name="Documents" component={DocumentsScreen} />
             <Stack.Screen name="Groupes" component={GroupsScreen} />
