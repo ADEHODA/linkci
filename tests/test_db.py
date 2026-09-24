@@ -233,3 +233,30 @@ def test_badge_annonce_une_seule_fois(client):
     conn.close()
     assert 'Causeur' in linkci_app.check_and_award_badges(uid)
     assert linkci_app.check_and_award_badges(uid) == []  # deja obtenu : rien de nouveau
+
+
+def test_notifications_push(client, monkeypatch):
+    envoyes = []
+    monkeypatch.setattr(linkci_app, '_envoyer_push_expo', lambda messages: envoyes.extend(messages))
+    monkeypatch.setitem(linkci_app.app.config, 'TESTING', False)  # envoyer_push ne fait rien en mode test
+
+    class ThreadDirect:
+        def __init__(self, target, args, daemon):
+            self.target, self.args = target, args
+        def start(self):
+            self.target(*self.args)
+    monkeypatch.setattr(linkci_app.threading, 'Thread', ThreadDirect)
+
+    ha, hb = _jeton_api(client, 'push_a@test.ci'), _jeton_api(client, 'push_b@test.ci')
+    jeton = 'ExponentPushToken[abc123]'
+    assert client.post('/api/expo_push_token', json={'token': 'faux'}, headers=hb).status_code == 400
+    assert client.post('/api/expo_push_token', json={'token': jeton}, headers=hb).status_code == 200
+    client.post('/api/messages', json={'destinataire_id': _id(client, hb), 'contenu': 'Coucou'}, headers=ha)
+    assert envoyes and envoyes[-1]['to'] == jeton and envoyes[-1]['title'] == 'Nouveau message'
+    # meme telephone connecte a un autre compte : l'ancien ne recoit plus rien
+    client.post('/api/expo_push_token', json={'token': jeton}, headers=ha)
+    conn = linkci_app.get_db()
+    proprietaires = [r['user_id'] for r in conn.execute('SELECT user_id FROM expo_push_tokens WHERE token = ?', (jeton,)).fetchall()]
+    conn.close()
+    assert proprietaires == [_id(client, ha)]
+    assert client.delete('/api/expo_push_token', json={'token': jeton}, headers=ha).status_code == 200

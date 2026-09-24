@@ -1,3 +1,5 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 export const API_BASE = 'https://linkci.onrender.com';
 
 let _token = null;
@@ -21,15 +23,59 @@ export function lienSur(url) {
   return typeof url === 'string' && /^https?:\/\/\S+$/i.test(url.trim()) ? url.trim() : null;
 }
 
+// ---- Mode hors connexion
+// Chaque lecture (GET) reussie est gardee sur le telephone. Sans reseau, on renvoie
+// la derniere version connue et on le signale (bandeau "Hors connexion").
+const PREFIXE_CACHE = 'linkci_cache:';
+const PAS_EN_CACHE = [/\/lien$/, /^\/api\/compteurs/]; // liens temporaires, compteurs
+let _horsLigne = false;
+const _abonnesReseau = new Set();
+
+function setHorsLigne(valeur) {
+  if (valeur === _horsLigne) return;
+  _horsLigne = valeur;
+  _abonnesReseau.forEach((f) => f(valeur));
+}
+
+// Ecoute l'etat du reseau ; renvoie la fonction de desabonnement
+export function surEtatReseau(f) {
+  _abonnesReseau.add(f);
+  f(_horsLigne);
+  return () => _abonnesReseau.delete(f);
+}
+
+// A la deconnexion : les donnees du compte ne restent pas sur le telephone
+export async function viderCache() {
+  try {
+    const cles = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(PREFIXE_CACHE));
+    if (cles.length) await AsyncStorage.multiRemove(cles);
+  } catch (e) {}
+}
+
+async function depuisCache(path, messageErreur) {
+  try {
+    const brut = await AsyncStorage.getItem(PREFIXE_CACHE + path);
+    if (brut) {
+      setHorsLigne(true);
+      return JSON.parse(brut);
+    }
+  } catch (e) {}
+  throw new Error(messageErreur);
+}
+
 async function request(path, options = {}) {
   const url = API_BASE + path;
   const headers = { 'Content-Type': 'application/json' };
   if (_token) headers['Authorization'] = `Bearer ${_token}`;
+  const lecture = !options.method || options.method === 'GET';
+  const enCache = lecture && _token && !PAS_EN_CACHE.some((re) => re.test(path));
 
   let res;
   try {
     res = await fetch(url, { ...options, headers });
   } catch (e) {
+    if (enCache) return depuisCache(path, 'Pas de connexion internet');
+    setHorsLigne(true);
     throw new Error('Pas de connexion internet');
   }
   let data;
@@ -37,8 +83,11 @@ async function request(path, options = {}) {
     data = await res.json();
   } catch (e) {
     // Render (offre gratuite) renvoie une page HTML pendant le reveil du serveur (~50 s)
+    if (enCache) return depuisCache(path, 'Le serveur demarre, reessaie dans une minute');
     throw new Error('Le serveur demarre, reessaie dans une minute');
   }
+  setHorsLigne(false);
+  if (enCache && res.ok) AsyncStorage.setItem(PREFIXE_CACHE + path, JSON.stringify(data)).catch(() => {});
   if ((res.status === 401 || res.status === 403) && _token && path !== '/api/login' && _surSessionExpiree) {
     if (res.status === 401 || /suspendu/i.test(data.error || '')) _surSessionExpiree(data.error);
   }
@@ -102,6 +151,11 @@ export const getNotifications = () => request('/api/notifications');
 export const markNotificationsRead = () => request('/api/notifications/lire', { method: 'POST' });
 // { messages, notifications } non lus (pastilles des onglets)
 export const getCompteurs = () => request('/api/compteurs');
+// Notifications push : jeton Expo de ce telephone
+export const registerPushToken = (token) =>
+  request('/api/expo_push_token', { method: 'POST', body: JSON.stringify({ token }) });
+export const deletePushToken = (token) =>
+  request('/api/expo_push_token', { method: 'DELETE', body: JSON.stringify({ token }) });
 
 // Profil
 export const getProfile = (userId) => request(`/api/profil/${userId}`);

@@ -1168,7 +1168,7 @@ def suivre(user_id):
     return redirect(url_for('profil', user_id=user_id))
 
 # ===================== EXPO PUSH NOTIFICATIONS =====================
-@app.route('/api/expo_push_token', methods=['POST'])
+@app.route('/api/expo_push_token', methods=['POST', 'DELETE'])
 def api_expo_push_token():
     user_id = api_require_auth()
     if not user_id:
@@ -1176,9 +1176,18 @@ def api_expo_push_token():
     data = request.json
     if not data or not data.get('token'):
         return jsonify({'error': 'Token requis'}), 400
+    jeton = str(data['token'])[:200]
+    if not jeton.startswith('ExponentPushToken['):
+        return jsonify({'error': 'Token invalide'}), 400
     conn = get_db()
-    conn.execute('INSERT OR IGNORE INTO expo_push_tokens (user_id, token) VALUES (?, ?)',
-                 (user_id, data['token']))
+    if request.method == 'DELETE':  # deconnexion : ce telephone ne recoit plus rien
+        conn.execute('DELETE FROM expo_push_tokens WHERE token = ? AND user_id = ?', (jeton, user_id))
+        conn.commit()
+        conn.close()
+        return jsonify({'message': 'Token supprime'})
+    # un telephone partage passe au dernier compte connecte
+    conn.execute('DELETE FROM expo_push_tokens WHERE token = ? AND user_id != ?', (jeton, user_id))
+    conn.execute('INSERT OR IGNORE INTO expo_push_tokens (user_id, token) VALUES (?, ?)', (user_id, jeton))
     conn.commit()
     conn.close()
     return jsonify({'message': 'Token enregistre'})
@@ -1556,6 +1565,49 @@ def diffuser_message_groupe(groupe_id, auteur_id):
         except Exception:
             pass
 
+TITRES_PUSH = {
+    'message': 'Nouveau message', 'like': "J'aime", 'commentaire': 'Nouveau commentaire',
+    'mention': 'Tu es mentionne', 'suivi': 'Nouvel abonne', 'bourse': 'Nouvelle bourse',
+    'document': 'Nouveau document', 'formation': 'Nouvelle formation',
+}
+
+def _envoyer_push_expo(messages):
+    """Envoie les notifications a l'API Expo (par lots de 100) et oublie les
+    telephones qui ont desinstalle l'app. Appele dans un thread."""
+    import requests as http_req
+    for i in range(0, len(messages), 100):
+        lot = messages[i:i + 100]
+        try:
+            r = http_req.post('https://exp.host/--/api/v2/push/send', json=lot, timeout=15,
+                              headers={'Accept': 'application/json', 'Content-Type': 'application/json'})
+            tickets = r.json().get('data', []) if r.ok else []
+        except Exception as e:
+            app.logger.error('Echec des notifications push : %s', e)
+            continue
+        morts = [m['to'] for m, t in zip(lot, tickets)
+                 if isinstance(t, dict) and t.get('details', {}).get('error') == 'DeviceNotRegistered']
+        if morts:
+            conn = get_db()
+            for jeton in morts:
+                conn.execute('DELETE FROM expo_push_tokens WHERE token = ?', (jeton,))
+            conn.commit()
+            conn.close()
+
+def envoyer_push(user_ids, type, message, lien=''):
+    """Notification sur le telephone (meme app fermee) pour ces utilisateurs."""
+    if app.config.get('TESTING') or not user_ids:
+        return
+    conn = get_db()
+    marques = ','.join('?' * len(user_ids))
+    jetons = conn.execute(f'SELECT user_id, token FROM expo_push_tokens WHERE user_id IN ({marques})',
+                          tuple(user_ids)).fetchall()
+    conn.close()
+    messages = [{'to': j['token'], 'title': TITRES_PUSH.get(type, 'LINK CI'), 'body': message[:180],
+                 'sound': 'default', 'channelId': 'default', 'data': {'type': type, 'lien': lien}}
+                for j in jetons if str(j['token']).startswith('ExponentPushToken[')]
+    if messages:
+        threading.Thread(target=_envoyer_push_expo, args=(messages,), daemon=True).start()
+
 def creer_notification(user_id, type, message, lien=''):
     conn = get_db()
     conn.execute('INSERT INTO notifications (user_id, type, message, lien) VALUES (?, ?, ?, ?)',
@@ -1566,6 +1618,7 @@ def creer_notification(user_id, type, message, lien=''):
         socketio.emit('notification_update', {'user_id': user_id}, room='user_' + str(user_id))
     except:
         pass
+    envoyer_push([user_id], type, message, lien)
 
 def notifier_tous(type, message, lien=''):
     conn = get_db()
@@ -1579,6 +1632,7 @@ def notifier_tous(type, message, lien=''):
             pass
     conn.commit()
     conn.close()
+    envoyer_push([u['id'] for u in users], type, message, lien)
 
 @app.route('/notifications')
 def notifications():

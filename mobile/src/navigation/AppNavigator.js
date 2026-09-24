@@ -1,6 +1,6 @@
 import React from 'react';
 import { TouchableOpacity } from 'react-native';
-import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
+import { NavigationContainer, DefaultTheme, DarkTheme, createNavigationContainerRef } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createStackNavigator } from '@react-navigation/stack';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,6 +23,9 @@ import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
 import { useTheme } from '../theme';
 import { useRealtime } from '../realtime';
+
+// Pour naviguer hors des ecrans (ex. toucher une notification push)
+export const navigationRef = createNavigationContainerRef();
 
 const Stack = createStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -97,7 +100,7 @@ export default function AppNavigator({ token, onLogin, onLogout }) {
     colors: { ...base.colors, background: colors.bg, card: colors.card, text: colors.text, border: colors.border, primary: colors.primary },
   };
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer ref={navigationRef} theme={navTheme}>
       <Stack.Navigator screenOptions={{ ...headerOptions, headerBackTitle: 'Retour' }}>
         {token ? (
           <>

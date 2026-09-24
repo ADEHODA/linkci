@@ -16,7 +16,8 @@ export default function useApiList(fetcher, initial = []) {
     try {
       setData(await fetcherRef.current());
     } catch (e) {
-      Alert.alert('Erreur', e.message);
+      // pas de reseau et rien en memoire : le bandeau "Hors connexion" suffit
+      if (!/connexion internet|serveur demarre/i.test(e.message)) Alert.alert('Erreur', e.message);
     }
     setLoading(false);
   }, []);

@@ -5,7 +5,7 @@ import * as api from '../api';
 import useApiList from '../hooks/useApiList';
 import { Loading, EmptyState, pullToRefresh, SkeletonList } from '../components/ui';
 import { colors, radius, spacing, creerStyles, useTheme } from '../theme';
-import { dateRelative } from '../utils';
+import { dateRelative, destinationNotification as destination } from '../utils';
 import { useFocusEffect } from '@react-navigation/native';
 import { useEvenement, useRealtime } from '../realtime';
 
@@ -14,18 +14,6 @@ const ICONS = {
   like: ['heart', '#E11D48'], commentaire: ['chatbox', '#7C3AED'], mention: ['at', '#7C3AED'],
   suivi: ['person-add', '#009E60'], document: ['document-text', '#2563EB'],
 };
-
-// Ou mene une notification quand on la touche
-function destination(n) {
-  const profil = /\/profil\/(\d+)/.exec(n.lien || '');
-  if (profil) return ['ProfilEtudiant', { id: Number(profil[1]) }];
-  const cibles = {
-    message: ['Home', { screen: 'Messages' }], like: ['Home', { screen: 'Accueil' }],
-    commentaire: ['Home', { screen: 'Accueil' }], mention: ['Home', { screen: 'Accueil' }],
-    bourse: ['Bourses'], formation: ['Formations'], document: ['Documents'],
-  };
-  return cibles[n.type] || null;
-}
 
 export default function NotificationsScreen({ navigation }) {
   const styles = useStyles();

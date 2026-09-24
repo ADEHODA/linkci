@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
-import AppNavigator from './src/navigation/AppNavigator';
+import AppNavigator, { navigationRef } from './src/navigation/AppNavigator';
+import { activerNotifications, desactiverNotifications, surNotificationTouchee } from './src/notifications';
+import { destinationNotification } from './src/utils';
 import { Alert } from 'react-native';
-import { setToken, onSessionExpiree } from './src/api';
+import { setToken, onSessionExpiree, viderCache } from './src/api';
+import BanniereReseau from './src/components/BanniereReseau';
 import { RealtimeProvider } from './src/realtime';
 import { ThemeProvider, useTheme } from './src/theme';
 
@@ -31,9 +35,11 @@ export default function App() {
   };
 
   const handleLogout = async () => {
+    await desactiverNotifications(); // avant de perdre le jeton de session
     setToken(null);
     setTokenState(null);
     try { await SecureStore.deleteItemAsync('linkci_token'); } catch (e) {}
+    await viderCache(); // les donnees du compte ne restent pas sur le telephone
   };
 
   // Session refusee par le serveur : retour a l'ecran de connexion, une seule fois
@@ -47,15 +53,33 @@ export default function App() {
     });
   }, []);
 
+  // Connecte : on active les notifications push de ce telephone
+  useEffect(() => {
+    if (token) activerNotifications();
+  }, [token]);
+
+  // Toucher une notification ouvre le bon ecran (des que la navigation est prete)
+  useEffect(() => surNotificationTouchee((data) => {
+    const cible = destinationNotification(data);
+    const ouvrir = () => {
+      if (navigationRef.isReady()) navigationRef.navigate(...cible);
+      else setTimeout(ouvrir, 300);
+    };
+    if (cible) ouvrir();
+  }), []);
+
   if (!ready) return null;
 
   return (
-    <ThemeProvider>
-      <RealtimeProvider token={token}>
-        <BarreDeStatut />
-        <AppNavigator token={token} onLogin={handleLogin} onLogout={handleLogout} />
-      </RealtimeProvider>
-    </ThemeProvider>
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <RealtimeProvider token={token}>
+          <BarreDeStatut />
+          <AppNavigator token={token} onLogin={handleLogin} onLogout={handleLogout} />
+          {token ? <BanniereReseau /> : null}
+        </RealtimeProvider>
+      </ThemeProvider>
+    </SafeAreaProvider>
   );
 }
 

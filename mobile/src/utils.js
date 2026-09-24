@@ -52,4 +52,16 @@ export function salutation() {
   return h < 12 ? 'Bonjour' : h < 18 ? 'Bon apres-midi' : 'Bonsoir';
 }
 
+// Ecran a ouvrir pour une notification ({ type, lien }) : [nomEcran, parametres] ou null
+export function destinationNotification(n) {
+  const profil = /\/profil\/(\d+)/.exec((n && n.lien) || '');
+  if (profil) return ['ProfilEtudiant', { id: Number(profil[1]) }];
+  const cibles = {
+    message: ['Home', { screen: 'Messages' }], like: ['Home', { screen: 'Accueil' }],
+    commentaire: ['Home', { screen: 'Accueil' }], mention: ['Home', { screen: 'Accueil' }],
+    bourse: ['Bourses'], formation: ['Formations'], document: ['Documents'],
+  };
+  return (n && cibles[n.type]) || null;
+}
+
 export { MOIS };

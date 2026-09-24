@@ -131,3 +131,9 @@ if __name__ == '__main__':
 
     # Favicon (version web)
     enregistrer(icone, 'favicon.png', 48)
+
+    # Petite icone de notification Android : silhouette blanche sur fond transparent
+    silhouette = logo(T, 0.86, ombre=False)
+    blanc = Image.new('RGBA', silhouette.size, (255, 255, 255, 0))
+    blanc.putalpha(silhouette.split()[3])
+    enregistrer(blanc, 'notification-icon.png', 96)
