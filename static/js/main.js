@@ -223,6 +223,8 @@ function showNotif(title, body, url) {
 document.addEventListener('DOMContentLoaded', requestNotifPermission);
 // Listen for SocketIO notification_update events
 document.addEventListener('DOMContentLoaded', function() {
+    // Socket.IO n'est charge que sur certaines pages (connexion, admin... n'en ont pas)
+    if (typeof io === 'undefined') return;
     const socket = io();
     socket.on('connect', function() { socket.emit('join_notifications'); });
     socket.on('notification_update', function(data) {
