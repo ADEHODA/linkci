@@ -5,6 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import * as api from '../api';
 import PostCard from '../components/PostCard';
 import Avatar from '../components/Avatar';
+import CompleterProfil from '../components/CompleterProfil';
 import { Card, EmptyState, PrimaryButton, SkeletonList, pullToRefresh } from '../components/ui';
 import { choisirPhoto } from '../photos';
 import { radius, spacing, creerStyles, useTheme } from '../theme';
@@ -29,16 +30,16 @@ export default function FeedScreen() {
   // Recharge depuis la premiere page (ouverture, actualisation, apres publication)
   const recharger = useCallback(async () => {
     try {
-      const [premiere, me] = await Promise.all([api.getPosts(1), moi ? Promise.resolve(moi) : api.getMe()]);
+      const [premiere, me] = await Promise.all([api.getPosts(1), api.getMe()]); // profil a jour (carte "Complete ton profil")
       setPosts(premiere);
       setMoi(me);
       page.current = 1;
       fin.current = premiere.length < PAR_PAGE;
     } catch (e) {
-      Alert.alert('Erreur', e.message);
+      if (!/connexion internet|serveur demarre/i.test(e.message)) Alert.alert('Erreur', e.message);
     }
     setLoading(false);
-  }, [moi]);
+  }, []);
 
   useFocusEffect(useCallback(() => { recharger(); }, [])); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -108,6 +109,7 @@ export default function FeedScreen() {
               <Avatar name={`${moi.prenom} ${moi.nom}`} size={44} index={moi.id} avatar={moi.avatar} />
             </View>
           ) : null}
+          <CompleterProfil moi={moi} />
           <Card>
             <TextInput
               style={styles.textarea}

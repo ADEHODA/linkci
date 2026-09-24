@@ -5,6 +5,8 @@ import * as SecureStore from 'expo-secure-store';
 import AppNavigator, { navigationRef } from './src/navigation/AppNavigator';
 import { activerNotifications, desactiverNotifications, surNotificationTouchee } from './src/notifications';
 import { destinationNotification } from './src/utils';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { CLE_ACCUEIL } from './src/screens/OnboardingScreen';
 import { Alert } from 'react-native';
 import { setToken, onSessionExpiree, viderCache } from './src/api';
 import BanniereReseau from './src/components/BanniereReseau';
@@ -14,10 +16,12 @@ import { ThemeProvider, useTheme } from './src/theme';
 export default function App() {
   const [token, setTokenState] = useState(null);
   const [ready, setReady] = useState(false);
+  const [accueilVu, setAccueilVu] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
+        setAccueilVu(!!(await AsyncStorage.getItem(CLE_ACCUEIL).catch(() => '1')));
         const saved = await SecureStore.getItemAsync('linkci_token');
         if (saved) {
           setToken(saved);
@@ -75,7 +79,7 @@ export default function App() {
       <ThemeProvider>
         <RealtimeProvider token={token}>
           <BarreDeStatut />
-          <AppNavigator token={token} onLogin={handleLogin} onLogout={handleLogout} />
+          <AppNavigator token={token} onLogin={handleLogin} onLogout={handleLogout} accueilVu={accueilVu} />
           {token ? <BanniereReseau /> : null}
         </RealtimeProvider>
       </ThemeProvider>

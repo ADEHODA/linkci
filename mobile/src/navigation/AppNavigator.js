@@ -21,6 +21,7 @@ import SearchScreen from '../screens/SearchScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import LoginScreen from '../screens/LoginScreen';
 import RegisterScreen from '../screens/RegisterScreen';
+import OnboardingScreen from '../screens/OnboardingScreen';
 import { useTheme } from '../theme';
 import { useRealtime } from '../realtime';
 
@@ -92,7 +93,7 @@ function HomeTabs({ onLogout }) {
   );
 }
 
-export default function AppNavigator({ token, onLogin, onLogout }) {
+export default function AppNavigator({ token, onLogin, onLogout, accueilVu }) {
   const { colors, sombre, headerOptions } = useTheme();
   const base = sombre ? DarkTheme : DefaultTheme;
   const navTheme = {
@@ -119,6 +120,8 @@ export default function AppNavigator({ token, onLogin, onLogout }) {
           </>
         ) : (
           <>
+            {/* premier lancement : ecrans de bienvenue avant la connexion */}
+            {!accueilVu ? <Stack.Screen name="Bienvenue" component={OnboardingScreen} options={{ headerShown: false }} /> : null}
             <Stack.Screen name="Login" options={{ headerShown: false }}>
               {(props) => <LoginScreen {...props} onLogin={onLogin} />}
             </Stack.Screen>

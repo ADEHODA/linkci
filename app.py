@@ -227,6 +227,51 @@ def extension_image(data):
         return '.webp'
     return None
 
+EXTENSIONS_DOCUMENTS = ('.pdf', '.doc', '.docx', '.ppt', '.pptx', '.txt', '.zip', '.rar', '.png', '.jpg', '.jpeg')
+
+def document_valide(ext, data):
+    """Le contenu correspond-il vraiment a l'extension ? (un .pdf doit etre un PDF...)"""
+    if not data:
+        return False
+    if ext == '.pdf':
+        return data[:5] == b'%PDF-'
+    if ext in ('.docx', '.pptx', '.zip'):
+        return data[:4] in (b'PK\x03\x04', b'PK\x05\x06')
+    if ext in ('.doc', '.ppt'):
+        return data[:8] == b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'  # ancien format Office
+    if ext == '.rar':
+        return data[:4] == b'Rar!'
+    if ext in ('.png', '.jpg', '.jpeg'):
+        return extension_image(data) in ('.png', '.jpg')
+    if ext == '.txt':
+        try:
+            data.decode('utf-8')
+            return b'\x00' not in data
+        except UnicodeDecodeError:
+            return False
+    return False
+
+def enregistrer_document(user_id, titre, description, matiere, universite, nom_origine, data):
+    """Verifie et enregistre un document. Renvoie (id, None) ou (None, message d'erreur)."""
+    titre = sanitize_text(titre, 200)
+    if not titre or not data:
+        return None, 'Titre et fichier requis'
+    ext = os.path.splitext(nom_origine or '')[1].lower()
+    if ext not in EXTENSIONS_DOCUMENTS:
+        return None, 'Format non autorise (PDF, Word, PowerPoint, TXT, ZIP, images)'
+    if not document_valide(ext, data):
+        return None, "Le contenu du fichier ne correspond pas a son format"
+    nom_fichier = f"{uuid.uuid4().hex}{ext}"
+    stocker_fichier('uploads/' + nom_fichier, data)
+    conn = get_db()
+    doc_id = conn.execute('INSERT INTO documents (user_id, titre, description, fichier, matiere, universite) VALUES (?, ?, ?, ?, ?, ?)',
+                          (user_id, titre, sanitize_text(description, 2000), nom_fichier,
+                           sanitize_text(matiere, 100) or None, sanitize_text(universite, 100) or None)).lastrowid
+    conn.commit()
+    conn.close()
+    notifier_tous('document', f"Un nouveau document a ete partage : {titre}", '/documents')
+    return doc_id, None
+
 def restaurer_fichier(chemin):
     """Garantit que le fichier est sur disque. Renvoie False s'il n'existe nulle part."""
     disque = _chemin_disque(chemin)
@@ -1302,26 +1347,16 @@ def ajouter_document():
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
     if request.method == 'POST':
-        titre = sanitize_text(request.form.get('titre', ''), 200)
-        description = sanitize_text(request.form.get('description', ''), 2000)
-        matiere = sanitize_text(request.form.get('matiere', ''), 100)
-        universite = sanitize_text(request.form.get('universite', ''), 100)
         fichier = request.files.get('fichier')
-        if not titre or not fichier or fichier.filename == '':
+        if not fichier or fichier.filename == '':
             flash('Titre et fichier requis', 'error')
             return redirect(url_for('ajouter_document'))
-        ext = os.path.splitext(fichier.filename)[1].lower()
-        if ext not in ('.pdf', '.doc', '.docx', '.ppt', '.pptx', '.txt', '.zip', '.rar', '.png', '.jpg', '.jpeg'):
-            flash('Format non autorise (PDF, Word, PowerPoint, TXT, ZIP, images)', 'error')
+        _, erreur = enregistrer_document(session['user_id'], request.form.get('titre', ''), request.form.get('description', ''),
+                                         request.form.get('matiere', ''), request.form.get('universite', ''),
+                                         fichier.filename, fichier.read())
+        if erreur:
+            flash(erreur, 'error')
             return redirect(url_for('ajouter_document'))
-        nom_fichier = f"{uuid.uuid4().hex}{ext}"
-        stocker_fichier('uploads/' + nom_fichier, fichier.read())
-        conn = get_db()
-        conn.execute('INSERT INTO documents (user_id, titre, description, fichier, matiere, universite) VALUES (?, ?, ?, ?, ?, ?)',
-            (session['user_id'], titre, description, nom_fichier, matiere or None, universite or None))
-        conn.commit()
-        notifier_tous('document', f"Un nouveau document a ete partage : {titre}", url_for('documents'))
-        conn.close()
         flash('Document publie avec succes', 'success')
         return redirect(url_for('documents'))
     return render_template('ajouter_document.html')
@@ -2585,6 +2620,23 @@ def api_notifications_lues():
     conn.commit()
     conn.close()
     return jsonify({'message': 'Notifications lues'})
+
+@app.route('/api/documents', methods=['POST'])
+def api_envoyer_document():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if not check_rate_limit(f'document:{user_id}', max_reqs=5, window=600):
+        return jsonify({'error': 'Trop de documents envoyes. Reessaie dans quelques minutes.'}), 429
+    fichier = request.files.get('fichier')
+    if not fichier or not fichier.filename:
+        return jsonify({'error': 'Fichier requis'}), 400
+    doc_id, erreur = enregistrer_document(user_id, request.form.get('titre', ''), request.form.get('description', ''),
+                                          request.form.get('matiere', ''), request.form.get('universite', ''),
+                                          fichier.filename, fichier.read())
+    if erreur:
+        return jsonify({'error': erreur}), 400
+    return jsonify({'id': doc_id, 'message': 'Document partage'}), 201
 
 @app.route('/api/documents/<int:doc_id>/lien')
 def api_lien_document(doc_id):

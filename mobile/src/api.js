@@ -185,6 +185,25 @@ export const quitterGroupe = (id) =>
 
 // Documents
 export const getDocuments = () => request('/api/documents');
+// Partage d'un document : fichier = { uri, name, mimeType } (expo-document-picker)
+export async function uploadDocument({ titre, matiere, description, fichier }) {
+  const form = new FormData();
+  form.append('titre', titre);
+  form.append('matiere', matiere || '');
+  form.append('description', description || '');
+  form.append('fichier', { uri: fichier.uri, name: fichier.name, type: fichier.mimeType || 'application/octet-stream' });
+  let res;
+  try {
+    // pas de Content-Type : fetch ajoute lui-meme la bonne frontiere multipart
+    res = await fetch(API_BASE + '/api/documents', { method: 'POST', headers: { Authorization: `Bearer ${_token}` }, body: form });
+  } catch (e) {
+    throw new Error('Pas de connexion internet');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Echec de l'envoi");
+  return data;
+}
+
 // Adresse de telechargement temporaire (5 min) a ouvrir dans le navigateur
 export const getDocumentUrl = async (id) => API_BASE + (await request(`/api/documents/${id}/lien`)).chemin;
 

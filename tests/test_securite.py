@@ -207,3 +207,22 @@ def test_envoi_email_par_brevo(monkeypatch):
     assert kw['json']['to'] == [{'email': 'etudiant@test.ci'}] and kw['json']['sender']['email'] == 'expediteur@test.ci'
     monkeypatch.delenv('EMAIL_EXPEDITEUR')
     assert linkci_app.envoyer_email('etudiant@test.ci', 'Sujet', 'Texte') is False  # expediteur obligatoire
+
+
+def test_envoi_document_depuis_l_app(client):
+    import io
+    tok = jeton(client, 'doc_app@test.ci')
+    h = entete(tok)
+    ok = client.post('/api/documents', headers=h, content_type='multipart/form-data',
+                     data={'titre': 'Cours de reseaux', 'matiere': 'Reseaux', 'fichier': (io.BytesIO(b'%PDF-1.7 cours'), 'cours.pdf')})
+    assert ok.status_code == 201
+    faux = client.post('/api/documents', headers=h, content_type='multipart/form-data',
+                       data={'titre': 'Piege', 'fichier': (io.BytesIO(b'<html><script>alert(1)</script>'), 'cours.pdf')})
+    assert faux.status_code == 400 and 'format' in faux.get_json()['error']
+    exe = client.post('/api/documents', headers=h, content_type='multipart/form-data',
+                      data={'titre': 'Virus', 'fichier': (io.BytesIO(b'MZ\x90\x00'), 'jeu.exe')})
+    assert exe.status_code == 400
+    docs = client.get('/api/documents', headers=h).get_json()
+    doc = next(d for d in docs if d['id'] == ok.get_json()['id'])
+    assert doc['matiere'] == 'Reseaux'
+    linkci_app.supprimer_fichier('uploads/' + doc['fichier'])
