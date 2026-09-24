@@ -156,6 +156,13 @@ export const creerOpportunite = (offre) => request('/api/opportunites', { method
 export const getAlertesOpportunites = () => request('/api/opportunites/alertes');
 export const setAlertesOpportunites = (types) => request('/api/opportunites/alertes', { method: 'PUT', body: JSON.stringify({ types }) });
 
+// Petites annonces
+export const getAnnonces = () => request('/api/annonces');
+export const creerAnnonce = (annonce) => request('/api/annonces', { method: 'POST', body: JSON.stringify(annonce) });
+export const annonceVendue = (id) => request(`/api/annonces/${id}/vendu`, { method: 'POST' });
+export const supprimerAnnonce = (id) => request(`/api/annonces/${id}`, { method: 'DELETE' });
+export const signalerAnnonce = (id, motif) => request(`/api/annonces/${id}/signaler`, { method: 'POST', body: JSON.stringify({ motif }) });
+
 // Formations
 export const getFormations = () => request('/api/formations');
 

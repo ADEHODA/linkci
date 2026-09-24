@@ -599,6 +599,18 @@ def init_db():
             date_limite TEXT DEFAULT '',
             valide INTEGER DEFAULT 1,
             date_publication TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''',
+        # Petites annonces entre etudiants (prix en FCFA, 0 = gratuit)
+        '''CREATE TABLE IF NOT EXISTS annonces (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            categorie TEXT NOT NULL,
+            titre TEXT NOT NULL,
+            description TEXT DEFAULT '',
+            prix INTEGER DEFAULT 0,
+            ville TEXT DEFAULT '',
+            image TEXT,
+            vendu INTEGER DEFAULT 0,
+            date_publication TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''',
         # Blocages : bloqueur ne voit plus les publications de bloque, et plus
         # aucun message ne passe entre eux
         '''CREATE TABLE IF NOT EXISTS blocages (
@@ -3063,6 +3075,202 @@ def opportunites_web():
     return render_template('opportunites.html', offres=liste_opportunites(type_offre, request.args.get('ville', '').strip(),
                                                                          request.args.get('q', '').strip()),
                            types=TYPES_OPPORTUNITE, type_actif=type_offre)
+
+# ===================== PETITES ANNONCES =====================
+CATEGORIES_ANNONCE = {'livres': 'Livres et cours', 'electronique': 'Electronique', 'logement': 'Logement / colocation',
+                      'fournitures': 'Fournitures', 'services': 'Services / cours particuliers', 'autre': 'Autre'}
+
+def lire_annonce(data):
+    """Valide une annonce. Renvoie (champs, None) ou (None, erreur)."""
+    champ = lambda k, n: sanitize_text(str(data.get(k) or ''), n)
+    a = {'categorie': champ('categorie', 20).lower(), 'titre': champ('titre', 120),
+         'description': champ('description', 2000), 'ville': champ('ville', 80)}
+    if a['categorie'] not in CATEGORIES_ANNONCE:
+        return None, 'Categorie invalide'
+    if not a['titre']:
+        return None, 'Titre requis'
+    try:
+        a['prix'] = int(str(data.get('prix') or 0).replace(' ', '').replace('.', ''))
+    except ValueError:
+        return None, 'Prix invalide (en FCFA, chiffres uniquement)'
+    if not 0 <= a['prix'] <= 50_000_000:
+        return None, 'Prix invalide'
+    return a, None
+
+def image_depuis_base64(image_b64):
+    """Enregistre une image envoyee par l'app. Renvoie (nom, None) ou (None, erreur)."""
+    if not image_b64:
+        return None, None
+    import base64, binascii
+    try:
+        img = base64.b64decode(image_b64, validate=True)
+    except (binascii.Error, ValueError):
+        img = b''
+    ext = extension_image(img)
+    if not ext:
+        return None, 'Image invalide (JPEG, PNG, GIF ou WebP)'
+    nom = f"{uuid.uuid4().hex}{ext}"
+    stocker_fichier('static/uploads/' + nom, img)
+    return nom, None
+
+def liste_annonces(moi, categorie='', q=''):
+    sql_ = '''SELECT a.*, users.prenom, users.nom, users.avatar, (a.user_id = ?) AS est_auteur
+              FROM annonces a JOIN users ON users.id = a.user_id
+              WHERE COALESCE(users.banni, 0) = 0
+                AND a.user_id NOT IN (SELECT bloque_id FROM blocages WHERE bloqueur_id = ?)
+                AND a.user_id NOT IN (SELECT bloqueur_id FROM blocages WHERE bloque_id = ?)'''
+    params = [moi, moi, moi]
+    if categorie in CATEGORIES_ANNONCE:
+        sql_ += ' AND a.categorie = ?'
+        params.append(categorie)
+    if q:
+        sql_ += ' AND (lower(a.titre) LIKE ? OR lower(a.description) LIKE ? OR lower(a.ville) LIKE ?)'
+        params += ['%' + q.lower()[:100] + '%'] * 3
+    sql_ += ' ORDER BY a.vendu ASC, a.date_publication DESC LIMIT 200'
+    conn = get_db()
+    lignes = conn.execute(sql_, params).fetchall()
+    conn.close()
+    return [dict(l) for l in lignes]
+
+def annonce_modifiable(annonce_id, user_id):
+    """Renvoie (annonce, None) si user_id est l'auteur ou un admin, sinon (None, (erreur, code))."""
+    conn = get_db()
+    a = conn.execute('SELECT * FROM annonces WHERE id = ?', (annonce_id,)).fetchone()
+    moi = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    if not a:
+        return None, ('Introuvable', 404)
+    if a['user_id'] != user_id and not est_admin(moi):
+        return None, ('Non autorise', 403)
+    return a, None
+
+@app.route('/api/annonces')
+def api_annonces():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    return jsonify(liste_annonces(user_id, request.args.get('categorie', ''), request.args.get('q', '').strip()))
+
+@app.route('/api/annonces', methods=['POST'])
+def api_creer_annonce():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if trop_rapide('annonce', user_id, 5, 3600):
+        return jsonify({'error': "Trop d'annonces. Reessaie dans une heure."}), 429
+    data = request.get_json(silent=True) or {}
+    a, erreur = lire_annonce(data)
+    if erreur:
+        return jsonify({'error': erreur}), 400
+    image, erreur = image_depuis_base64(data.get('image'))
+    if erreur:
+        return jsonify({'error': erreur}), 400
+    conn = get_db()
+    aid = conn.execute('INSERT INTO annonces (user_id, categorie, titre, description, prix, ville, image) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                       (user_id, a['categorie'], a['titre'], a['description'], a['prix'], a['ville'], image)).lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'id': aid, 'message': 'Annonce publiee'}), 201
+
+@app.route('/api/annonces/<int:aid>/vendu', methods=['POST'])
+def api_annonce_vendue(aid):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    a, erreur = annonce_modifiable(aid, user_id)
+    if erreur:
+        return jsonify({'error': erreur[0]}), erreur[1]
+    conn = get_db()
+    conn.execute('UPDATE annonces SET vendu = ? WHERE id = ?', (0 if a['vendu'] else 1, aid))
+    conn.commit()
+    conn.close()
+    return jsonify({'vendu': not a['vendu']})
+
+@app.route('/api/annonces/<int:aid>', methods=['DELETE'])
+def api_supprimer_annonce(aid):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    a, erreur = annonce_modifiable(aid, user_id)
+    if erreur:
+        return jsonify({'error': erreur[0]}), erreur[1]
+    conn = get_db()
+    conn.execute('DELETE FROM annonces WHERE id = ?', (aid,))
+    conn.commit()
+    conn.close()
+    if a['image']:
+        supprimer_fichier('static/uploads/' + a['image'])
+    return jsonify({'message': 'Annonce supprimee'})
+
+@app.route('/api/annonces/<int:aid>/signaler', methods=['POST'])
+def api_signaler_annonce(aid):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if trop_rapide('signalement', user_id, 10, 3600):
+        return jsonify({'error': 'Trop de signalements. Reessaie plus tard.'}), 429
+    conn = get_db()
+    a = conn.execute('SELECT titre, user_id FROM annonces WHERE id = ?', (aid,)).fetchone()
+    conn.close()
+    if not a:
+        return jsonify({'error': 'Introuvable'}), 404
+    motif = sanitize_text(str((request.get_json(silent=True) or {}).get('motif') or ''), 200)
+    prevenir_admins('signalement', f"Annonce signalee : {a['titre']}" + (f' ({motif})' if motif else ''))
+    return jsonify({'message': 'Merci, un administrateur va verifier cette annonce.'})
+
+@app.route('/annonces', methods=['GET', 'POST'])
+def annonces_web():
+    if 'user_id' not in session:
+        return redirect(url_for('connexion'))
+    moi = session['user_id']
+    if request.method == 'POST':
+        action = request.form.get('action', 'creer')
+        if action in ('vendu', 'supprimer'):
+            try:
+                aid = int(request.form.get('id', 0))
+            except ValueError:
+                aid = 0
+            a, erreur = annonce_modifiable(aid, moi)
+            if erreur:
+                flash(erreur[0], 'error')
+            else:
+                conn = get_db()
+                if action == 'vendu':
+                    conn.execute('UPDATE annonces SET vendu = ? WHERE id = ?', (0 if a['vendu'] else 1, aid))
+                else:
+                    conn.execute('DELETE FROM annonces WHERE id = ?', (aid,))
+                conn.commit()
+                conn.close()
+                if action == 'supprimer' and a['image']:
+                    supprimer_fichier('static/uploads/' + a['image'])
+            return redirect(url_for('annonces_web'))
+        if trop_rapide('annonce', moi, 5, 3600):
+            flash("Trop d'annonces. Reessaie dans une heure.", 'error')
+            return redirect(url_for('annonces_web'))
+        a, erreur = lire_annonce(request.form)
+        if erreur:
+            flash(erreur, 'error')
+            return redirect(url_for('annonces_web'))
+        image = None
+        fichier = request.files.get('image')
+        if fichier and fichier.filename:
+            data_img = fichier.read()
+            ext = extension_image(data_img)
+            if not ext:
+                flash('Image invalide (JPEG, PNG, GIF ou WebP)', 'error')
+                return redirect(url_for('annonces_web'))
+            image = f"{uuid.uuid4().hex}{ext}"
+            stocker_fichier('static/uploads/' + image, data_img)
+        conn = get_db()
+        conn.execute('INSERT INTO annonces (user_id, categorie, titre, description, prix, ville, image) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                     (moi, a['categorie'], a['titre'], a['description'], a['prix'], a['ville'], image))
+        conn.commit()
+        conn.close()
+        flash('Annonce publiee !', 'success')
+        return redirect(url_for('annonces_web'))
+    categorie = request.args.get('categorie', '')
+    return render_template('annonces.html', annonces=liste_annonces(moi, categorie, request.args.get('q', '').strip()),
+                           categories=CATEGORIES_ANNONCE, categorie_active=categorie)
 
 @app.route('/api/formations')
 def api_formations():

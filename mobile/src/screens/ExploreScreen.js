@@ -6,6 +6,7 @@ import { colors, radius, spacing, font, shadow, creerStyles, useTheme } from '..
 const TUILES = [
   { route: 'Bourses', icon: 'cash', titre: 'Bourses', texte: 'Financements et aides', couleur: '#FF6B35' },
   { route: 'Opportunites', icon: 'briefcase', titre: 'Stages & emplois', texte: 'Stages, jobs, alternances', couleur: '#0891B2' },
+  { route: 'Annonces', icon: 'pricetags', titre: 'Petites annonces', texte: 'Acheter, vendre, colocations', couleur: '#DB2777' },
   { route: 'Formations', icon: 'school', titre: 'Formations', texte: 'Filieres et universites', couleur: '#009E60' },
   { route: 'Documents', icon: 'folder-open', titre: 'Documents', texte: 'Cours et sujets partages', couleur: '#2563EB' },
   { route: 'Groupes', icon: 'people', titre: 'Groupes', texte: "Discute avec ta promo", couleur: '#7C3AED' },
