@@ -18,6 +18,8 @@ export default function PostCard({ post, onRefresh }) {
   const [liked, setLiked] = React.useState(!!post.a_like);
   const [nbLikes, setNbLikes] = React.useState(post.nb_likes);
   const [nbComments, setNbComments] = React.useState(post.nb_commentaires);
+  const [extra, setExtra] = React.useState({ reactions: post.reactions || {}, ma_reaction: post.ma_reaction, sondage: post.sondage || [], mon_vote: post.mon_vote });
+  const [choixReaction, setChoixReaction] = React.useState(false);
   const navigation = useNavigation();
   const echelleCoeur = React.useRef(new Animated.Value(1)).current;
   const voirProfil = (id) => navigation.navigate('ProfilEtudiant', { id });
@@ -38,6 +40,26 @@ export default function PostCard({ post, onRefresh }) {
     } catch (e) {
       setLiked(liked);
       setNbLikes(nbLikes);
+      Alert.alert('Erreur', e.message);
+    }
+  };
+
+  // Reactions : appui long sur le coeur ; la meme reaction une 2e fois l'enleve
+  const reagir = async (emoji) => {
+    setChoixReaction(false);
+    try {
+      const r = await api.reagir(post.id, emoji);
+      setExtra((e) => ({ ...e, reactions: r.reactions, ma_reaction: r.ma_reaction }));
+    } catch (e) {
+      Alert.alert('Erreur', e.message);
+    }
+  };
+
+  const voter = async (optionId) => {
+    try {
+      const r = await api.voter(post.id, optionId);
+      setExtra((e) => ({ ...e, sondage: r.sondage, mon_vote: r.mon_vote }));
+    } catch (e) {
       Alert.alert('Erreur', e.message);
     }
   };
@@ -133,12 +155,55 @@ export default function PostCard({ post, onRefresh }) {
       {post.contenu ? <Text style={styles.content}>{post.contenu}</Text> : null}
       {post.image ? <PostImage uri={api.imageUrl(post.image)} style={styles.image} /> : null}
 
+      {extra.sondage.length ? (() => {
+        const total = extra.sondage.reduce((n, o) => n + o.votes, 0);
+        return (
+          <View style={styles.sondage}>
+            {extra.sondage.map((o) => {
+              const pct = total ? Math.round((o.votes * 100) / total) : 0;
+              const moi = extra.mon_vote === o.id;
+              return (
+                <TouchableOpacity key={o.id} style={[styles.option, moi && styles.optionMoi]} onPress={() => voter(o.id)} activeOpacity={0.8}>
+                  {extra.mon_vote ? <View style={[styles.optionBarre, { width: `${pct}%` }, moi && styles.optionBarreMoi]} /> : null}
+                  <Text style={[styles.optionTexte, moi && { fontWeight: '800' }]} numberOfLines={2}>{moi ? '✓ ' : ''}{o.texte}</Text>
+                  {extra.mon_vote ? <Text style={styles.optionPct}>{pct} %</Text> : null}
+                </TouchableOpacity>
+              );
+            })}
+            <Text style={styles.sondageTotal}>{total} vote{total > 1 ? 's' : ''}{extra.mon_vote ? '' : ' · touche un choix pour voter'}</Text>
+          </View>
+        );
+      })() : null}
+
+      {Object.keys(extra.reactions).length ? (
+        <View style={styles.reactionsResume}>
+          {Object.entries(extra.reactions).map(([emoji, nb]) => (
+            <TouchableOpacity key={emoji} style={[styles.reactionPastille, extra.ma_reaction === emoji && styles.reactionMoi]} onPress={() => reagir(emoji)}>
+              <Text style={styles.reactionTexte}>{emoji} {nb}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      ) : null}
+
+      {choixReaction ? (
+        <View style={styles.choixReaction}>
+          {['🔥', '😂', '👏', '😮', '😢'].map((e) => (
+            <TouchableOpacity key={e} onPress={() => reagir(e)} hitSlop={6}><Text style={styles.choixEmoji}>{e}</Text></TouchableOpacity>
+          ))}
+        </View>
+      ) : null}
+
       <View style={styles.actions}>
-        <TouchableOpacity onPress={handleLike} style={[styles.actionBtn, liked && { backgroundColor: colors.likeSoft }]}>
+        <TouchableOpacity onPress={handleLike} onLongPress={() => setChoixReaction(!choixReaction)} delayLongPress={300}
+          style={[styles.actionBtn, liked && { backgroundColor: colors.likeSoft }]}>
           <Animated.View style={{ transform: [{ scale: echelleCoeur }] }}>
             <Ionicons name={liked ? 'heart' : 'heart-outline'} size={19} color={liked ? colors.like : colors.textMuted} />
           </Animated.View>
           <Text style={[styles.actionText, liked && { color: colors.like }]}>{nbLikes}</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity onPress={() => setChoixReaction(!choixReaction)} style={styles.actionBtn}>
+          <Text style={{ fontSize: 16 }}>{extra.ma_reaction || '😊'}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity onPress={toggleComments} style={[styles.actionBtn, showComments && { backgroundColor: colors.primarySoft }]}>
@@ -179,6 +244,20 @@ export default function PostCard({ post, onRefresh }) {
 }
 
 const useStyles = creerStyles(({ colors, font, shadow }) => ({
+  sondage: { marginTop: spacing.sm, gap: 6 },
+  option: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', overflow: 'hidden' },
+  optionMoi: { borderColor: colors.primary },
+  optionBarre: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: colors.cardAlt },
+  optionBarreMoi: { backgroundColor: colors.primarySoft },
+  optionTexte: { flex: 1, fontSize: 14, color: colors.text },
+  optionPct: { fontSize: 13, fontWeight: '800', color: colors.textMuted, marginLeft: spacing.sm },
+  sondageTotal: { fontSize: 12, color: colors.textFaint },
+  reactionsResume: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.sm },
+  reactionPastille: { paddingHorizontal: 9, paddingVertical: 3, borderRadius: radius.pill, backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: 'transparent' },
+  reactionMoi: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  reactionTexte: { fontSize: 13, color: colors.text },
+  choixReaction: { flexDirection: 'row', alignSelf: 'flex-start', gap: 14, marginTop: spacing.sm, paddingVertical: 8, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+  choixEmoji: { fontSize: 26 },
   header: { flexDirection: 'row', alignItems: 'center', marginBottom: spacing.md },
   auteur: { flexDirection: 'row', alignItems: 'center', flex: 1 },
   headerInfo: { marginLeft: spacing.md, flex: 1 },

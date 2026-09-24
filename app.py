@@ -618,6 +618,29 @@ def init_db():
             image TEXT,
             vendu INTEGER DEFAULT 0,
             date_publication TIMESTAMP DEFAULT CURRENT_TIMESTAMP)''',
+        # Reactions (en plus du coeur des likes) : une par etudiant et par publication
+        '''CREATE TABLE IF NOT EXISTS reactions (
+            post_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            emoji TEXT NOT NULL,
+            PRIMARY KEY (post_id, user_id))''',
+        # Sondage attache a une publication (2 a 4 choix) et votes (un par etudiant)
+        '''CREATE TABLE IF NOT EXISTS post_sondage_options (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            texte TEXT NOT NULL)''',
+        '''CREATE TABLE IF NOT EXISTS post_sondage_votes (
+            post_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            option_id INTEGER NOT NULL,
+            PRIMARY KEY (post_id, user_id))''',
+        # Stories : photo (et texte court) visibles 24 h
+        '''CREATE TABLE IF NOT EXISTS stories (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            image TEXT NOT NULL,
+            texte TEXT DEFAULT '',
+            date_creation TEXT NOT NULL)''',
         # Blocages : bloqueur ne voit plus les publications de bloque, et plus
         # aucun message ne passe entre eux
         '''CREATE TABLE IF NOT EXISTS blocages (
@@ -2785,6 +2808,12 @@ def api_posts():
     per_page = 20
     offset = (page - 1) * per_page
     conn = get_db()
+    # "Ma fac" : seulement les etudiants de la meme universite
+    filtre_fac, params_fac = '', ()
+    if request.args.get('fac') == '1':
+        moi = conn.execute('SELECT universite FROM users WHERE id = ?', (user_id,)).fetchone()
+        if moi and (moi['universite'] or '').strip():
+            filtre_fac, params_fac = ' AND lower(users.universite) = ?', (moi['universite'].strip().lower(),)
     posts = conn.execute('''
         SELECT posts.id, posts.user_id, posts.contenu, posts.image, posts.date_post,
                users.prenom, users.nom, users.universite, users.avatar,
@@ -2794,10 +2823,11 @@ def api_posts():
                (posts.user_id = ?) as est_auteur
         FROM posts JOIN users ON posts.user_id = users.id
         WHERE posts.user_id NOT IN (SELECT bloque_id FROM blocages WHERE bloqueur_id = ?) AND posts.user_id NOT IN (SELECT bloqueur_id FROM blocages WHERE bloque_id = ?)
+        ''' + filtre_fac + '''
         ORDER BY posts.date_post DESC LIMIT ? OFFSET ?
-    ''', (user_id, user_id, user_id, user_id, per_page, offset)).fetchall()
+    ''', (user_id, user_id, user_id, user_id) + params_fac + (per_page, offset)).fetchall()
     conn.close()
-    return jsonify([dict(p) for p in posts])
+    return jsonify(enrichir_posts([dict(p) for p in posts], user_id))
 
 @app.route('/api/posts', methods=['POST'])
 def api_create_post():
@@ -2811,6 +2841,15 @@ def api_create_post():
     # Une photo seule (sans texte) est acceptee
     if not data or not (data.get('contenu', '').strip() or data.get('image')):
         return jsonify({'error': 'Contenu requis'}), 400
+    # Sondage facultatif : 2 a 4 choix non vides
+    choix = data.get('sondage') or []
+    if choix:
+        if not isinstance(choix, list):
+            return jsonify({'error': 'Sondage invalide'}), 400
+        choix = [sanitize_text(str(c or ''), 80) for c in choix]
+        choix = [c for c in choix if c]
+        if not 2 <= len(choix) <= 4:
+            return jsonify({'error': 'Un sondage a entre 2 et 4 choix'}), 400
     contenu = data.get('contenu', '').strip()
     if len(contenu) > FIELD_MAXLEN['contenu']:
         return jsonify({'error': f"Maximum {FIELD_MAXLEN['contenu']} caracteres"}), 400
@@ -2831,6 +2870,8 @@ def api_create_post():
         image_nom = f"{uuid.uuid4().hex}{ext}"
         stocker_fichier('static/uploads/' + image_nom, img_data)
     post_id = conn.execute('INSERT INTO posts (user_id, contenu, image) VALUES (?, ?, ?)', (user_id, contenu, image_nom)).lastrowid
+    for c in choix:
+        conn.execute('INSERT INTO post_sondage_options (post_id, texte) VALUES (?, ?)', (post_id, c))
     conn.commit()
     auteur = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (user_id,)).fetchone()
     auteur_nom = f"{auteur['prenom']} {auteur['nom']}" if auteur else 'Quelqu\'un'
@@ -2856,6 +2897,152 @@ def api_like(post_id):
     nb = conn.execute('SELECT COUNT(*) as nb FROM likes WHERE post_id = ?', (post_id,)).fetchone()['nb']
     conn.close()
     return jsonify({'liked': liked, 'nb_likes': nb})
+
+# ===================== REACTIONS, SONDAGES, STORIES =====================
+EMOJIS_REACTION = ('🔥', '😂', '👏', '😮', '😢')
+
+def enrichir_posts(posts, user_id):
+    """Ajoute a chaque publication : reactions {emoji: nombre}, ma_reaction, et le sondage."""
+    if not posts:
+        return posts
+    ids = [p['id'] for p in posts]
+    marques = ','.join('?' * len(ids))
+    conn = get_db()
+    reactions = conn.execute(f'SELECT post_id, emoji, COUNT(*) AS nb FROM reactions WHERE post_id IN ({marques}) GROUP BY post_id, emoji', ids).fetchall()
+    miennes = conn.execute(f'SELECT post_id, emoji FROM reactions WHERE user_id = ? AND post_id IN ({marques})', [user_id] + ids).fetchall()
+    options = conn.execute(f'''SELECT o.id, o.post_id, o.texte, (SELECT COUNT(*) FROM post_sondage_votes v WHERE v.option_id = o.id) AS votes
+                               FROM post_sondage_options o WHERE o.post_id IN ({marques}) ORDER BY o.id''', ids).fetchall()
+    votes = conn.execute(f'SELECT post_id, option_id FROM post_sondage_votes WHERE user_id = ? AND post_id IN ({marques})', [user_id] + ids).fetchall()
+    conn.close()
+    par_post = {p['id']: p for p in posts}
+    for p in posts:
+        p['reactions'], p['ma_reaction'], p['sondage'], p['mon_vote'] = {}, None, [], None
+    for r in reactions:
+        par_post[r['post_id']]['reactions'][r['emoji']] = r['nb']
+    for r in miennes:
+        par_post[r['post_id']]['ma_reaction'] = r['emoji']
+    for o in options:
+        par_post[o['post_id']]['sondage'].append({'id': o['id'], 'texte': o['texte'], 'votes': o['votes']})
+    for v in votes:
+        par_post[v['post_id']]['mon_vote'] = v['option_id']
+    return posts
+
+@app.route('/api/posts/<int:post_id>/reaction', methods=['POST'])
+def api_reaction(post_id):
+    """{"emoji": "🔥"} : ajoute ou remplace ma reaction ; la meme une 2e fois l'enleve."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    emoji = (request.get_json(silent=True) or {}).get('emoji')
+    if emoji not in EMOJIS_REACTION:
+        return jsonify({'error': 'Reaction invalide'}), 400
+    conn = get_db()
+    if not conn.execute('SELECT 1 FROM posts WHERE id = ?', (post_id,)).fetchone():
+        conn.close()
+        return jsonify({'error': 'Publication introuvable'}), 404
+    actuelle = conn.execute('SELECT emoji FROM reactions WHERE post_id = ? AND user_id = ?', (post_id, user_id)).fetchone()
+    conn.execute('DELETE FROM reactions WHERE post_id = ? AND user_id = ?', (post_id, user_id))
+    if not actuelle or actuelle['emoji'] != emoji:
+        conn.execute('INSERT INTO reactions (post_id, user_id, emoji) VALUES (?, ?, ?)', (post_id, user_id, emoji))
+    conn.commit()
+    conn.close()
+    return jsonify(enrichir_posts([{'id': post_id}], user_id)[0])
+
+@app.route('/api/posts/<int:post_id>/vote', methods=['POST'])
+def api_vote(post_id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    try:
+        option_id = int((request.get_json(silent=True) or {}).get('option_id'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'option_id requis'}), 400
+    conn = get_db()
+    if not conn.execute('SELECT 1 FROM post_sondage_options WHERE id = ? AND post_id = ?', (option_id, post_id)).fetchone():
+        conn.close()
+        return jsonify({'error': 'Choix invalide'}), 400
+    conn.execute('DELETE FROM post_sondage_votes WHERE post_id = ? AND user_id = ?', (post_id, user_id))  # changer d'avis
+    conn.execute('INSERT INTO post_sondage_votes (post_id, user_id, option_id) VALUES (?, ?, ?)', (post_id, user_id, option_id))
+    conn.commit()
+    conn.close()
+    return jsonify(enrichir_posts([{'id': post_id}], user_id)[0])
+
+STORY_DUREE_H = 24
+
+def nettoyer_stories():
+    """Supprime les stories de plus de 24 h (et leurs photos)."""
+    limite = (datetime.now(timezone.utc) - timedelta(hours=STORY_DUREE_H)).strftime('%Y-%m-%d %H:%M:%S')
+    conn = get_db()
+    vieilles = conn.execute('SELECT id, image FROM stories WHERE date_creation < ?', (limite,)).fetchall()
+    if vieilles:
+        conn.execute('DELETE FROM stories WHERE date_creation < ?', (limite,))
+        conn.commit()
+    conn.close()
+    for v in vieilles:
+        supprimer_fichier('static/uploads/' + v['image'])
+
+@app.route('/api/stories')
+def api_stories():
+    """Stories des dernieres 24 h, regroupees par etudiant (les miennes d'abord)."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    nettoyer_stories()
+    conn = get_db()
+    lignes = conn.execute('''
+        SELECT s.id, s.user_id, s.image, s.texte, s.date_creation, users.prenom, users.nom, users.avatar
+        FROM stories s JOIN users ON users.id = s.user_id
+        WHERE COALESCE(users.banni, 0) = 0
+          AND s.user_id NOT IN (SELECT bloque_id FROM blocages WHERE bloqueur_id = ?)
+          AND s.user_id NOT IN (SELECT bloqueur_id FROM blocages WHERE bloque_id = ?)
+        ORDER BY s.date_creation ASC''', (user_id, user_id)).fetchall()
+    conn.close()
+    groupes = {}
+    for l in lignes:
+        g = groupes.setdefault(l['user_id'], {'user_id': l['user_id'], 'prenom': l['prenom'], 'nom': l['nom'],
+                                              'avatar': l['avatar'], 'est_moi': l['user_id'] == user_id, 'stories': []})
+        g['stories'].append({'id': l['id'], 'image': l['image'], 'texte': l['texte'], 'date_creation': l['date_creation']})
+    # les miennes d'abord, puis les plus recentes
+    autres = sorted((g for g in groupes.values() if not g['est_moi']),
+                    key=lambda g: g['stories'][-1]['date_creation'], reverse=True)
+    return jsonify([g for g in groupes.values() if g['est_moi']] + autres)
+
+@app.route('/api/stories', methods=['POST'])
+def api_creer_story():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if trop_rapide('story', user_id, 10, 3600):
+        return jsonify({'error': 'Trop de stories. Reessaie plus tard.'}), 429
+    data = request.get_json(silent=True) or {}
+    if not data.get('image'):
+        return jsonify({'error': 'Photo requise'}), 400
+    image, erreur = image_depuis_base64(data.get('image'))
+    if erreur:
+        return jsonify({'error': erreur}), 400
+    texte = sanitize_text(str(data.get('texte') or ''), 150)
+    conn = get_db()
+    sid = conn.execute('INSERT INTO stories (user_id, image, texte, date_creation) VALUES (?, ?, ?, ?)',
+                       (user_id, image, texte, datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))).lastrowid
+    conn.commit()
+    conn.close()
+    return jsonify({'id': sid, 'message': 'Story publiee pour 24 h'}), 201
+
+@app.route('/api/stories/<int:sid>', methods=['DELETE'])
+def api_supprimer_story(sid):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    st = conn.execute('SELECT user_id, image FROM stories WHERE id = ?', (sid,)).fetchone()
+    if not st or st['user_id'] != user_id:
+        conn.close()
+        return jsonify({'error': 'Introuvable'}), 404
+    conn.execute('DELETE FROM stories WHERE id = ?', (sid,))
+    conn.commit()
+    conn.close()
+    supprimer_fichier('static/uploads/' + st['image'])
+    return jsonify({'message': 'Story supprimee'})
 
 @app.route('/api/posts/<int:post_id>/comments', methods=['GET'])
 def api_comments(post_id):

@@ -123,11 +123,19 @@ export const getBloques = () => request('/api/bloques');
 export const getMe = () => request('/api/me');
 
 // Feed
-export const getPosts = (page = 1) => request(`/api/posts?page=${page}`);
+export const getPosts = (page = 1, fac = false) => request(`/api/posts?page=${page}${fac ? '&fac=1' : ''}`);
 
 // image : photo encodee en base64 (JPEG), optionnelle
-export const createPost = (contenu, image = null) =>
-  request('/api/posts', { method: 'POST', body: JSON.stringify(image ? { contenu, image } : { contenu }) });
+// sondage : liste de 2 a 4 choix, optionnelle
+export const createPost = (contenu, image = null, sondage = null) =>
+  request('/api/posts', { method: 'POST', body: JSON.stringify({ contenu, ...(image ? { image } : {}), ...(sondage ? { sondage } : {}) }) });
+export const reagir = (id, emoji) => request(`/api/posts/${id}/reaction`, { method: 'POST', body: JSON.stringify({ emoji }) });
+export const voter = (id, option_id) => request(`/api/posts/${id}/vote`, { method: 'POST', body: JSON.stringify({ option_id }) });
+
+// Stories (24 h)
+export const getStories = () => request('/api/stories');
+export const creerStory = (image, texte) => request('/api/stories', { method: 'POST', body: JSON.stringify({ image, texte }) });
+export const supprimerStory = (id) => request(`/api/stories/${id}`, { method: 'DELETE' });
 
 // Adresse d'une image envoyee sur le serveur (ex. post.image)
 export const imageUrl = (nom, dossier = 'uploads') => `${API_BASE}/static/${dossier}/${nom}`;
