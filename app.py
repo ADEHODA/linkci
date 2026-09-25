@@ -38,6 +38,13 @@ def check_password(mdp, hashed):
 app = Flask(__name__)
 app.secret_key = os.environ.get('FLASK_SECRET_KEY', os.urandom(24).hex())
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16 MB max upload
+try:  # reponses compressees : pages et listes 3 a 5 fois plus legeres sur les reseaux mobiles
+    from flask_compress import Compress
+    app.config['COMPRESS_MIMETYPES'] = ['application/json', 'text/html', 'text/css', 'application/javascript', 'text/javascript']
+    app.config['COMPRESS_MIN_SIZE'] = 800
+    Compress(app)
+except ImportError:
+    pass
 # Securite des cookies de session : inaccessibles au JavaScript, pas envoyes par les
 # autres sites (Lax), et uniquement en HTTPS en production.
 EN_PRODUCTION = bool(os.environ.get('RENDER'))
@@ -686,6 +693,13 @@ def init_db():
             autre_id INTEGER NOT NULL,
             date_effacement TEXT NOT NULL,
             PRIMARY KEY (user_id, autre_id))''',
+        # Journal des erreurs serveur (visible dans le tableau de bord admin)
+        '''CREATE TABLE IF NOT EXISTS erreurs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            route TEXT,
+            message TEXT,
+            detail TEXT,
+            date_erreur TEXT NOT NULL)''',
         # Blocages : bloqueur ne voit plus les publications de bloque, et plus
         # aucun message ne passe entre eux
         '''CREATE TABLE IF NOT EXISTS blocages (
@@ -2554,6 +2568,7 @@ def admin_dashboard():
         GROUP BY posts.id, posts.contenu, users.prenom, users.nom ORDER BY nb DESC''').fetchall()
     conn.close()
     stats_jours = statistiques_admin()
+    stats_jours['erreurs'] = erreurs_recentes(10)
     return render_template('admin.html', stats=stats, stats_jours=stats_jours, derniers_inscrits=derniers_inscrits, derniers_posts=derniers_posts,
                            bourses_attente=bourses_attente, formations_attente=formations_attente, posts_signales=posts_signales,
                            opportunites_attente=opportunites_attente)
@@ -3850,6 +3865,46 @@ def api_classement_entraide():
     conn.close()
     return jsonify({'classement': [dict(l) for l in lignes], 'mes_points': moi['points'] if moi else 0})
 
+# ===================== FIABILITE =====================
+from flask import got_request_exception
+
+def journaliser_erreur(sender, exception, **extra):
+    """Chaque erreur 500 est gardee (sans donnees personnelles) pour le tableau de bord admin."""
+    try:
+        import traceback
+        detail = ''.join(traceback.format_exception(type(exception), exception, exception.__traceback__))[-2000:]
+        conn = get_db()
+        conn.execute('INSERT INTO erreurs (route, message, detail, date_erreur) VALUES (?, ?, ?, ?)',
+                     (f'{request.method} {request.path}'[:200], f'{type(exception).__name__}: {exception}'[:300], detail,
+                      datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')))
+        # on ne garde que les 500 dernieres
+        conn.execute('DELETE FROM erreurs WHERE id NOT IN (SELECT id FROM erreurs ORDER BY id DESC LIMIT 500)')
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass  # ne jamais aggraver une erreur en la journalisant
+
+got_request_exception.connect(journaliser_erreur, app)
+
+@app.route('/sante')
+def sante():
+    """Verifie que le serveur et la base repondent (appelee toutes les 10 min pour eviter la mise en veille)."""
+    try:
+        conn = get_db()
+        conn.execute('SELECT 1').fetchone()
+        conn.close()
+        return jsonify({'ok': True})
+    except Exception:
+        return jsonify({'ok': False}), 503
+
+def erreurs_recentes(limite=20):
+    conn = get_db()
+    lignes = conn.execute('SELECT id, route, message, date_erreur FROM erreurs ORDER BY id DESC LIMIT ?', (limite,)).fetchall()
+    il_y_a_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
+    nb_24h = conn.execute('SELECT COUNT(*) AS nb FROM erreurs WHERE date_erreur >= ?', (il_y_a_24h,)).fetchone()['nb']
+    conn.close()
+    return {'recentes': [dict(l) for l in lignes], 'nb_24h': nb_24h}
+
 # ===================== ADMINISTRATION DANS L'APP =====================
 def api_est_admin(user_id):
     conn = get_db()
@@ -3910,7 +3965,7 @@ def api_admin_stats():
     _, erreur = api_admin_requis()
     if erreur:
         return erreur
-    return jsonify(statistiques_admin())
+    return jsonify({**statistiques_admin(), 'erreurs': erreurs_recentes()})
 
 @app.route('/api/admin/moderation')
 def api_admin_moderation():

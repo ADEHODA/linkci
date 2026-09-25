@@ -13,6 +13,7 @@ Hypotheses (vraies pour le schema de LinkCI) :
   pour que les comparaisons et les [:10] du code restent valables.
 """
 import os
+import threading
 import re
 import sqlite3
 
@@ -100,10 +101,26 @@ def split_script(script):
 
 # ---------------------------------------------------------------- connexion
 
-# Pas de pool partage : chaque get_db() ouvre sa propre connexion et close()
-# la ferme. Le pool psycopg_pool se bloquait en production (connexions non
-# rendues, puis verrou non reentrant repris depuis __del__ -> PoolTimeout
-# pour toutes les requetes). Neon a son propre gestionnaire de connexions.
+# Une connexion par fil d'execution (thread), reutilisee d'une requete a
+# l'autre : ouvrir une connexion TLS vers Neon coute ~0,5 s. Rien n'est
+# partage entre fils (pas de verrou commun : l'ancien pool psycopg_pool se
+# bloquait en production). Neon a son propre gestionnaire de connexions.
+_local = threading.local()
+
+
+def _connexion_du_fil(neuve=False):
+    c = getattr(_local, 'conn', None)
+    if neuve or c is None or c.closed or c.broken:
+        if c is not None and not c.closed:
+            try:
+                c.close()
+            except Exception:
+                pass
+        c = _ouvrir()
+        _local.conn = c
+    return c
+
+
 def _ouvrir():
     return psycopg.connect(
         DATABASE_URL,
@@ -139,16 +156,21 @@ class PgCursor:
 
 
 class PgConnection:
-    """Connexion PostgreSQL propre a l'appelant, fermee par close()."""
+    """Acces a la connexion PostgreSQL du fil courant ; close() la rend au fil."""
 
     def __init__(self):
-        self._conn = _ouvrir()
+        self._conn = _connexion_du_fil()
         self.total_changes = 0
 
     def execute(self, sql, params=()):
         pg_sql = translate(sql)
         is_insert = bool(_INSERT.match(pg_sql))
-        cur = self._conn.execute(pg_sql, tuple(params))
+        try:
+            cur = self._conn.execute(pg_sql, tuple(params))
+        except psycopg.OperationalError:
+            # connexion coupee (Neon endormi, reseau) : une nouvelle, un seul essai
+            self._conn = _connexion_du_fil(neuve=True)
+            cur = self._conn.execute(pg_sql, tuple(params))
         if is_insert or cur.description is None:
             self.total_changes += max(cur.rowcount, 0)
         return PgCursor(cur, is_insert)
@@ -164,17 +186,8 @@ class PgConnection:
         pass
 
     def close(self):
-        if self._conn is not None:
-            conn, self._conn = self._conn, None
-            conn.close()
-
-    def __del__(self):
-        # Filet de securite : une connexion oubliee (return avant close(),
-        # exception...) est fermee des qu'elle n'est plus referencee.
-        try:
-            self.close()
-        except Exception:
-            pass
+        # la connexion reste ouverte pour la prochaine requete de ce fil
+        self._conn = None
 
     def __enter__(self):
         return self

@@ -112,6 +112,17 @@
                 <button type="submit" class="btn btn-orange" onclick="return confirm('Envoyer cette annonce (notification) a TOUS les etudiants ?')">Envoyer</button>
             </form>
         </div>
+        {% if stats_jours.erreurs.recentes %}
+        <div class="admin-section">
+            <h3>🚨 Erreurs serveur ({{ stats_jours.erreurs.nb_24h }} sur 24 h)</h3>
+            <table class="admin-table">
+                <tr><th>Date (UTC)</th><th>Page</th><th>Erreur</th></tr>
+                {% for e in stats_jours.erreurs.recentes %}
+                <tr><td>{{ e.date_erreur[5:16] }}</td><td>{{ e.route }}</td><td style="font-size:0.8rem;">{{ e.message }}</td></tr>
+                {% endfor %}
+            </table>
+        </div>
+        {% endif %}
         <div class="admin-section">
             <h3>Activité des 14 derniers jours</h3>
             <p style="font-size:0.85rem;color:var(--text-muted);">Actifs sur 7 jours : <strong>{{ stats_jours.totaux.actifs_7j }}</strong> · Comptes non vérifiés : {{ stats_jours.totaux.non_verifies }} · Bannis : {{ stats_jours.totaux.bannis }}</p>

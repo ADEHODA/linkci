@@ -7,3 +7,4 @@ gunicorn
 python-dotenv
 requests
 psycopg[binary]
+flask-compress

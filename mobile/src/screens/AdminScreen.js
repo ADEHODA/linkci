@@ -70,6 +70,18 @@ function Stats() {
       {t.non_verifies || t.bannis ? (
         <Text style={styles.aide}>{t.non_verifies} compte(s) en attente de verification · {t.bannis} banni(s)</Text>
       ) : null}
+      {data.erreurs?.recentes?.length ? (
+        <Card>
+          <Text style={styles.cardTitre}>🚨 Erreurs serveur · {data.erreurs.nb_24h} sur 24 h</Text>
+          {data.erreurs.recentes.slice(0, 8).map((e) => (
+            <View key={e.id} style={styles.erreur}>
+              <Text style={styles.erreurRoute} numberOfLines={1}>{e.route}</Text>
+              <Text style={styles.aide} numberOfLines={2}>{e.message}</Text>
+              <Text style={styles.axeTexte}>{e.date_erreur.slice(5, 16)} UTC</Text>
+            </View>
+          ))}
+        </Card>
+      ) : null}
       <Graphique titre="Inscriptions (14 jours)" serie={data.inscriptions} couleur={colors.primary} />
       <Graphique titre="Publications (14 jours)" serie={data.publications} couleur={colors.accent} />
       {data.universites.length ? (
@@ -280,6 +292,8 @@ const useStyles = creerStyles(({ colors, font }) => ({
   axe: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 },
   axeTexte: { fontSize: 10, color: colors.textFaint },
   ligne: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 5 },
+  erreur: { paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.border },
+  erreurRoute: { fontSize: 13, fontWeight: '700', color: colors.danger },
   ligneTexte: { flex: 1, fontSize: 14, color: colors.text },
   ligneNb: { fontSize: 14, fontWeight: '800', color: colors.primary },
   section: { ...font.heading, fontSize: 16, marginVertical: spacing.sm },

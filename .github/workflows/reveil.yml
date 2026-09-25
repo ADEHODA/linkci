@@ -1,0 +1,16 @@
+# Reveille le serveur Render gratuit toutes les 10 minutes (il s'endort apres
+# 15 minutes sans visite, et le premier etudiant attendait ~50 secondes).
+name: Reveil du serveur
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  reveil:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Appeler /sante
+        run: curl -fsS --max-time 90 --retry 2 https://linkci.onrender.com/sante || echo "Serveur injoignable (reessai dans 10 min)"

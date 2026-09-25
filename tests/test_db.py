@@ -264,25 +264,28 @@ def test_notifications_push(client, monkeypatch):
 
 class _FausseConnexion:
     ouvertes = 0
+    closed = False
+    broken = False
+
     def __init__(self):
         _FausseConnexion.ouvertes += 1
+
     def close(self):
         _FausseConnexion.ouvertes -= 1
 
 
-def test_connexion_oubliee_fermee(monkeypatch):
-    """Une page qui oublie close() ne doit laisser aucune connexion ouverte."""
+def test_une_connexion_par_fil(monkeypatch):
+    """Les get_db() d'un meme fil reutilisent la meme connexion ; un autre fil a la sienne."""
+    import threading
     import db
     monkeypatch.setattr(db, '_ouvrir', _FausseConnexion)
-
-    def page_qui_oublie_close():
-        conn = db.PgConnection()
-        return 'ok'  # pas de close()
-
-    for _ in range(50):
-        page_qui_oublie_close()
-    assert _FausseConnexion.ouvertes == 0
-
-    conn = db.PgConnection()
-    conn.close(); conn.close()  # double close sans effet
-    assert _FausseConnexion.ouvertes == 0
+    monkeypatch.setattr(db, '_local', threading.local())
+    _FausseConnexion.ouvertes = 0
+    for _ in range(20):
+        c = db.PgConnection()
+        c.close()
+    assert _FausseConnexion.ouvertes == 1
+    fil = threading.Thread(target=lambda: db.PgConnection().close())
+    fil.start()
+    fil.join()
+    assert _FausseConnexion.ouvertes == 2
