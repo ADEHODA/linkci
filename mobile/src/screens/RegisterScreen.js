@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, Alert, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, Alert, StyleSheet, Linking } from 'react-native';
 import * as api from '../api';
 import AuthShell, { Field } from '../components/AuthShell';
 import { PrimaryButton } from '../components/ui';
@@ -48,6 +48,12 @@ export default function RegisterScreen({ navigation, onLogin }) {
       <Field icon="lock-closed-outline" placeholder="Mot de passe (8 caracteres min.)" value={password} onChangeText={setPassword} secureTextEntry />
       <Field icon="school-outline" placeholder="Universite (optionnel)" value={universite} onChangeText={setUniversite} />
       <PrimaryButton title="Creer mon compte" onPress={handleRegister} loading={loading} style={{ marginTop: spacing.sm }} />
+      <Text style={styles.legal}>
+        En creant un compte, tu acceptes les{' '}
+        <Text style={styles.lienLegal} onPress={() => Linking.openURL(`${api.API_BASE}/conditions`)}>conditions d'utilisation</Text>
+        {' '}et la{' '}
+        <Text style={styles.lienLegal} onPress={() => Linking.openURL(`${api.API_BASE}/confidentialite`)}>politique de confidentialite</Text>.
+      </Text>
       <TouchableOpacity onPress={() => navigation.navigate('Login')} style={styles.link}>
         <Text style={styles.linkText}>Deja un compte ? <Text style={styles.linkStrong}>Connecte-toi</Text></Text>
       </TouchableOpacity>
@@ -60,4 +66,6 @@ const useStyles = creerStyles(({ colors, font, shadow }) => ({
   link: { marginTop: spacing.xl, alignItems: 'center' },
   linkText: { color: colors.textMuted, fontSize: 14 },
   linkStrong: { fontWeight: '800', color: colors.primary },
+  legal: { fontSize: 12, color: colors.textMuted, textAlign: 'center', marginTop: spacing.md },
+  lienLegal: { color: colors.primary, fontWeight: '700' },
 }));

@@ -1,6 +1,6 @@
 // Parametres (facon WhatsApp) : compte, confidentialite, securite, notifications, apparence, aide
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, Switch, Alert, Modal, TextInput } from 'react-native';
+import { View, Text, ScrollView, TouchableOpacity, Switch, Alert, Modal, TextInput, Linking } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import * as Updates from 'expo-updates';
@@ -113,6 +113,7 @@ export default function SettingsScreen({ navigation, onLogin, onLogout }) {
         <Ligne icone="key-outline" texte="Changer le mot de passe" onPress={() => setFenetre('mdp')} />
         <Ligne icone="phone-portrait-outline" texte="Deconnecter les autres appareils" onPress={deconnecterPartout} />
         <Ligne icone="log-out-outline" texte="Se deconnecter" danger onPress={onLogout} />
+        <Ligne icone="trash-outline" texte="Supprimer mon compte" danger onPress={() => setFenetre('supprimer')} />
       </Section>
 
       <Section titre="Confidentialite">
@@ -157,11 +158,14 @@ export default function SettingsScreen({ navigation, onLogin, onLogout }) {
         <Ligne icone="help-circle-outline" texte="Questions frequentes" onPress={() => setFenetre('faq')} />
         <Ligne icone="chatbubbles-outline" texte="Contacter l'administrateur" onPress={contacterAdmin} />
         <Ligne icone="bug-outline" texte="Signaler un probleme" onPress={contacterAdmin} />
+        <Ligne icone="shield-outline" texte="Politique de confidentialite" onPress={() => Linking.openURL(`${api.API_BASE}/confidentialite`)} />
+        <Ligne icone="document-text-outline" texte="Conditions d'utilisation" onPress={() => Linking.openURL(`${api.API_BASE}/conditions`)} />
         <Text style={styles.version}>LinkCI {version}</Text>
       </Section>
 
       <MotDePasse visible={fenetre === 'mdp'} onFermer={() => setFenetre(null)} onChange={onLogin} />
       <Bloques visible={fenetre === 'bloques'} onFermer={() => setFenetre(null)} />
+      <SupprimerCompte visible={fenetre === 'supprimer'} onFermer={() => setFenetre(null)} onSupprime={onLogout} />
       <Faq visible={fenetre === 'faq'} onFermer={() => setFenetre(null)} />
       <Modal visible={fenetre === 'qr'} transparent animationType="fade" onRequestClose={() => setFenetre(null)}>
         <TouchableOpacity style={styles.fond} activeOpacity={1} onPress={() => setFenetre(null)}>
@@ -255,6 +259,50 @@ function MotDePasse({ visible, onFermer, onChange }) {
   );
 }
 
+// Suppression definitive du compte (exigee par Google Play et l'App Store)
+function SupprimerCompte({ visible, onFermer, onSupprime }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const [mdp, setMdp] = useState('');
+  const [envoi, setEnvoi] = useState(false);
+  const supprimer = () => Alert.alert('Derniere confirmation', 'Ton compte et toutes tes donnees seront effaces definitivement.', [
+    { text: 'Annuler', style: 'cancel' },
+    {
+      text: 'Supprimer',
+      style: 'destructive',
+      onPress: async () => {
+        setEnvoi(true);
+        try {
+          const r = await api.supprimerCompte(mdp);
+          setMdp('');
+          onFermer();
+          Alert.alert('Compte supprime', r.message);
+          onSupprime();
+        } catch (e) {
+          Alert.alert('Suppression', e.message);
+        }
+        setEnvoi(false);
+      },
+    },
+  ]);
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onFermer}>
+      <View style={styles.fondBas}>
+        <View style={styles.feuille}>
+          <Text style={[styles.nom, { color: colors.danger }]}>Supprimer mon compte</Text>
+          <Text style={styles.aide}>Action definitive : ton profil, tes publications, messages (envoyes et recus), photos, notes vocales, documents, annonces, offres, questions et reponses seront effaces.</Text>
+          <TextInput style={styles.champ} value={mdp} onChangeText={setMdp} placeholder="Confirme avec ton mot de passe" placeholderTextColor={colors.textFaint}
+            secureTextEntry autoCapitalize="none" />
+          <TouchableOpacity style={[styles.boutonDanger, (!mdp || envoi) && { opacity: 0.5 }]} onPress={supprimer} disabled={!mdp || envoi}>
+            <Text style={styles.boutonDangerTexte}>{envoi ? 'Suppression...' : 'Supprimer definitivement'}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.annuler} onPress={onFermer}><Text style={styles.annulerTexte}>Annuler</Text></TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function Bloques({ visible, onFermer }) {
   const styles = useStyles();
   const [liste, setListe] = useState(null);
@@ -335,6 +383,8 @@ const useStyles = creerStyles(({ colors, font }) => ({
   champ: { backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: 14, fontSize: 15, color: colors.text },
   annuler: { alignItems: 'center', paddingTop: spacing.xs },
   annulerTexte: { color: colors.textMuted, fontWeight: '600' },
+  boutonDanger: { backgroundColor: colors.danger, borderRadius: radius.pill, paddingVertical: 14, alignItems: 'center' },
+  boutonDangerTexte: { color: colors.white, fontWeight: '800', fontSize: 15 },
   petitBouton: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.primarySoft },
   petitBoutonTexte: { color: colors.primary, fontWeight: '700', fontSize: 13 },
   faq: { paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border },

@@ -160,6 +160,7 @@ export const changerMotDePasse = (actuel, nouveau) => request('/api/mot_de_passe
 export const deconnecterPartout = () => request('/api/deconnecter_partout', { method: 'POST' });
 export const effacerConversation = (autreId) => request(`/api/conversations/${autreId}/effacer`, { method: 'POST' });
 export const getContactAide = () => request('/api/aide/contact');
+export const supprimerCompte = (mot_de_passe) => request('/api/supprimer_compte', { method: 'POST', body: JSON.stringify({ mot_de_passe }) });
 
 // Stories (24 h)
 export const getStories = () => request('/api/stories');

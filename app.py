@@ -4046,6 +4046,108 @@ def api_aide_contact():
     conn.close()
     return jsonify(dict(admin) if admin else {})
 
+# ===================== SUPPRESSION DE COMPTE =====================
+def supprimer_compte(user_id):
+    """Efface definitivement le compte et toutes ses donnees (exige par Google Play et l'App Store)."""
+    conn = get_db()
+    u = conn.execute('SELECT avatar FROM users WHERE id = ?', (user_id,)).fetchone()
+    fichiers = []  # chemins a effacer apres la base
+
+    # ses publications et tout ce qui s'y rattache
+    for p_ in conn.execute('SELECT id, image FROM posts WHERE user_id = ?', (user_id,)).fetchall():
+        for table in ('likes', 'commentaires', 'reactions', 'post_sondage_votes', 'post_sondage_options', 'signalements_posts'):
+            conn.execute(f'DELETE FROM {table} WHERE post_id = ?', (p_['id'],))
+        if p_['image']:
+            fichiers.append('static/uploads/' + p_['image'])
+    # ses questions (et les reponses des autres dessous)
+    for q in conn.execute('SELECT id, image FROM questions WHERE user_id = ?', (user_id,)).fetchall():
+        conn.execute('DELETE FROM votes_reponses WHERE reponse_id IN (SELECT id FROM reponses WHERE question_id = ?)', (q['id'],))
+        conn.execute('DELETE FROM reponses WHERE question_id = ?', (q['id'],))
+        if q['image']:
+            fichiers.append('static/uploads/' + q['image'])
+    # ses reponses (la meilleure reponse d'une question redevient libre)
+    conn.execute('DELETE FROM votes_reponses WHERE reponse_id IN (SELECT id FROM reponses WHERE user_id = ?)', (user_id,))
+    conn.execute('UPDATE questions SET meilleure_reponse_id = NULL WHERE meilleure_reponse_id IN (SELECT id FROM reponses WHERE user_id = ?)', (user_id,))
+    # groupes qu'il a crees : supprimes avec leurs messages
+    for g in conn.execute('SELECT id FROM groupes WHERE createur_id = ?', (user_id,)).fetchall():
+        conn.execute('DELETE FROM groupe_messages WHERE groupe_id = ?', (g['id'],))
+        conn.execute('DELETE FROM groupe_membres WHERE groupe_id = ?', (g['id'],))
+    # photos et fichiers de ses messages, annonces, stories, documents
+    for m in conn.execute('SELECT image, audio FROM messages WHERE expediteur_id = ?', (user_id,)).fetchall():
+        fichiers += ['static/uploads/' + f for f in (m['image'], m['audio']) if f]
+    for table in ('annonces', 'stories'):
+        fichiers += ['static/uploads/' + r['image'] for r in conn.execute(f'SELECT image FROM {table} WHERE user_id = ?', (user_id,)).fetchall() if r['image']]
+    fichiers += ['uploads/' + d['fichier'] for d in conn.execute('SELECT fichier FROM documents WHERE user_id = ?', (user_id,)).fetchall() if d['fichier']]
+    if u and u['avatar'] and u['avatar'] != 'default.png':
+        fichiers.append('static/avatars/' + u['avatar'])
+
+    for table in ('posts', 'likes', 'commentaires', 'reactions', 'post_sondage_votes', 'signalements_posts', 'questions',
+                  'reponses', 'votes_reponses', 'documents', 'notifications', 'abonnements_alertes', 'reset_tokens',
+                  'evenements', 'groupe_membres', 'groupe_messages', 'user_badges', 'codes_verification', 'opportunites',
+                  'annonces', 'stories', 'expo_push_tokens', 'conversations_effacees'):
+        conn.execute(f'DELETE FROM {table} WHERE user_id = ?', (user_id,))
+    conn.execute('DELETE FROM groupes WHERE createur_id = ?', (user_id,))
+    conn.execute('DELETE FROM messages WHERE expediteur_id = ? OR destinataire_id = ?', (user_id, user_id))
+    conn.execute('DELETE FROM follows WHERE follower_id = ? OR followed_id = ?', (user_id, user_id))
+    conn.execute('DELETE FROM blocages WHERE bloqueur_id = ? OR bloque_id = ?', (user_id, user_id))
+    conn.execute('DELETE FROM conversations_effacees WHERE autre_id = ?', (user_id,))
+    conn.execute('DELETE FROM users WHERE id = ?', (user_id,))
+    conn.commit()
+    conn.close()
+    for f in fichiers:
+        supprimer_fichier(f)
+
+def verifier_suppression(user_id, mot_de_passe):
+    """Renvoie un message d'erreur, ou None si le compte peut etre supprime."""
+    conn = get_db()
+    u = conn.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    if not u or not check_password(mot_de_passe or '', u['mot_de_passe']):
+        return 'Mot de passe incorrect'
+    if est_admin(u):
+        return "Un administrateur ne peut pas supprimer son compte depuis l'app (retire d'abord son role)."
+    return None
+
+@app.route('/api/supprimer_compte', methods=['POST'])
+def api_supprimer_compte():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if not check_rate_limit(f'suppression:{user_id}', max_reqs=5, window=900):
+        return jsonify({'error': 'Trop de tentatives. Reessaie dans 15 minutes.'}), 429
+    erreur = verifier_suppression(user_id, (request.get_json(silent=True) or {}).get('mot_de_passe'))
+    if erreur:
+        return jsonify({'error': erreur}), 400
+    supprimer_compte(user_id)
+    return jsonify({'message': 'Ton compte et toutes tes donnees ont ete supprimes.'})
+
+@app.route('/compte/supprimer', methods=['GET', 'POST'])
+def supprimer_compte_web():
+    if 'user_id' not in session:
+        return redirect(url_for('connexion'))
+    if request.method == 'POST':
+        if not check_rate_limit(f"suppression:{session['user_id']}", max_reqs=5, window=900):
+            flash('Trop de tentatives. Reessaie dans 15 minutes.', 'error')
+            return redirect(url_for('supprimer_compte_web'))
+        erreur = verifier_suppression(session['user_id'], request.form.get('mot_de_passe'))
+        if erreur:
+            flash(erreur, 'error')
+            return redirect(url_for('supprimer_compte_web'))
+        supprimer_compte(session['user_id'])
+        session.clear()
+        flash('Ton compte et toutes tes donnees ont ete supprimes. Au revoir !', 'success')
+        return redirect(url_for('connexion'))
+    return render_template('supprimer_compte.html')
+
+# ---- Pages legales (publiques)
+@app.route('/confidentialite')
+def confidentialite():
+    return render_template('confidentialite.html')
+
+@app.route('/conditions')
+def conditions():
+    return render_template('conditions.html')
+
 @app.route('/api/formations')
 def api_formations():
     user_id = api_require_auth()
