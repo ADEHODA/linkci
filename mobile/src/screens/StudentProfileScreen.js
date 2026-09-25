@@ -21,6 +21,8 @@ export default function StudentProfileScreen({ route, navigation }) {
 
   if (loading || !data) return <SkeletonList lignes={3} avatar carte />;
 
+  const basculerSuivi = () => (data.suivi ? api.nePlusSuivre(id) : api.suivre(id)).then(refresh).catch((e) => Alert.alert('Erreur', e.message));
+
   const changerBlocage = () => {
     const bloque = data.bloque;
     Alert.alert(
@@ -93,6 +95,12 @@ export default function StudentProfileScreen({ route, navigation }) {
                 <Text style={styles.boutonTexte}>Envoyer un message</Text>
               </TouchableOpacity>
             )}
+            {!estMoi && !data.bloque ? (
+              <TouchableOpacity style={[styles.suivre, data.suivi && styles.suivreActif]} onPress={basculerSuivi} activeOpacity={0.85}>
+                <Ionicons name={data.suivi ? 'checkmark' : 'person-add-outline'} size={16} color={data.suivi ? colors.primary : colors.white} />
+                <Text style={[styles.suivreTexte, data.suivi && { color: colors.primary }]}>{data.suivi ? 'Suivi' : 'Suivre'}</Text>
+              </TouchableOpacity>
+            ) : null}
             {!estMoi ? (
               <TouchableOpacity style={styles.bloquer} onPress={changerBlocage} hitSlop={8}>
                 <Ionicons name={data.bloque ? 'lock-open-outline' : 'ban-outline'} size={15} color={colors.textMuted} />
@@ -129,6 +137,9 @@ function Stat({ styles, valeur, label }) {
 }
 
 const useStyles = creerStyles(({ colors, font, shadow }) => ({
+  suivre: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm, paddingHorizontal: 22, paddingVertical: 9, borderRadius: radius.pill, backgroundColor: colors.primary, borderWidth: 1, borderColor: colors.primary },
+  suivreActif: { backgroundColor: 'transparent' },
+  suivreTexte: { color: colors.white, fontWeight: '800' },
   bloquer: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.md, paddingVertical: 6 },
   bloquerTexte: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
   container: { flex: 1, backgroundColor: colors.bg },

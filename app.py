@@ -1832,58 +1832,123 @@ def recherche():
 
 @app.route('/api/recherche')
 def api_recherche():
+    """Recherche dans tout LinkCI (LIKE insensible a la casse, sans les comptes bloques ou bannis)."""
     user_id = api_require_auth()
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
-    q = request.args.get('q', '').strip()
-    resultats = {'posts': [], 'bourses': [], 'formations': [], 'users': []}
-    if q:
-        conn = get_db()
-        safe = q.replace("'", "''")
-        try:
-            resultats['posts'] = [dict(r) for r in conn.execute('''
-                SELECT posts.id, posts.contenu, posts.date_post, users.prenom, users.nom
-                FROM posts_fts JOIN posts ON posts_fts.rowid = posts.id JOIN users ON posts.user_id = users.id
-                WHERE posts_fts MATCH ? ORDER BY rank LIMIT 5
-            ''', (safe,)).fetchall()]
-        except Exception:
-            resultats['posts'] = [dict(r) for r in conn.execute('''
-                SELECT posts.id, posts.contenu, posts.date_post, users.prenom, users.nom
-                FROM posts JOIN users ON posts.user_id = users.id
-                WHERE posts.contenu LIKE ? ORDER BY posts.date_post DESC LIMIT 5
-            ''', ('%' + q + '%',)).fetchall()]
-        try:
-            resultats['bourses'] = [dict(r) for r in conn.execute('''
-                SELECT bourses.id, titre, organisme, type FROM bourses_fts JOIN bourses ON bourses_fts.rowid = bourses.id
-                WHERE bourses.COALESCE(valide, 1) = 1 AND bourses_fts MATCH ? ORDER BY rank LIMIT 5
-            ''', (safe,)).fetchall()]
-        except Exception:
-            resultats['bourses'] = [dict(r) for r in conn.execute('''
-                SELECT id, titre, organisme, type FROM bourses
-                WHERE COALESCE(valide, 1) = 1 AND (titre LIKE ? OR description LIKE ?) LIMIT 5
-            ''', ('%' + q + '%', '%' + q + '%')).fetchall()]
-        try:
-            resultats['formations'] = [dict(r) for r in conn.execute('''
-                SELECT formations.id, nom, universite, niveau FROM formations_fts JOIN formations ON formations_fts.rowid = formations.id
-                WHERE formations.COALESCE(valide, 1) = 1 AND formations_fts MATCH ? ORDER BY rank LIMIT 5
-            ''', (safe,)).fetchall()]
-        except Exception:
-            resultats['formations'] = [dict(r) for r in conn.execute('''
-                SELECT id, nom, universite, niveau FROM formations
-                WHERE COALESCE(valide, 1) = 1 AND (nom LIKE ? OR description LIKE ?) LIMIT 5
-            ''', ('%' + q + '%', '%' + q + '%')).fetchall()]
-        try:
-            resultats['users'] = [dict(r) for r in conn.execute('''
-                SELECT users.id, prenom, nom, filiere, universite, avatar FROM users_fts JOIN users ON users_fts.rowid = users.id
-                WHERE users_fts MATCH ? AND users.id != ? ORDER BY rank LIMIT 5
-            ''', (safe, user_id)).fetchall()]
-        except Exception:
-            resultats['users'] = [dict(r) for r in conn.execute('''
-                SELECT id, prenom, nom, filiere, universite, avatar FROM users
-                WHERE (prenom || ' ' || nom LIKE ?) AND id != ? LIMIT 5
-            ''', ('%' + q + '%', user_id)).fetchall()]
+    q = request.args.get('q', '').strip().lower()[:100]
+    vide = {k: [] for k in ('users', 'posts', 'questions', 'annonces', 'offres', 'bourses', 'formations', 'groupes', 'documents')}
+    if len(q) < 2:
+        return jsonify(vide)
+    motif = '%' + q.replace('%', '').replace('_', '') + '%'
+    pas_bloque = lambda col: (f'{col} NOT IN (SELECT bloque_id FROM blocages WHERE bloqueur_id = {int(user_id)}) '
+                              f'AND {col} NOT IN (SELECT bloqueur_id FROM blocages WHERE bloque_id = {int(user_id)})')
+    conn = get_db()
+    r = lambda sql_, *a: [dict(x) for x in conn.execute(sql_, a).fetchall()]
+    res = {
+        'users': r(f"""SELECT id, prenom, nom, filiere, universite, avatar FROM users
+                      WHERE id != ? AND COALESCE(banni, 0) = 0 AND {pas_bloque('id')}
+                        AND (lower(prenom || ' ' || nom) LIKE ? OR lower(nom || ' ' || prenom) LIKE ?
+                             OR lower(COALESCE(filiere, '')) LIKE ? OR lower(COALESCE(universite, '')) LIKE ?)
+                      ORDER BY prenom LIMIT 8""", user_id, motif, motif, motif, motif),
+        'posts': r(f"""SELECT posts.id, posts.user_id, posts.contenu, posts.image, posts.date_post, users.prenom, users.nom, users.avatar
+                      FROM posts JOIN users ON users.id = posts.user_id
+                      WHERE lower(posts.contenu) LIKE ? AND COALESCE(users.banni, 0) = 0 AND {pas_bloque('posts.user_id')}
+                      ORDER BY posts.date_post DESC LIMIT 6""", motif),
+        'questions': r(f"""SELECT q.id, q.titre, q.matiere, (q.meilleure_reponse_id IS NOT NULL) AS resolue,
+                             (SELECT COUNT(*) FROM reponses WHERE question_id = q.id) AS nb_reponses
+                          FROM questions q WHERE (lower(q.titre) LIKE ? OR lower(q.contenu) LIKE ? OR lower(q.matiere) LIKE ?)
+                            AND {pas_bloque('q.user_id')} ORDER BY q.date_creation DESC LIMIT 6""", motif, motif, motif),
+        'annonces': r(f"""SELECT a.id, a.titre, a.prix, a.vendu, a.image, a.ville FROM annonces a
+                         WHERE (lower(a.titre) LIKE ? OR lower(a.description) LIKE ?) AND {pas_bloque('a.user_id')}
+                         ORDER BY a.vendu ASC, a.date_publication DESC LIMIT 6""", motif, motif),
+        'offres': r("""SELECT id, titre, entreprise, type, ville FROM opportunites
+                       WHERE valide = 1 AND (date_limite = '' OR date_limite >= ?)
+                         AND (lower(titre) LIKE ? OR lower(entreprise) LIKE ? OR lower(domaine) LIKE ?)
+                       ORDER BY date_publication DESC LIMIT 6""", date.today().isoformat(), motif, motif, motif),
+        'bourses': r("""SELECT id, titre, organisme, type FROM bourses WHERE COALESCE(valide, 1) = 1
+                        AND (lower(titre) LIKE ? OR lower(description) LIKE ? OR lower(organisme) LIKE ?) LIMIT 6""", motif, motif, motif),
+        'formations': r("""SELECT id, nom, universite, niveau FROM formations WHERE COALESCE(valide, 1) = 1
+                           AND (lower(nom) LIKE ? OR lower(universite) LIKE ? OR lower(description) LIKE ?) LIMIT 6""", motif, motif, motif),
+        'groupes': r("""SELECT g.id, g.nom, g.description, (SELECT COUNT(*) FROM groupe_membres WHERE groupe_id = g.id) AS nb_membres,
+                          EXISTS(SELECT 1 FROM groupe_membres WHERE groupe_id = g.id AND user_id = ?) AS membre
+                        FROM groupes g WHERE lower(g.nom) LIKE ? OR lower(g.description) LIKE ? LIMIT 6""", user_id, motif, motif),
+        'documents': r("""SELECT id, titre, matiere FROM documents WHERE lower(titre) LIKE ? OR lower(COALESCE(matiere, '')) LIKE ?
+                          ORDER BY date_upload DESC LIMIT 6""", motif, motif),
+    }
+    conn.close()
+    return jsonify(res)
+
+@app.route('/api/decouverte')
+def api_decouverte():
+    """Etudiants a suivre (meme filiere / universite), tendances (#hashtags, publications populaires)."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    moi = conn.execute('SELECT universite, filiere FROM users WHERE id = ?', (user_id,)).fetchone()
+    uni = (moi['universite'] or '').strip().lower() if moi else ''
+    fil = (moi['filiere'] or '').strip().lower() if moi else ''
+    candidats = conn.execute(f"""
+        SELECT id, prenom, nom, filiere, universite, avatar,
+               (SELECT COUNT(*) FROM posts WHERE posts.user_id = users.id) AS activite
+        FROM users WHERE id != ? AND COALESCE(banni, 0) = 0 AND COALESCE(email_verifie, 1) = 1
+          AND id NOT IN (SELECT followed_id FROM follows WHERE follower_id = ?)
+          AND id NOT IN (SELECT bloque_id FROM blocages WHERE bloqueur_id = ?)
+          AND id NOT IN (SELECT bloqueur_id FROM blocages WHERE bloque_id = ?)
+        LIMIT 300""", (user_id, user_id, user_id, user_id)).fetchall()
+
+    def proximite(u):
+        return (2 if fil and fil == (u['filiere'] or '').strip().lower() else 0) + (1 if uni and uni == (u['universite'] or '').strip().lower() else 0)
+    suggeres = sorted((dict(u) for u in candidats), key=lambda u: (-proximite(u), -u['activite'], u['prenom']))[:12]
+    for u in suggeres:
+        u['raison'] = ('Ta filiere' if proximite(u) >= 2 else 'Ton universite' if proximite(u) == 1 else 'Actif sur LinkCI')
+
+    il_y_a_7j = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
+    recents = conn.execute("""SELECT contenu FROM posts WHERE date_post >= ? ORDER BY date_post DESC LIMIT 300""", (il_y_a_7j,)).fetchall()
+    populaires = conn.execute("""
+        SELECT posts.id, posts.user_id, posts.contenu, posts.image, posts.date_post, users.prenom, users.nom, users.avatar,
+               (SELECT COUNT(*) FROM likes WHERE post_id = posts.id) + (SELECT COUNT(*) FROM reactions WHERE post_id = posts.id)
+               + 2 * (SELECT COUNT(*) FROM commentaires WHERE post_id = posts.id) AS score
+        FROM posts JOIN users ON users.id = posts.user_id
+        WHERE posts.date_post >= ? AND COALESCE(users.banni, 0) = 0
+          AND posts.user_id NOT IN (SELECT bloque_id FROM blocages WHERE bloqueur_id = ?)
+          AND posts.user_id NOT IN (SELECT bloqueur_id FROM blocages WHERE bloque_id = ?)
+        ORDER BY score DESC, posts.date_post DESC LIMIT 5""", (il_y_a_7j, user_id, user_id)).fetchall()
+    conn.close()
+    compte = {}
+    for p_ in recents:
+        for tag in set(t.lower() for t in re.findall(r'#([\w-]{2,30})', p_['contenu'] or '', re.UNICODE)):
+            compte[tag] = compte.get(tag, 0) + 1
+    tendances = [{'tag': t, 'nb': n} for t, n in sorted(compte.items(), key=lambda x: (-x[1], x[0]))[:10]]
+    return jsonify({'etudiants': suggeres, 'tendances': tendances,
+                    'populaires': [dict(p_) for p_ in populaires if p_['score'] > 0]})
+
+@app.route('/api/utilisateurs/<int:autre_id>/suivre', methods=['POST', 'DELETE'])
+def api_suivre(autre_id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if autre_id == user_id or blocage_entre(user_id, autre_id):
+        return jsonify({'error': 'Impossible'}), 400
+    conn = get_db()
+    autre = conn.execute('SELECT prenom FROM users WHERE id = ?', (autre_id,)).fetchone()
+    if not autre:
         conn.close()
-    return jsonify(resultats)
+        return jsonify({'error': 'Introuvable'}), 404
+    deja = conn.execute('SELECT 1 FROM follows WHERE follower_id = ? AND followed_id = ?', (user_id, autre_id)).fetchone()
+    if request.method == 'POST' and not deja:
+        conn.execute('INSERT INTO follows (follower_id, followed_id) VALUES (?, ?)', (user_id, autre_id))
+        moi = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (user_id,)).fetchone()
+        conn.commit()
+        conn.close()
+        creer_notification(autre_id, 'suivi', f"{moi['prenom']} {moi['nom']} te suit", f'/profil/{user_id}')
+        return jsonify({'suivi': True})
+    if request.method == 'DELETE':
+        conn.execute('DELETE FROM follows WHERE follower_id = ? AND followed_id = ?', (user_id, autre_id))
+        conn.commit()
+    conn.close()
+    return jsonify({'suivi': request.method == 'POST'})
 
 @app.route('/bourses')
 def bourses():
@@ -4349,8 +4414,9 @@ def api_profil(autre_id):
         WHERE ub.user_id = ? ORDER BY ub.date_obtention DESC
     ''', (autre_id,)).fetchall()
     bloque = bool(conn.execute('SELECT 1 FROM blocages WHERE bloqueur_id = ? AND bloque_id = ?', (user_id, autre_id)).fetchone())
+    suivi = bool(conn.execute('SELECT 1 FROM follows WHERE follower_id = ? AND followed_id = ?', (user_id, autre_id)).fetchone())
     conn.close()
-    return jsonify({'user': dict(user), 'posts': [dict(p) for p in posts], 'badges': [dict(b) for b in badges], 'bloque': bloque})
+    return jsonify({'user': dict(user), 'posts': [dict(p) for p in posts], 'badges': [dict(b) for b in badges], 'bloque': bloque, 'suivi': suivi})
 
 @app.route('/api/documents')
 def api_documents():

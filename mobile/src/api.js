@@ -287,6 +287,9 @@ export const updateProfile = (data) =>
 
 // Recherche
 export const searchAll = (q) => request(`/api/recherche?q=${encodeURIComponent(q)}`);
+export const getDecouverte = () => request('/api/decouverte');
+export const suivre = (id) => request(`/api/utilisateurs/${id}/suivre`, { method: 'POST' });
+export const nePlusSuivre = (id) => request(`/api/utilisateurs/${id}/suivre`, { method: 'DELETE' });
 
 // Note vocale (fichier .m4a enregistre par le telephone), duree en secondes
 export const envoyerVocal = (destinataire_id, uri, duree) => envoyerAudio('/api/messages/vocal', uri, duree, { destinataire_id });
