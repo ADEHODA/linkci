@@ -127,6 +127,8 @@ export default function SettingsScreen({ navigation, onLogin, onLogout }) {
         </View>
         <Interrupteur icone="checkmark-done-outline" texte="Accuses de lecture (Vu)" aide="Si tu les desactives, tu ne verras pas non plus ceux des autres."
           valeur={!p.masquer_vu} onChange={(v) => enregistrer({ masquer_vu: !v })} />
+        <Interrupteur icone="eye-off-outline" texte="Visites de profil anonymes" aide="Tes visites ne sont pas enregistrees, et tu ne vois pas qui a vu ton profil."
+          valeur={!!p.masquer_visites} onChange={(v) => enregistrer({ masquer_visites: v })} />
         <Ligne icone="ban-outline" texte="Comptes bloques" onPress={() => setFenetre('bloques')} />
       </Section>
 

@@ -31,6 +31,7 @@
         <button class="puce ${p.qui_peut_ecrire === 'tous' ? 'active' : ''}" data-qui="tous">Tout le monde</button>
         <button class="puce ${p.qui_peut_ecrire === 'abonnes' ? 'active' : ''}" data-qui="abonnes">Personnes que je suis</button></div>
       ${inter('vu', 'Accuses de lecture (Vu)', !p.masquer_vu, 'Si tu les desactives, tu ne verras pas non plus ceux des autres.')}
+      ${inter('visites', 'Visites de profil anonymes', p.masquer_visites, "Tes visites ne sont pas enregistrees, et tu ne vois pas qui a vu ton profil.")}
       <button class="btn gris petit" id="bloques">Comptes bloques</button></div>
     <div class="carte"><strong>Notifications sur le telephone</strong>
       ${NOTIFS.map(([c, l]) => inter('n:' + c, l, p.notifications[c] !== false)).join('')}</div>
@@ -49,6 +50,7 @@
   zone.addEventListener('change', (e) => {
     const c = e.target.dataset.cle; if (!c) return;
     if (c === 'vu') enregistrer({ masquer_vu: !e.target.checked });
+    else if (c === 'visites') enregistrer({ masquer_visites: e.target.checked });
     else enregistrer({ notifications: { [c.slice(2)]: e.target.checked } });
   });
   zone.addEventListener('click', async (e) => {

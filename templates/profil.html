@@ -3,12 +3,13 @@
 {% block styles_anciens %}<link rel="stylesheet" href="/static/css/style.css">{% endblock %}
 {% block contenu %}
 <div class="container" style="max-width:700px;">
+        {% if user.couverture %}<div style="height:170px;border-radius:16px;margin-bottom:-40px;background:url('/static/uploads/{{ user.couverture }}') center/cover;"></div>{% endif %}
         <div class="profile-header card">
             <div class="profile-avatar" style="background:linear-gradient(135deg,var(--orange),var(--green));color:white;width:80px;height:80px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:2rem;font-weight:800;flex-shrink:0;overflow:hidden;">{% if user.avatar and user.avatar != 'default.png' %}<img src="/static/avatars/{{ user.avatar }}" style="width:100%;height:100%;object-fit:cover;">{% else %}{{ user.prenom[:1] }}{{ user.nom[:1] }}{% endif %}</div>
             <div class="profile-info">
                 <h2>{{ user.prenom }} {{ user.nom }}</h2>
                 <p class="profile-uni">{% if user.universite %}<span style="background:var(--orange-light);color:var(--orange);padding:0.15rem 0.5rem;border-radius:6px;font-size:0.75rem;font-weight:600;">{{ user.universite }}</span>{% endif %}{% if user.filiere %} <span style="background:var(--green-light);color:var(--green);padding:0.15rem 0.5rem;border-radius:6px;font-size:0.75rem;font-weight:600;">{{ user.filiere }}</span>{% endif %}{% if user.annee %} <span style="background:var(--bg);color:var(--text-muted);padding:0.15rem 0.5rem;border-radius:6px;font-size:0.75rem;">{{ user.annee }}</span>{% endif %}</p>
-                <p class="profile-email" style="font-size:0.8rem;color:var(--text-muted);">{{ user.email }}</p>
+                {% if user.id == session.user_id %}<p class="profile-email" style="font-size:0.8rem;color:var(--text-muted);">{{ user.email }} <small>(visible par toi seul)</small></p>{% endif %}
                 <p class="profile-bio" style="background:var(--bg);padding:0.75rem;border-radius:8px;margin:0.5rem 0;">{{ user.bio or "Aucune bio pour le moment" }}</p>
                 <span class="profile-date" style="font-size:0.75rem;color:var(--text-muted);">Inscrit depuis {{ user.date_inscription[:10] }}</span>
                 {% if user.id != session.user_id %}
@@ -35,6 +36,20 @@
                 {% endif %}
             </div>
         </div>
+
+        {% if competences or parcours or user.lien_linkedin or user.lien_github or user.lien_site %}
+        <div class="card" style="padding:1rem 1.25rem;margin-bottom:1rem;">
+            {% if competences %}<h4 style="margin:0 0 0.5rem;">Competences</h4>
+            <div style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.9rem;">{% for c in competences %}<span style="background:var(--orange-light);color:var(--orange);padding:0.2rem 0.65rem;border-radius:999px;font-size:0.8rem;font-weight:700;">{{ c }}</span>{% endfor %}</div>{% endif %}
+            {% if parcours %}<h4 style="margin:0 0 0.5rem;">Parcours</h4>
+            {% for e in parcours %}<div style="border-left:3px solid var(--orange);padding:0.1rem 0 0.1rem 0.75rem;margin-bottom:0.6rem;"><strong>{{ e.titre }}</strong><br><small style="color:var(--text-muted);">{{ e.lieu }}{% if e.lieu and e.periode %} · {% endif %}{{ e.periode }}</small></div>{% endfor %}{% endif %}
+            <div style="display:flex;gap:0.5rem;flex-wrap:wrap;">
+                {% if user.lien_linkedin|lien_sur %}<a class="btn-modifier" href="{{ user.lien_linkedin|lien_sur }}" target="_blank" rel="noopener noreferrer nofollow">LinkedIn</a>{% endif %}
+                {% if user.lien_github|lien_sur %}<a class="btn-modifier" href="{{ user.lien_github|lien_sur }}" target="_blank" rel="noopener noreferrer nofollow">GitHub</a>{% endif %}
+                {% if user.lien_site|lien_sur %}<a class="btn-modifier" href="{{ user.lien_site|lien_sur }}" target="_blank" rel="noopener noreferrer nofollow">Site web</a>{% endif %}
+            </div>
+        </div>
+        {% endif %}
 
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:0.75rem;margin-bottom:1.5rem;">
             <div class="card" style="text-align:center;padding:1rem;">

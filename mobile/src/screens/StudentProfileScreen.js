@@ -4,6 +4,7 @@ import { View, Text, FlatList, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import Avatar from '../components/Avatar';
+import { Couverture, DetailsProfil } from '../components/ProfilRiche';
 import PostImage from '../components/PostImage';
 import useApiList from '../hooks/useApiList';
 import { Card, EmptyState, SkeletonList, pullToRefresh } from '../components/ui';
@@ -50,7 +51,7 @@ export default function StudentProfileScreen({ route, navigation }) {
       keyExtractor={(item) => String(item.id)}
       ListHeaderComponent={
         <>
-          <View style={styles.banner} />
+          <Couverture user={user} hauteur={120} />
           <View style={styles.header}>
             <View style={styles.avatarRing}>
               <Avatar name={`${user.prenom} ${user.nom}`} size={92} index={user.id} avatar={user.avatar} />
@@ -108,6 +109,7 @@ export default function StudentProfileScreen({ route, navigation }) {
               </TouchableOpacity>
             ) : null}
           </View>
+          <DetailsProfil user={user} />
           <Text style={styles.sectionTitle}>Publications</Text>
         </>
       }

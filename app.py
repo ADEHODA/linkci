@@ -595,6 +595,16 @@ def init_db():
         except Exception:
             pass
 
+    # Profil riche : couverture, competences et parcours (JSON), liens, visites masquees
+    for colonne in ('couverture TEXT', "competences TEXT DEFAULT ''", "parcours TEXT DEFAULT ''",
+                    "lien_linkedin TEXT DEFAULT ''", "lien_github TEXT DEFAULT ''", "lien_site TEXT DEFAULT ''",
+                    'masquer_visites INTEGER DEFAULT 0'):
+        try:
+            conn.execute('ALTER TABLE users ADD COLUMN ' + colonne)
+            conn.commit()
+        except Exception:
+            pass
+
     # Verification de l'e-mail : DEFAULT 1 pour que les comptes existants restent
     # actifs ; les nouvelles inscriptions sont creees avec email_verifie = 0.
     try:
@@ -700,6 +710,12 @@ def init_db():
             message TEXT,
             detail TEXT,
             date_erreur TEXT NOT NULL)''',
+        # Qui a vu mon profil (derniere visite par visiteur)
+        '''CREATE TABLE IF NOT EXISTS vues_profil (
+            profil_id INTEGER NOT NULL,
+            visiteur_id INTEGER NOT NULL,
+            date_vue TEXT NOT NULL,
+            PRIMARY KEY (profil_id, visiteur_id))''',
         # Blocages : bloqueur ne voit plus les publications de bloque, et plus
         # aucun message ne passe entre eux
         '''CREATE TABLE IF NOT EXISTS blocages (
@@ -1442,8 +1458,11 @@ def profil(user_id):
     nb_abonnements = conn.execute('SELECT COUNT(*) as nb FROM follows WHERE follower_id = ?', (user_id,)).fetchone()['nb']
     est_bloque = bool(conn.execute('SELECT 1 FROM blocages WHERE bloqueur_id = ? AND bloque_id = ?',
                                    (session['user_id'], user_id)).fetchone())
+    if user:
+        noter_visite(conn, user_id, session['user_id'])
     conn.close()
-    return render_template('profil.html', user=user, posts=posts, nb_posts=nb_posts, nb_likes_recus=nb_likes_recus, nb_commentaires_recus=nb_commentaires_recus, nb_bourses=nb_bourses, nb_docs=nb_docs, badges=badges, est_abonne=est_abonne, nb_abonnes=nb_abonnes, nb_abonnements=nb_abonnements, est_bloque=est_bloque)
+    return render_template('profil.html', user=user, posts=posts, nb_posts=nb_posts, nb_likes_recus=nb_likes_recus, nb_commentaires_recus=nb_commentaires_recus, nb_bourses=nb_bourses, nb_docs=nb_docs, badges=badges, est_abonne=est_abonne, nb_abonnes=nb_abonnes, nb_abonnements=nb_abonnements, est_bloque=est_bloque,
+                           competences=liste_json(user['competences']) if user else [], parcours=liste_json(user['parcours']) if user else [])
 
 # ===================== USER STATS =====================
 @app.route('/stats')
@@ -2819,7 +2838,57 @@ def api_token(user_id):
     conn.close()
     return _jetons_api.dumps({'u': int(user_id), 'v': (user['jeton_version'] or 0) if user else 0})
 
-CHAMPS_PUBLICS_USER = 'id, nom, prenom, universite, filiere, annee, bio, avatar, date_inscription'
+CHAMPS_PUBLICS_USER = ('id, nom, prenom, universite, filiere, annee, bio, avatar, date_inscription, couverture, '
+                       'competences, parcours, lien_linkedin, lien_github, lien_site')
+
+def liste_json(texte):
+    import json
+    try:
+        v = json.loads(texte or '[]')
+        return v if isinstance(v, list) else []
+    except (ValueError, TypeError):
+        return []
+
+def profil_public(ligne):
+    """Ligne users -> dict pour l'API (competences et parcours en listes)."""
+    d = dict(ligne)
+    for k in ('competences', 'parcours'):
+        if k in d:
+            d[k] = liste_json(d[k])
+    return d
+
+LIENS_PROFIL = {'lien_linkedin': r'^https://([a-z]{2,3}\.)?(www\.)?linkedin\.com/', 'lien_github': r'^https://(www\.)?github\.com/',
+                'lien_site': r'^https://'}
+
+def lire_profil_riche(data):
+    """Valide competences, parcours et liens envoyes par l'app. Renvoie (champs, erreur)."""
+    import json
+    champs = {}
+    if 'competences' in data:
+        comp = data.get('competences') or []
+        if not isinstance(comp, list):
+            return None, 'Competences invalides'
+        comp = list(dict.fromkeys(sanitize_text(str(c), 30) for c in comp if str(c).strip()))[:15]  # sans doublons, 15 max
+        champs['competences'] = json.dumps(comp, ensure_ascii=False)
+    if 'parcours' in data:
+        par = data.get('parcours') or []
+        if not isinstance(par, list):
+            return None, 'Parcours invalide'
+        propre = []
+        for e in par[:10]:
+            if isinstance(e, dict) and str(e.get('titre') or '').strip():
+                propre.append({'titre': sanitize_text(str(e.get('titre')), 80), 'lieu': sanitize_text(str(e.get('lieu') or ''), 80),
+                               'periode': sanitize_text(str(e.get('periode') or ''), 40)})
+        champs['parcours'] = json.dumps(propre, ensure_ascii=False)
+    for cle, motif in LIENS_PROFIL.items():
+        if cle in data:
+            lien = lien_sur(str(data.get(cle) or '').strip()[:200])
+            if lien and not re.match(motif, lien, re.I):
+                return None, {'lien_linkedin': 'Lien LinkedIn invalide (https://linkedin.com/...)',
+                              'lien_github': 'Lien GitHub invalide (https://github.com/...)',
+                              'lien_site': 'Le site doit commencer par https://'}[cle]
+            champs[cle] = lien
+    return champs, None
 
 @app.route('/api/register', methods=['POST'])
 def api_register():
@@ -2966,7 +3035,7 @@ def api_me():
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
     conn = get_db()
-    user = conn.execute('SELECT id, nom, prenom, email, universite, filiere, annee, bio, avatar, date_inscription FROM users WHERE id = ?', (user_id,)).fetchone()
+    user = conn.execute(f'SELECT {CHAMPS_PUBLICS_USER}, email FROM users WHERE id = ?', (user_id,)).fetchone()
     badges = conn.execute('''
         SELECT b.* FROM user_badges ub
         JOIN badges b ON ub.badge_id = b.id
@@ -2975,7 +3044,7 @@ def api_me():
     conn.close()
     if not user:
         return jsonify({'error': 'Utilisateur introuvable'}), 404
-    result = dict(user)
+    result = profil_public(user)
     result['badges'] = [dict(b) for b in badges]
     result['est_admin'] = api_est_admin(user_id)
     return jsonify(result)
@@ -4105,10 +4174,10 @@ def admin_annonce_web():
 # ===================== PARAMETRES =====================
 def parametres_de(user_id):
     conn = get_db()
-    u = conn.execute('SELECT qui_peut_ecrire, masquer_vu, notifs_coupees FROM users WHERE id = ?', (user_id,)).fetchone()
+    u = conn.execute('SELECT qui_peut_ecrire, masquer_vu, notifs_coupees, masquer_visites FROM users WHERE id = ?', (user_id,)).fetchone()
     conn.close()
     coupees = set(filter(None, (u['notifs_coupees'] or '').split(',')))
-    return {'qui_peut_ecrire': u['qui_peut_ecrire'] or 'tous', 'masquer_vu': bool(u['masquer_vu']),
+    return {'qui_peut_ecrire': u['qui_peut_ecrire'] or 'tous', 'masquer_vu': bool(u['masquer_vu']), 'masquer_visites': bool(u['masquer_visites']),
             'notifications': {c: c not in coupees for c in CATEGORIES_NOTIF}}
 
 @app.route('/api/parametres', methods=['GET', 'PUT'])
@@ -4123,6 +4192,8 @@ def api_parametres():
             conn.execute('UPDATE users SET qui_peut_ecrire = ? WHERE id = ?', (data['qui_peut_ecrire'], user_id))
         if 'masquer_vu' in data:
             conn.execute('UPDATE users SET masquer_vu = ? WHERE id = ?', (1 if data['masquer_vu'] else 0, user_id))
+        if 'masquer_visites' in data:
+            conn.execute('UPDATE users SET masquer_visites = ? WHERE id = ?', (1 if data['masquer_visites'] else 0, user_id))
         if isinstance(data.get('notifications'), dict):
             coupees = [c for c in CATEGORIES_NOTIF if data['notifications'].get(c) is False]
             conn.execute('UPDATE users SET notifs_coupees = ? WHERE id = ?', (','.join(coupees), user_id))
@@ -4225,6 +4296,10 @@ def supprimer_compte(user_id):
     fichiers += ['uploads/' + d['fichier'] for d in conn.execute('SELECT fichier FROM documents WHERE user_id = ?', (user_id,)).fetchall() if d['fichier']]
     if u and u['avatar'] and u['avatar'] != 'default.png':
         fichiers.append('static/avatars/' + u['avatar'])
+    couv = conn.execute('SELECT couverture FROM users WHERE id = ?', (user_id,)).fetchone()
+    if couv and couv['couverture']:
+        fichiers.append('static/uploads/' + couv['couverture'])
+    conn.execute('DELETE FROM vues_profil WHERE profil_id = ? OR visiteur_id = ?', (user_id, user_id))
 
     for table in ('posts', 'likes', 'commentaires', 'reactions', 'post_sondage_votes', 'signalements_posts', 'questions',
                   'reponses', 'votes_reponses', 'documents', 'notifications', 'abonnements_alertes', 'reset_tokens',
@@ -4292,6 +4367,39 @@ def confidentialite():
 @app.route('/conditions')
 def conditions():
     return render_template('conditions.html')
+
+# ---- Qui a vu mon profil
+def noter_visite(conn, profil_id, visiteur_id):
+    """Garde la derniere visite (sauf sur soi-meme, si le visiteur masque ses visites, ou en cas de blocage)."""
+    if profil_id == visiteur_id:
+        return
+    v = conn.execute('SELECT masquer_visites FROM users WHERE id = ?', (visiteur_id,)).fetchone()
+    if not v or v['masquer_visites'] or blocage_entre(profil_id, visiteur_id):
+        return
+    maintenant = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    conn.execute('DELETE FROM vues_profil WHERE profil_id = ? AND visiteur_id = ?', (profil_id, visiteur_id))
+    conn.execute('INSERT INTO vues_profil (profil_id, visiteur_id, date_vue) VALUES (?, ?, ?)', (profil_id, visiteur_id, maintenant))
+    conn.commit()
+
+@app.route('/api/profil/vues')
+def api_vues_profil():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    moi = conn.execute('SELECT masquer_visites FROM users WHERE id = ?', (user_id,)).fetchone()
+    if moi['masquer_visites']:  # reciproque : qui cache ses visites ne voit pas celles des autres
+        conn.close()
+        return jsonify({'masque': True, 'total': 0, 'vues': []})
+    il_y_a_30j = (datetime.now(timezone.utc) - timedelta(days=30)).strftime('%Y-%m-%d %H:%M:%S')
+    vues = conn.execute('''SELECT users.id, users.prenom, users.nom, users.avatar, users.filiere, users.universite, v.date_vue
+                           FROM vues_profil v JOIN users ON users.id = v.visiteur_id
+                           WHERE v.profil_id = ? AND v.date_vue >= ? AND COALESCE(users.banni, 0) = 0
+                             AND users.id NOT IN (SELECT bloque_id FROM blocages WHERE bloqueur_id = ?)
+                             AND users.id NOT IN (SELECT bloqueur_id FROM blocages WHERE bloque_id = ?)
+                           ORDER BY v.date_vue DESC LIMIT 50''', (user_id, il_y_a_30j, user_id, user_id)).fetchall()
+    conn.close()
+    return jsonify({'masque': False, 'total': len(vues), 'vues': [dict(v) for v in vues]})
 
 @app.route('/api/formations')
 def api_formations():
@@ -4485,9 +4593,10 @@ def api_profil(autre_id):
         WHERE ub.user_id = ? ORDER BY ub.date_obtention DESC
     ''', (autre_id,)).fetchall()
     bloque = bool(conn.execute('SELECT 1 FROM blocages WHERE bloqueur_id = ? AND bloque_id = ?', (user_id, autre_id)).fetchone())
+    noter_visite(conn, autre_id, user_id)
     suivi = bool(conn.execute('SELECT 1 FROM follows WHERE follower_id = ? AND followed_id = ?', (user_id, autre_id)).fetchone())
     conn.close()
-    return jsonify({'user': dict(user), 'posts': [dict(p) for p in posts], 'badges': [dict(b) for b in badges], 'bloque': bloque, 'suivi': suivi})
+    return jsonify({'user': profil_public(user), 'posts': [dict(p) for p in posts], 'badges': [dict(b) for b in badges], 'bloque': bloque, 'suivi': suivi})
 
 @app.route('/api/documents')
 def api_documents():
@@ -4613,13 +4722,31 @@ def api_modifier_profil():
         stocker_fichier('static/avatars/' + avatar, img)
         if ancien and ancien['avatar'] and ancien['avatar'] != 'default.png':
             supprimer_fichier('static/avatars/' + ancien['avatar'])
+    riches, erreur = lire_profil_riche(data)
+    if erreur:
+        conn.close()
+        return jsonify({'error': erreur}), 400
+    # photo de couverture (ou suppression avec "couverture": "")
+    ancienne_couv = conn.execute('SELECT couverture FROM users WHERE id = ?', (user_id,)).fetchone()['couverture']
+    if data.get('couverture'):
+        nom_couv, err = image_depuis_base64(data['couverture'])
+        if err:
+            conn.close()
+            return jsonify({'error': err}), 400
+        riches['couverture'] = nom_couv
+    elif data.get('couverture') == '' and ancienne_couv:
+        riches['couverture'] = None
+    if 'couverture' in riches and ancienne_couv:
+        supprimer_fichier('static/uploads/' + ancienne_couv)
     conn.execute('UPDATE users SET prenom=?, nom=?, universite=?, filiere=?, annee=?, bio=?, avatar=? WHERE id=?',
                  (champs['prenom'], champs['nom'], champs['universite'], champs['filiere'],
                   champs['annee'], champs['bio'], avatar, user_id))
+    for cle, valeur in riches.items():  # cles validees par lire_profil_riche
+        conn.execute(f'UPDATE users SET {cle} = ? WHERE id = ?', (valeur, user_id))
     conn.commit()
-    user = conn.execute('SELECT id, nom, prenom, email, universite, filiere, annee, bio, avatar, date_inscription FROM users WHERE id = ?', (user_id,)).fetchone()
+    user = conn.execute(f'SELECT {CHAMPS_PUBLICS_USER}, email FROM users WHERE id = ?', (user_id,)).fetchone()
     conn.close()
-    return jsonify(dict(user))
+    return jsonify(profil_public(user))
 
 @app.route('/api/evenements')
 def api_evenements():

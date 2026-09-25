@@ -3,6 +3,7 @@ import { View, Text, FlatList, TouchableOpacity, Alert, StyleSheet } from 'react
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import Avatar from '../components/Avatar';
+import { Couverture, DetailsProfil } from '../components/ProfilRiche';
 import PostImage from '../components/PostImage';
 import useApiList from '../hooks/useApiList';
 import { Card, Loading, EmptyState, pullToRefresh, SkeletonList } from '../components/ui';
@@ -38,7 +39,7 @@ export default function ProfileScreen({ navigation, onLogout }) {
       refreshControl={pullToRefresh(refreshing, refresh)}
       ListHeaderComponent={
         <>
-          <View style={styles.banner} />
+          <Couverture user={user} hauteur={130} />
           <View style={styles.header}>
             <View style={styles.avatarRing}>
               <Avatar name={`${user.prenom} ${user.nom}`} size={88} index={user.id} avatar={user.avatar} />
@@ -89,6 +90,8 @@ export default function ProfileScreen({ navigation, onLogout }) {
               <Ionicons name="chevron-forward" size={20} color={colors.white} />
             </TouchableOpacity>
           ) : null}
+          <DetailsProfil user={user} />
+          <VuesProfil navigation={navigation} />
           <TouchableOpacity style={styles.parametres} onPress={() => navigation.navigate('Parametres')} activeOpacity={0.85}>
             <Ionicons name="settings-outline" size={22} color={colors.primary} />
             <View style={{ flex: 1 }}>
@@ -178,3 +181,33 @@ const useStyles = creerStyles(({ colors, font, shadow }) => ({
   segActif: { backgroundColor: colors.primary },
   segTexte: { fontSize: 12, fontWeight: '700', color: colors.textMuted },
 }));
+
+// Qui a vu mon profil (30 derniers jours)
+function VuesProfil({ navigation }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const [vues, setVues] = React.useState(null);
+  const [ouvert, setOuvert] = React.useState(false);
+  React.useEffect(() => { api.getVuesProfil().then(setVues).catch(() => {}); }, []);
+  if (!vues) return null;
+  return (
+    <View style={styles.parametres}>
+      <TouchableOpacity style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, flex: 1 }}
+        onPress={() => (vues.masque ? navigation.navigate('Parametres') : setOuvert(!ouvert))} activeOpacity={0.85}>
+        <Ionicons name="eye-outline" size={22} color={colors.primary} />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.parametresTitre}>{vues.masque ? 'Visites masquees' : `${vues.total} vue${vues.total > 1 ? 's' : ''} de ton profil`}</Text>
+          <Text style={styles.parametresTexte}>{vues.masque ? 'Reactive-les dans Parametres > Confidentialite' : 'Ces 30 derniers jours · toucher pour voir qui'}</Text>
+          {ouvert ? vues.vues.map((v) => (
+            <TouchableOpacity key={v.id} style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.sm }}
+              onPress={() => navigation.navigate('ProfilEtudiant', { id: v.id })}>
+              <Avatar name={`${v.prenom} ${v.nom}`} size={30} index={v.id} avatar={v.avatar} />
+              <Text style={{ color: colors.text, fontWeight: '600', flex: 1 }}>{v.prenom} {v.nom}</Text>
+              <Text style={styles.parametresTexte}>{dateRelative(v.date_vue)}</Text>
+            </TouchableOpacity>
+          )) : null}
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
+}
