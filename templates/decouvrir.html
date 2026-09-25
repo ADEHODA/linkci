@@ -1,0 +1,65 @@
+{% extends 'base_app.html' %}
+{% block titre %}Decouvrir{% endblock %}
+{% block contenu %}
+<h1 class="titre-page">Decouvrir</h1>
+<form class="carte ligne" id="form" style="padding:10px 14px">
+  <span>🔎</span><input class="champ" id="q" style="background:none" placeholder="Etudiants, cours, questions, annonces, offres, groupes..." value="{{ q }}" autofocus>
+</form>
+<div id="resultats"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const L = LinkCI;
+  const zone = document.getElementById('resultats');
+  const champ = document.getElementById('q');
+  const OFFRES = { stage: 'Stage', emploi: 'Emploi', job: 'Job etudiant', alternance: 'Alternance' };
+  const ligne = (lien, gauche, titre, sous) => `<a class="ligne" href="${lien}" style="padding:9px 0;color:var(--text)">${gauche}
+    <div style="min-width:0;flex:1"><div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${L.esc(titre)}</div>
+    <div class="sous">${L.esc(sous || '')}</div></div><span class="sous">›</span></a>`;
+  const icone = (e, c) => `<span class="av" style="background:${c}22;color:${c}">${e}</span>`;
+  const section = (titre, liste, rendu) => liste && liste.length ? `<div class="carte"><strong>${titre}</strong>${liste.map(rendu).join('')}</div>` : '';
+
+  const decouverte = async () => {
+    const d = await L.api('/api/decouverte');
+    zone.innerHTML = (d.etudiants.length ? `<div class="carte"><strong>Etudiants a decouvrir</strong>${d.etudiants.map((u) =>
+      `<div class="ligne" style="padding:8px 0"><a href="/profil/${u.id}">${L.avatar(`${u.prenom} ${u.nom}`, u.id, u.avatar, 40)}</a>
+       <div style="flex:1"><a href="/profil/${u.id}" style="font-weight:700;color:var(--text)">${L.esc(u.prenom)} ${L.esc(u.nom)}</a>
+       <div class="sous">${L.esc([u.raison, u.filiere, u.universite].filter(Boolean).join(' · '))}</div></div>
+       <button class="btn petit" data-suivre="${u.id}">Suivre</button></div>`).join('')}</div>` : '')
+      + (d.tendances.length ? `<div class="carte"><strong>Tendances du campus</strong><div class="puces" style="margin:10px 0 0">${d.tendances.map((t) =>
+        `<button class="puce" data-tag="${L.esc(t.tag)}">#${L.esc(t.tag)} <span class="sous">${t.nb}</span></button>`).join('')}</div></div>` : '')
+      + (d.populaires.length ? `<div class="carte"><strong>Populaire cette semaine</strong>${d.populaires.map((p) =>
+        ligne(`/profil/${p.user_id}`, L.avatar(`${p.prenom} ${p.nom}`, p.user_id, p.avatar, 40), p.contenu || 'Photo', `${p.prenom} ${p.nom} · ${L.quand(p.date_post)}`)).join('')}</div>` : '')
+      || '<div class="vide">Cherche un camarade, un cours, une question, une annonce...</div>';
+  };
+
+  const chercher = async (q) => {
+    if (q.trim().length < 2) return decouverte();
+    zone.innerHTML = '<div class="chargement">Recherche...</div>';
+    const r = await L.api(`/api/recherche?q=${encodeURIComponent(q.trim())}`);
+    const html = section('Etudiants', r.users, (u) => ligne(`/profil/${u.id}`, L.avatar(`${u.prenom} ${u.nom}`, u.id, u.avatar, 40), `${u.prenom} ${u.nom}`, [u.filiere, u.universite].filter(Boolean).join(' · ')))
+      + section('Publications', r.posts, (p) => ligne(`/profil/${p.user_id}`, L.avatar(`${p.prenom} ${p.nom}`, p.user_id, p.avatar, 40), p.contenu || 'Photo', `${p.prenom} ${p.nom} · ${L.quand(p.date_post)}`))
+      + section("Questions d'entraide", r.questions, (q) => ligne(`/entraide/${q.id}`, icone('🛟', '#7C3AED'), q.titre, `${q.matiere} · ${q.nb_reponses} reponse(s)${q.resolue ? ' · resolue' : ''}`))
+      + section('Petites annonces', r.annonces, (a) => ligne('/annonces', a.image ? `<img class="av" src="${L.image(a.image)}">` : icone('🏷️', '#DB2777'), a.titre, [a.vendu ? 'Vendu' : a.prix ? `${a.prix} FCFA` : 'Gratuit', a.ville].filter(Boolean).join(' · ')))
+      + section('Stages et emplois', r.offres, (o) => ligne('/opportunites', icone('💼', '#0891B2'), o.titre, [OFFRES[o.type], o.entreprise, o.ville].filter(Boolean).join(' · ')))
+      + section('Bourses', r.bourses, (b) => ligne('/bourses', icone('💰', '#FF6B35'), b.titre, [b.organisme, b.type].filter(Boolean).join(' · ')))
+      + section('Formations', r.formations, (f) => ligne(`/formations/${f.id}`, icone('🎓', '#009E60'), f.nom, [f.universite, f.niveau].filter(Boolean).join(' · ')))
+      + section('Groupes', r.groupes, (g) => ligne('/groupes', L.avatar(g.nom, g.id, null, 40), g.nom, `${g.nb_membres} membre(s)${g.membre ? ' · tu es membre' : ''}`))
+      + section('Documents', r.documents, (d) => ligne('/documents', icone('📄', '#2563EB'), d.titre, d.matiere || ''));
+    zone.innerHTML = html || `<div class="vide">Aucun resultat pour « ${L.esc(q)} ».</div>`;
+  };
+
+  let minuterie;
+  champ.addEventListener('input', () => { clearTimeout(minuterie); minuterie = setTimeout(() => chercher(champ.value).catch(L.erreur), 350); });
+  document.getElementById('form').addEventListener('submit', (e) => { e.preventDefault(); chercher(champ.value).catch(L.erreur); });
+  zone.addEventListener('click', async (e) => {
+    const t = e.target.closest('[data-tag]');
+    if (t) { champ.value = '#' + t.dataset.tag; return chercher(champ.value).catch(L.erreur); }
+    const s = e.target.closest('[data-suivre]');
+    if (s) { try { await L.api(`/api/utilisateurs/${s.dataset.suivre}/suivre`, { methode: 'POST' }); s.textContent = 'Suivi'; s.disabled = true; } catch (err) { L.erreur(err); } }
+  });
+  chercher(champ.value).catch(L.erreur);
+})();
+</script>
+{% endblock %}

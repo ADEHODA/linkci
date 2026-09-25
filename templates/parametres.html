@@ -1,0 +1,101 @@
+{% extends 'base_app.html' %}
+{% block titre %}Parametres{% endblock %}
+{% block contenu %}
+<h1 class="titre-page">⚙️ Parametres</h1>
+<div id="contenu"><div class="chargement">Chargement...</div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const L = LinkCI;
+  const NOTIFS = [['messages', 'Messages prives'], ['reactions', "J'aime et reactions"], ['commentaires', 'Commentaires et mentions'],
+    ['abonnes', 'Nouveaux abonnes'], ['nouveautes', 'Bourses, formations, documents'], ['offres', 'Stages et emplois'],
+    ['entraide', 'Entraide'], ['annonces', "Annonces de l'administration"]];
+  let p = await L.api('/api/parametres');
+  const zone = document.getElementById('contenu');
+  const inter = (cle, label, valeur, aide) => `<label class="ligne" style="padding:10px 0;cursor:pointer">
+    <div style="flex:1"><div style="font-weight:600">${label}</div>${aide ? `<div class="sous">${aide}</div>` : ''}</div>
+    <input type="checkbox" data-cle="${cle}" ${valeur ? 'checked' : ''} style="width:20px;height:20px;accent-color:var(--primary)"></label>`;
+
+  const dessiner = () => {
+    zone.innerHTML = `
+    <div class="carte"><strong>Compte</strong>
+      <div class="ligne" style="flex-wrap:wrap;margin-top:10px">
+        <a class="btn gris petit" href="/profil/modifier">Modifier le profil</a>
+        <button class="btn gris petit" id="mdp">Changer le mot de passe</button>
+        <button class="btn gris petit" id="partout">Deconnecter les autres appareils</button>
+        <a class="btn danger petit" href="/compte/supprimer">Supprimer mon compte</a></div></div>
+    <div class="carte"><strong>Confidentialite</strong>
+      <div class="sous" style="margin-top:10px">Qui peut m'ecrire</div>
+      <div class="puces" style="margin:6px 0">
+        <button class="puce ${p.qui_peut_ecrire === 'tous' ? 'active' : ''}" data-qui="tous">Tout le monde</button>
+        <button class="puce ${p.qui_peut_ecrire === 'abonnes' ? 'active' : ''}" data-qui="abonnes">Personnes que je suis</button></div>
+      ${inter('vu', 'Accuses de lecture (Vu)', !p.masquer_vu, 'Si tu les desactives, tu ne verras pas non plus ceux des autres.')}
+      <button class="btn gris petit" id="bloques">Comptes bloques</button></div>
+    <div class="carte"><strong>Notifications sur le telephone</strong>
+      ${NOTIFS.map(([c, l]) => inter('n:' + c, l, p.notifications[c] !== false)).join('')}</div>
+    <div class="carte"><strong>Apparence</strong><div class="puces" style="margin:10px 0 0">
+      <button class="puce" data-theme="">Automatique</button><button class="puce" data-theme="light">Clair</button><button class="puce" data-theme="dark">Sombre</button></div></div>
+    <div class="carte"><strong>Aide</strong><div style="margin-top:8px">
+      <a href="/confidentialite">Politique de confidentialite</a> · <a href="/conditions">Conditions d'utilisation</a> ·
+      <a href="#" id="contact">Contacter l'administrateur</a></div></div>`;
+  };
+  dessiner();
+
+  const enregistrer = async (changement) => {
+    try { p = await L.api('/api/parametres', { methode: 'PUT', corps: changement }); dessiner(); L.toast('Enregistre'); } catch (e) { L.erreur(e); }
+  };
+
+  zone.addEventListener('change', (e) => {
+    const c = e.target.dataset.cle; if (!c) return;
+    if (c === 'vu') enregistrer({ masquer_vu: !e.target.checked });
+    else enregistrer({ notifications: { [c.slice(2)]: e.target.checked } });
+  });
+  zone.addEventListener('click', async (e) => {
+    const qui = e.target.closest('[data-qui]');
+    if (qui) return enregistrer({ qui_peut_ecrire: qui.dataset.qui });
+    const th = e.target.closest('[data-theme]');
+    if (th) {
+      if (th.dataset.theme) document.documentElement.setAttribute('data-theme', th.dataset.theme); else document.documentElement.removeAttribute('data-theme');
+      try { if (th.dataset.theme) localStorage.setItem('linkci_theme', th.dataset.theme); else localStorage.removeItem('linkci_theme'); } catch (x) {}
+      return;
+    }
+    try {
+      if (e.target.id === 'partout' && L.confirmer('Deconnecter tous tes autres appareils (telephones compris) ?')) {
+        L.toast((await L.api('/api/deconnecter_partout', { methode: 'POST' })).message);
+      } else if (e.target.id === 'contact') {
+        e.preventDefault();
+        const a = await L.api('/api/aide/contact');
+        window.location = a.id ? `/conversation/${a.id}` : '/fil';
+      } else if (e.target.id === 'bloques') {
+        const liste = await L.api('/api/bloques');
+        const f = L.fenetre(`<h3>Comptes bloques</h3>${liste.map((u) => `<div class="ligne" style="padding:6px 0">${L.avatar(`${u.prenom} ${u.nom}`, u.id, u.avatar, 34)}
+          <span style="flex:1">${L.esc(u.prenom)} ${L.esc(u.nom)}</span><button class="btn gris petit" data-deb="${u.id}">Debloquer</button></div>`).join('') || '<p class="sous">Tu n\'as bloque personne.</p>'}
+          <div style="text-align:right;margin-top:10px"><button class="btn gris" data-fermer>Fermer</button></div>`);
+        f.el.addEventListener('click', async (x) => {
+          const b = x.target.closest('[data-deb]'); if (!b) return;
+          await L.api(`/api/utilisateurs/${b.dataset.deb}/bloquer`, { methode: 'DELETE' });
+          b.closest('.ligne').remove();
+        });
+      } else if (e.target.id === 'mdp') {
+        const f = L.fenetre(`<h3>Changer le mot de passe</h3>
+          <input class="champ" type="password" id="a" placeholder="Mot de passe actuel" style="margin-bottom:8px">
+          <input class="champ" type="password" id="n" placeholder="Nouveau (8 caracteres min.)" style="margin-bottom:8px">
+          <input class="champ" type="password" id="c" placeholder="Confirme le nouveau">
+          <div class="ligne" style="margin-top:12px"><button class="btn gris" data-fermer>Annuler</button><button class="btn" id="ok" style="margin-left:auto">Enregistrer</button></div>`);
+        f.el.querySelector('#ok').onclick = async () => {
+          const n = f.el.querySelector('#n').value;
+          if (n !== f.el.querySelector('#c').value) return L.toast('Les deux mots de passe ne correspondent pas');
+          try {
+            await L.api('/api/mot_de_passe', { methode: 'POST', corps: { actuel: f.el.querySelector('#a').value, nouveau: n } });
+            f.fermer();
+            L.toast('Mot de passe modifie : reconnecte-toi');
+            setTimeout(() => { window.location = '/connexion'; }, 1500);
+          } catch (err) { L.erreur(err); }
+        };
+      }
+    } catch (err) { L.erreur(err); }
+  });
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,130 @@
+{% extends 'base_app.html' %}
+{% block titre %}Fil d'actualite{% endblock %}
+{% block largeur %}large{% endblock %}
+{% block contenu %}
+<div class="stories" id="stories"></div>
+
+<div class="carte">
+  <textarea class="champ" id="texte" placeholder="Partage une info, une question, une photo... (#hashtags bienvenus)" maxlength="5000"></textarea>
+  <div id="apercu-photo" hidden style="margin-top:10px;position:relative;display:inline-block">
+    <img id="img-photo" style="max-height:160px;border-radius:12px"><button class="btn gris petit" id="retirer-photo" style="position:absolute;top:6px;right:6px">✕</button>
+  </div>
+  <div id="sondage" hidden style="margin-top:10px"></div>
+  <div class="ligne" style="margin-top:10px;flex-wrap:wrap">
+    <button class="act" id="ajouter-photo">🖼️ Photo</button>
+    <button class="act" id="ajouter-sondage">📊 Sondage</button>
+    <button class="btn" id="publier" style="margin-left:auto">Publier</button>
+  </div>
+</div>
+
+<div class="puces">
+  <button class="puce active" data-fac="0">Pour toi</button>
+  <button class="puce" data-fac="1">Ma fac</button>
+</div>
+<div id="posts"></div>
+<div id="suite" class="chargement">Chargement...</div>
+{% endblock %}
+
+{% block cote %}
+<aside class="cote">
+  <div class="carte"><strong>Etudiants a decouvrir</strong><div id="suggestions" style="margin-top:10px"></div></div>
+  <div class="carte"><strong>Tendances du campus</strong><div id="tendances" class="puces" style="margin:10px 0 0"></div></div>
+  <div class="sous" style="padding:0 6px"><a href="/confidentialite">Confidentialite</a> · <a href="/conditions">Conditions</a> · LinkCI</div>
+</aside>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(async () => {
+  const L = LinkCI;
+  const zonePosts = document.getElementById('posts');
+  const suite = document.getElementById('suite');
+  let page = 1, fin = false, charge = false, fac = false, photo = null, choix = null;
+
+  L.brancherPosts(zonePosts);
+  L.stories(document.getElementById('stories')).catch(() => {});
+
+  const charger = async (reset) => {
+    if (charge || (fin && !reset)) return;
+    charge = true;
+    if (reset) { page = 1; fin = false; zonePosts.innerHTML = ''; }
+    try {
+      const liste = await L.api(`/api/posts?page=${page}${fac ? '&fac=1' : ''}`);
+      L.enregistrerPosts(liste);
+      zonePosts.insertAdjacentHTML('beforeend', liste.map(L.htmlPost).join(''));
+      fin = liste.length < 20;
+      page += 1;
+      suite.textContent = fin ? (zonePosts.children.length ? 'Tu es a jour ✨' : 'Aucune publication pour le moment.') : '';
+    } catch (e) { suite.textContent = e.message; }
+    charge = false;
+  };
+  new IntersectionObserver((e) => { if (e[0].isIntersecting) charger(); }).observe(suite);
+  await charger(true);
+
+  document.querySelectorAll('[data-fac]').forEach((b) => b.addEventListener('click', () => {
+    document.querySelectorAll('[data-fac]').forEach((x) => x.classList.toggle('active', x === b));
+    fac = b.dataset.fac === '1';
+    charger(true);
+  }));
+
+  // composition : photo et sondage
+  const zoneSondage = document.getElementById('sondage');
+  const dessinerSondage = () => {
+    zoneSondage.hidden = !choix;
+    if (!choix) return;
+    zoneSondage.innerHTML = choix.map((c, k) => `<input class="champ" data-choix="${k}" maxlength="80" placeholder="Choix ${k + 1}" value="${L.esc(c)}" style="margin-bottom:6px">`).join('')
+      + `<div class="ligne">${choix.length < 4 ? '<a href="#" id="plus-choix">+ Ajouter un choix</a>' : ''}<a href="#" id="sans-sondage" style="margin-left:auto;color:var(--muted)">Retirer le sondage</a></div>`;
+  };
+  zoneSondage.addEventListener('input', (e) => { if (e.target.dataset.choix) choix[Number(e.target.dataset.choix)] = e.target.value; });
+  zoneSondage.addEventListener('click', (e) => {
+    if (e.target.id === 'plus-choix') { e.preventDefault(); choix.push(''); dessinerSondage(); }
+    if (e.target.id === 'sans-sondage') { e.preventDefault(); choix = null; dessinerSondage(); }
+  });
+  document.getElementById('ajouter-sondage').onclick = () => { choix = choix || ['', '']; dessinerSondage(); };
+  document.getElementById('ajouter-photo').onclick = async () => {
+    const f = await L.choisirPhoto();
+    if (!f) return;
+    photo = f;
+    document.getElementById('img-photo').src = URL.createObjectURL(f);
+    document.getElementById('apercu-photo').hidden = false;
+  };
+  document.getElementById('retirer-photo').onclick = () => { photo = null; document.getElementById('apercu-photo').hidden = true; };
+
+  document.getElementById('publier').onclick = async (e) => {
+    const texte = document.getElementById('texte').value.trim();
+    if (!texte && !photo) return L.toast('Ecris quelque chose ou ajoute une photo');
+    const options = choix ? choix.map((c) => c.trim()).filter(Boolean) : null;
+    if (choix && options.length < 2) return L.toast('Un sondage a au moins 2 choix');
+    e.target.disabled = true;
+    try {
+      const corps = { contenu: texte };
+      if (photo) corps.image = await L.photoEnBase64(photo);
+      if (options) corps.sondage = options;
+      await L.api('/api/posts', { methode: 'POST', corps });
+      document.getElementById('texte').value = '';
+      photo = null; choix = null;
+      document.getElementById('apercu-photo').hidden = true;
+      dessinerSondage();
+      await charger(true);
+    } catch (err) { L.erreur(err); }
+    e.target.disabled = false;
+  };
+
+  // colonne de droite : decouverte
+  try {
+    const d = await L.api('/api/decouverte');
+    document.getElementById('suggestions').innerHTML = d.etudiants.slice(0, 5).map((u) => `<div class="ligne" style="margin-bottom:10px">
+      <a href="/profil/${u.id}">${L.avatar(`${u.prenom} ${u.nom}`, u.id, u.avatar, 36)}</a>
+      <div style="flex:1;min-width:0"><a href="/profil/${u.id}" style="color:var(--text);font-weight:700">${L.esc(u.prenom)} ${L.esc(u.nom)}</a><div class="sous">${L.esc(u.raison)}</div></div>
+      <button class="btn petit" data-suivre="${u.id}">Suivre</button></div>`).join('') || '<div class="sous">Personne pour le moment.</div>';
+    document.getElementById('tendances').innerHTML = d.tendances.map((t) => `<a class="puce" href="/decouvrir?q=%23${encodeURIComponent(t.tag)}">#${L.esc(t.tag)}</a>`).join('')
+      || '<span class="sous">Utilise des #hashtags dans tes publications !</span>';
+    document.getElementById('suggestions').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-suivre]');
+      if (!b) return;
+      try { await L.api(`/api/utilisateurs/${b.dataset.suivre}/suivre`, { methode: 'POST' }); b.textContent = 'Suivi'; b.disabled = true; } catch (err) { L.erreur(err); }
+    });
+  } catch (e) {}
+})();
+</script>
+{% endblock %}

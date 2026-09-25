@@ -1,0 +1,73 @@
+{% extends 'base_app.html' %}
+{% block titre %}Question{% endblock %}
+{% block contenu %}
+<a href="/entraide" class="sous">← Entraide</a>
+<div id="question" style="margin-top:10px"><div class="chargement">Chargement...</div></div>
+<div id="reponses"></div>
+<form class="carte" id="repondre">
+  <textarea class="champ" name="t" placeholder="Ecris ta reponse..." maxlength="5000" required></textarea>
+  <div style="text-align:right;margin-top:8px"><button class="btn">Repondre</button></div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const L = LinkCI;
+  const qid = {{ qid|int }};
+  let donnees = null;
+
+  const dessiner = () => {
+    const q = donnees.question;
+    document.getElementById('question').innerHTML = `<div class="carte">
+      <div class="ligne" style="margin-bottom:8px"><span class="chip">${L.esc(q.matiere)}</span>${q.resolue ? '<span class="chip vert">✓ Resolue</span>' : ''}
+        ${q.est_auteur ? '<button class="act" id="suppr" style="margin-left:auto">🗑️</button>' : ''}</div>
+      <h2 style="margin:0 0 8px">${L.esc(q.titre)}</h2>
+      ${q.contenu ? `<p class="post-texte">${L.esc(q.contenu)}</p>` : ''}
+      ${q.image ? `<img class="post-img" src="${L.image(q.image)}" data-zoom>` : ''}
+      <div class="ligne sous">${L.avatar(`${q.prenom} ${q.nom}`, q.user_id, q.avatar, 24)} <a href="/profil/${q.user_id}">${L.esc(q.prenom)} ${L.esc(q.nom)}</a> · ${L.quand(q.date_creation)}</div></div>
+      <div class="sous" style="margin:0 4px 8px;font-weight:700">${donnees.reponses.length} reponse(s)</div>`;
+    document.getElementById('reponses').innerHTML = donnees.reponses.map((r) => {
+      const best = q.meilleure_reponse_id === r.id;
+      return `<div class="carte" style="${best ? 'border:2px solid var(--accent)' : ''}" data-r="${r.id}">
+        ${best ? '<div style="color:var(--accent);font-weight:800;margin-bottom:6px">✅ Meilleure reponse</div>' : ''}
+        <div class="ligne" style="margin-bottom:6px">${L.avatar(`${r.prenom} ${r.nom}`, r.user_id, r.avatar, 30)}
+          <a href="/profil/${r.user_id}" style="font-weight:700;color:var(--text)">${L.esc(r.prenom)} ${L.esc(r.nom)}</a>
+          <span class="chip">${r.points} pts</span><span class="sous">${L.quand(r.date_creation)}</span></div>
+        <p class="post-texte">${L.esc(r.contenu)}</p>
+        <div class="actions"><button class="act ${r.a_vote ? 'on' : ''}" data-vote>👍 ${r.votes}</button>
+          ${q.est_auteur ? `<button class="act ${best ? 'on' : ''}" data-best>${best ? '✓ Choisie' : 'Meilleure reponse'}</button>` : ''}</div></div>`;
+    }).join('');
+  };
+
+  const charger = async () => { donnees = await L.api(`/api/questions/${qid}`); dessiner(); };
+
+  document.getElementById('reponses').addEventListener('click', async (e) => {
+    const carte = e.target.closest('[data-r]'); if (!carte) return;
+    const rid = Number(carte.dataset.r);
+    try {
+      if (e.target.closest('[data-vote]')) { await L.api(`/api/reponses/${rid}/vote`, { methode: 'POST' }); await charger(); }
+      if (e.target.closest('[data-best]')) {
+        const deja = donnees.question.meilleure_reponse_id === rid;
+        await L.api(`/api/questions/${qid}/meilleure`, { methode: 'POST', corps: { reponse_id: deja ? null : rid } });
+        await charger();
+      }
+    } catch (err) { L.erreur(err); }
+  });
+  document.getElementById('question').addEventListener('click', async (e) => {
+    if (e.target.closest('[data-zoom]')) window.open(e.target.src, '_blank');
+    if (e.target.closest('#suppr') && L.confirmer('Supprimer cette question et ses reponses ?')) {
+      try { await L.api(`/api/questions/${qid}`, { methode: 'DELETE' }); window.location = '/entraide'; } catch (err) { L.erreur(err); }
+    }
+  });
+  document.getElementById('repondre').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await L.api(`/api/questions/${qid}/reponses`, { methode: 'POST', corps: { contenu: e.target.t.value.trim() } });
+      e.target.t.value = '';
+      await charger();
+    } catch (err) { L.erreur(err); }
+  });
+  charger().catch((e) => { document.getElementById('question').innerHTML = `<div class="vide">${L.esc(e.message)}</div>`; });
+})();
+</script>
+{% endblock %}

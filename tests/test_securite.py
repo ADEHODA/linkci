@@ -55,7 +55,8 @@ def test_publication_avec_script_echappee(client):
     inscrire(client, 'xss@test.ci')
     connecter(client, 'xss@test.ci')
     client.post('/publier', data={'contenu': '<script>alert(1)</script> salut @Awa'})
-    page = client.get('/feed').get_data(as_text=True)
+    uid = sql("SELECT id FROM users WHERE email = 'xss@test.ci'")[0]['id']
+    page = client.get(f'/profil/{uid}').get_data(as_text=True)  # le fil est desormais affiche par JS (LinkCI.esc)
     assert '<script>alert(1)</script>' not in page
     assert '&lt;script&gt;alert(1)&lt;/script&gt;' in page
     assert 'class="mention">@Awa</a>' in page  # les mentions marchent toujours

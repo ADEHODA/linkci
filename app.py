@@ -1178,6 +1178,31 @@ def bloquer_web(autre_id):
         flash('Utilisateur bloque.' if bloquer else 'Utilisateur debloque.', 'success')
     return redirect(url_for('profil', user_id=autre_id))
 
+def page_app(gabarit, **extra):
+    if 'user_id' not in session:
+        return redirect(url_for('connexion', suivant=request.path))
+    return render_template(gabarit, **extra)
+
+@app.route('/fil')
+def fil_moderne():
+    return page_app('fil.html')
+
+@app.route('/entraide')
+def entraide_web():
+    return page_app('entraide.html')
+
+@app.route('/entraide/<int:qid>')
+def question_web(qid):
+    return page_app('question.html', qid=qid)
+
+@app.route('/parametres')
+def parametres_web():
+    return page_app('parametres.html')
+
+@app.route('/decouvrir')
+def decouvrir_web():
+    return page_app('decouvrir.html', q=request.args.get('q', ''))
+
 @app.route('/deconnexion')
 def deconnexion():
     session.clear()
@@ -1316,24 +1341,8 @@ def reinitialiser(token):
 
 @app.route('/feed')
 def feed():
-    if 'user_id' not in session:
-        return redirect(url_for('connexion'))
-
-    conn = get_db()
-    posts = conn.execute('''
-        SELECT posts.*, users.prenom, users.nom, users.avatar,
-               (SELECT COUNT(*) FROM likes WHERE likes.post_id = posts.id) as nb_likes,
-               (SELECT COUNT(*) FROM commentaires WHERE commentaires.post_id = posts.id) as nb_commentaires,
-               EXISTS(SELECT 1 FROM likes WHERE likes.post_id = posts.id AND likes.user_id = ?) as a_like
-        FROM posts
-        JOIN users ON posts.user_id = users.id
-        WHERE posts.user_id NOT IN (SELECT bloque_id FROM blocages WHERE bloqueur_id = ?) AND posts.user_id NOT IN (SELECT bloqueur_id FROM blocages WHERE bloque_id = ?)
-        ORDER BY posts.date_post DESC
-    ''', (session['user_id'], session['user_id'], session['user_id'])).fetchall()
-    nb_abonnements = conn.execute('SELECT COUNT(*) as nb FROM follows WHERE follower_id = ?', (session['user_id'],)).fetchone()['nb']
-    conn.close()
-
-    return render_template('feed.html', posts=posts, nb_abonnements=nb_abonnements)
+    # l'ancien fil est remplace par le fil moderne (stories, reactions, sondages...)
+    return page_app('fil.html')
 
 @app.route('/publier', methods=['POST'])
 def publier():
@@ -2770,9 +2779,14 @@ API_SECRET = app.secret_key
 
 def api_require_auth():
     auth = request.headers.get('Authorization', '')
-    if not auth.startswith('Bearer '):
-        return None
-    return verifier_jeton_api(auth[7:])
+    if auth.startswith('Bearer '):
+        return verifier_jeton_api(auth[7:])
+    # Site web : la session du navigateur, seulement pour les appels fetch du
+    # site lui-meme. Un autre site ne peut ni envoyer cet en-tete sans CORS
+    # (non active), ni joindre le cookie SameSite=Lax a une requete POST.
+    if request.headers.get('X-LinkCI') == 'web' and session.get('user_id'):
+        return session['user_id']
+    return None
 
 # Jetons de l'app : signes (itsdangerous), valables 60 jours, et revocables
 # (users.jeton_version est incremente au changement de mot de passe).

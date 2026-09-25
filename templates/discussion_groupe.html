@@ -53,6 +53,8 @@
                     <div class="msg-item">
                         <span class="sender">{{ m.prenom }} {{ m.nom }}</span>
                         <span class="time">{{ m.date_envoi[11:16] }}</span>
+                        {% if m.image %}<a href="/static/uploads/{{ m.image }}" target="_blank" rel="noopener"><img src="/static/uploads/{{ m.image }}" alt="Photo" style="display:block;max-width:220px;max-height:260px;border-radius:10px;margin:0.3rem 0;object-fit:cover;"></a>{% endif %}
+                        {% if m.audio %}<audio controls preload="none" src="/static/uploads/{{ m.audio }}" style="max-width:240px;display:block;margin:0.3rem 0;"></audio>{% endif %}
                         <div class="text">{{ m.contenu }}</div>
                     </div>
                     {% endfor %}

@@ -1,0 +1,78 @@
+{% extends 'base_app.html' %}
+{% block titre %}Entraide{% endblock %}
+{% block contenu %}
+<div class="ligne"><h1 class="titre-page" style="flex:1">🛟 Entraide</h1>
+  <button class="btn gris petit" id="classement">🏆 Classement</button><button class="btn petit" id="poser">+ Poser une question</button></div>
+<div class="puces" id="filtres">
+  <button class="puce active" data-f="">Toutes</button><button class="puce" data-f="sans_reponse">Sans reponse</button><button class="puce" data-f="miennes">Mes questions</button>
+</div>
+<div class="puces" id="matieres"></div>
+<div id="liste"><div class="chargement">Chargement...</div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const L = LinkCI;
+  let filtre = '', matiere = '';
+  const MATIERES = ['Mathematiques', 'Informatique', 'Droit', 'Comptabilite', 'Economie', 'Physique', 'Anglais', 'Gestion'];
+
+  const charger = async () => {
+    const d = await L.api(`/api/questions?filtre=${filtre}&matiere=${encodeURIComponent(matiere)}`);
+    document.getElementById('matieres').innerHTML = d.matieres.length ? ['', ...d.matieres].map((m) =>
+      `<button class="puce ${m === matiere ? 'active' : ''}" data-m="${L.esc(m)}">${L.esc(m || 'Toutes les matieres')}</button>`).join('') : '';
+    document.getElementById('liste').innerHTML = d.questions.map((q) => `<a class="carte" href="/entraide/${q.id}" style="display:block;color:var(--text)">
+      <div class="ligne" style="margin-bottom:6px"><span class="chip">${L.esc(q.matiere)}</span>${q.resolue ? '<span class="chip vert">✓ Resolue</span>' : ''}</div>
+      <div style="font-weight:800;font-size:16px">${L.esc(q.titre)}</div>
+      ${q.contenu ? `<div class="sous" style="margin-top:4px">${L.esc(q.contenu.slice(0, 180))}</div>` : ''}
+      <div class="ligne sous" style="margin-top:10px">${L.avatar(`${q.prenom} ${q.nom}`, q.user_id, q.avatar, 22)} ${L.esc(q.prenom)} · ${L.quand(q.date_creation)}
+        <span style="margin-left:auto">💬 ${q.nb_reponses}</span></div></a>`).join('')
+      || '<div class="vide">Aucune question. Bloque sur un exercice ? Pose ta question !</div>';
+  };
+
+  document.getElementById('filtres').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-f]'); if (!b) return;
+    filtre = b.dataset.f;
+    document.querySelectorAll('#filtres .puce').forEach((x) => x.classList.toggle('active', x === b));
+    charger().catch(L.erreur);
+  });
+  document.getElementById('matieres').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-m]'); if (!b) return;
+    matiere = b.dataset.m; charger().catch(L.erreur);
+  });
+
+  document.getElementById('poser').onclick = () => {
+    let photo = null;
+    const f = L.fenetre(`<h3>Poser une question</h3>
+      <div class="puces">${MATIERES.map((m) => `<button class="puce" data-mat="${m}">${m}</button>`).join('')}</div>
+      <input class="champ" id="matiere" placeholder="Matiere" maxlength="60" style="margin-bottom:8px">
+      <input class="champ" id="titre" placeholder="Ta question (ex. Comment calculer une derivee ?)" maxlength="200" style="margin-bottom:8px">
+      <textarea class="champ" id="contenu" placeholder="Details (optionnel)" maxlength="3000"></textarea>
+      <div class="ligne" style="margin-top:10px"><button class="act" id="photo">🖼️ Photo de l'exercice</button><span class="sous" id="nom-photo"></span></div>
+      <div class="ligne" style="margin-top:14px"><button class="btn gris" data-fermer>Annuler</button><button class="btn" id="envoyer" style="margin-left:auto">Publier</button></div>`);
+    f.el.addEventListener('click', (e) => { const m = e.target.closest('[data-mat]'); if (m) f.el.querySelector('#matiere').value = m.dataset.mat; });
+    f.el.querySelector('#photo').onclick = async () => { photo = await L.choisirPhoto(); f.el.querySelector('#nom-photo').textContent = photo ? photo.name : ''; };
+    f.el.querySelector('#envoyer').onclick = async (e) => {
+      const corps = { matiere: f.el.querySelector('#matiere').value.trim(), titre: f.el.querySelector('#titre').value.trim(), contenu: f.el.querySelector('#contenu').value.trim() };
+      e.target.disabled = true;
+      try {
+        if (photo) corps.image = await L.photoEnBase64(photo);
+        const r = await L.api('/api/questions', { methode: 'POST', corps });
+        window.location = `/entraide/${r.id}`;
+      } catch (err) { e.target.disabled = false; L.erreur(err); }
+    };
+  };
+
+  document.getElementById('classement').onclick = async () => {
+    const d = await L.api('/api/entraide/classement');
+    const med = ['🥇', '🥈', '🥉'];
+    L.fenetre(`<h3>🏆 Meilleurs aidants</h3><p class="sous">1 point par reponse, 2 par 👍 recu, 10 par meilleure reponse. Tu as ${d.mes_points} points.</p>
+      ${d.classement.map((u, k) => `<div class="ligne" style="padding:6px 0"><strong style="width:28px">${med[k] || k + 1}</strong>
+        ${L.avatar(`${u.prenom} ${u.nom}`, u.id, u.avatar, 34)}<a href="/profil/${u.id}" style="flex:1;color:var(--text);font-weight:600">${L.esc(u.prenom)} ${L.esc(u.nom)}</a>
+        <strong style="color:var(--primary)">${u.points} pts</strong></div>`).join('') || '<p class="sous">Personne n\'a encore de points.</p>'}
+      <div style="text-align:right;margin-top:10px"><button class="btn gris" data-fermer>Fermer</button></div>`);
+  };
+
+  charger().catch(L.erreur);
+})();
+</script>
+{% endblock %}
