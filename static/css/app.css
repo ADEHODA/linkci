@@ -124,3 +124,17 @@ textarea.champ { resize: vertical; min-height: 70px; }
 .vis-haut { display: flex; align-items: center; gap: 10px; color: #fff; padding: 0 14px 10px; }
 .vis-haut button { margin-left: auto; background: none; border: 0; color: #fff; font-size: 26px; }
 .legende { color: #fff; text-align: center; font-size: 18px; font-weight: 700; padding: 14px; }
+
+/* messages (flash) du serveur */
+.flashs { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+.flash-msg { padding: 11px 14px; border-radius: 12px; font-weight: 600; background: var(--card-alt); color: var(--text); }
+.flash-msg.success { background: var(--accent-soft); color: var(--accent); }
+.flash-msg.error { background: var(--danger-soft); color: var(--danger); }
+.flash-msg.info { background: var(--primary-soft); color: var(--primary); }
+/* pages converties : le contenu occupe la colonne centrale */
+.centre > .container, .centre .container { max-width: none !important; margin: 0 !important; padding: 0 !important; width: auto !important; }
+/* pages converties : champs et boutons de l'ancien style au couleurs du theme */
+.centre select, .centre textarea, .centre input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=submit]) {
+  background: var(--card-alt); color: var(--text); border-color: var(--border);
+}
+.centre .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }

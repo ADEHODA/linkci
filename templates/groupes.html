@@ -1,36 +1,8 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Groupes — LINK CI</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <script src="/static/js/main.js" defer></script>
-</head>
-<body>
-    <nav class="navbar">
-        <div class="nav-container">
-            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
-            <div class="nav-links">
-                <a href="/feed" class="nav-link">Fil</a>
-                <a href="/bourses" class="nav-link">Bourses</a>
-                <a href="/opportunites" class="nav-link">Stages</a>
-                <a href="/annonces" class="nav-link">Annonces</a>
-                <a href="/entraide" class="nav-link">Entraide</a>
-                <a href="/decouvrir" class="nav-link">Decouvrir</a>
-                <a href="/parametres" class="nav-link">Parametres</a>
-                <a href="/calendrier" class="nav-link">Calendrier</a>
-                <a href="/groupes" class="nav-link active">Groupes</a>
-                <a href="/notifications" class="nav-link">Alerts</a>
-                <a href="/messagerie" class="nav-link">Messages</a>
-                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
-                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
-            </div>
-        </div>
-    </nav>
-    <div class="container" style="max-width:800px;">
+{% extends 'base_app.html' %}
+{% block titre %}Groupes{% endblock %}
+{% block styles_anciens %}<link rel="stylesheet" href="/static/css/style.css">{% endblock %}
+{% block contenu %}
+<div class="container" style="max-width:800px;">
         <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:1rem;margin-bottom:1.5rem;">
             <h2> Groupes de discussion</h2>
             <button class="btn btn-orange btn-round" onclick="document.getElementById('groupeForm').style.display='block'">+ Créer un groupe</button>
@@ -83,5 +55,4 @@
             {% endfor %}
         </div>
     </div>
-</body>
-</html>
+{% endblock %}

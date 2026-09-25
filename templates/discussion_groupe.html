@@ -1,14 +1,8 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ groupe.nom }} — LINK CI</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <script src="/static/js/main.js" defer></script>
-    <style>
+{% extends 'base_app.html' %}
+{% block titre %}{{ groupe.nom }}{% endblock %}
+{% block styles_anciens %}<link rel="stylesheet" href="/static/css/style.css">{% endblock %}
+{% block tete %}
+<style>
         .groupe-chat { display:flex;gap:1rem;min-height:60vh; }
         .groupe-messages { flex:1;display:flex;flex-direction:column; }
         .groupe-sidebar { width:220px;flex-shrink:0; }
@@ -21,20 +15,9 @@
         .member-item .role { font-size:0.7rem;color:var(--text-muted); }
         @media(max-width:600px){ .groupe-chat{flex-direction:column;}.groupe-sidebar{width:100%;} }
     </style>
-</head>
-<body>
-    <nav class="navbar">
-        <div class="nav-container">
-            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
-            <div class="nav-links">
-                <a href="/feed" class="nav-link">Fil</a>
-                <a href="/groupes" class="nav-link">Groupes</a>
-                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
-                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
-            </div>
-        </div>
-    </nav>
-    <div class="container" style="max-width:900px;">
+{% endblock %}
+{% block contenu %}
+<div class="container" style="max-width:900px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
             <div>
                 <a href="/groupes" style="font-size:0.85rem;color:var(--text-light);text-decoration:none;">← Groupes</a>
@@ -79,9 +62,10 @@
             </div>
         </div>
     </div>
-    <script>
+{% endblock %}
+{% block scripts %}
+<script>
         const msgList = document.getElementById('msgList');
         if (msgList) msgList.scrollTop = msgList.scrollHeight;
     </script>
-</body>
-</html>
+{% endblock %}

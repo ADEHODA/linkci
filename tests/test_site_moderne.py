@@ -28,3 +28,17 @@ def test_deconnexion_coupe_le_pont(client):
     connecter(client, 'web.deco@test.ci')
     client.get('/deconnexion')
     assert client.get('/api/me', headers={'X-LinkCI': 'web'}).status_code == 401
+
+
+def test_pages_converties(client):
+    """Toutes les pages du site s'affichent avec la nouvelle mise en page."""
+    inscrire(client, 'web.conv@test.ci')
+    connecter(client, 'web.conv@test.ci')
+    from test_securite import sql
+    uid = sql("SELECT id FROM users WHERE email = 'web.conv@test.ci'")[0]['id']
+    for url in ('/bourses', '/formations', '/documents', '/documents/ajouter', '/bourses/ajouter', '/calendrier',
+                '/groupes', '/messagerie', f'/profil/{uid}', '/profil/modifier', '/notifications', '/opportunites', '/annonces'):
+        r = client.get(url)
+        assert r.status_code == 200, url
+        html = r.get_data(as_text=True)
+        assert 'class="menu"' in html and 'app.css' in html, url

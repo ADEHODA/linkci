@@ -6,7 +6,9 @@
   <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
   <title>{% block titre %}LinkCI{% endblock %} — LinkCI</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/css/app.css?v=1">
+  {% block styles_anciens %}{% endblock %}
+  <link rel="stylesheet" href="/static/css/app.css?v=3">
+  {% block tete %}{% endblock %}
   <script>
     // theme memorise (clair / sombre / automatique) avant l'affichage, sans flash
     try { var t = localStorage.getItem('linkci_theme'); if (t) document.documentElement.setAttribute('data-theme', t); } catch (e) {}
@@ -49,7 +51,12 @@
       {% if utilisateur_est_admin() %}<a href="/admin">🛡️ Administration</a>{% endif %}
       <a href="/deconnexion">🚪 Deconnexion</a>
     </nav>
-    <main class="centre">{% block contenu %}{% endblock %}</main>
+    <main class="centre">
+      {% with messages = get_flashed_messages(with_categories=true) %}{% if messages %}
+      <div class="flashs">{% for categorie, message in messages %}<div class="flash-msg {{ categorie }}">{{ message }}</div>{% endfor %}</div>
+      {% endif %}{% endwith %}
+      {% block contenu %}{% endblock %}
+    </main>
     {% block cote %}{% endblock %}
   </div>
 

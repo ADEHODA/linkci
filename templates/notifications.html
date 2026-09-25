@@ -1,47 +1,8 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Notifications — LINK CI</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <script src="/static/js/main.js" defer></script>
-</head>
-<body>
-{% with messages = get_flashed_messages(with_categories=true) %}
-{% if messages %}
-<div class="flash-container">
-{% for category, message in messages %}
-<div class="flash {{ category }}">{{ message }}</div>
-{% endfor %}
-</div>
-{% endif %}
-{% endwith %}
-    <nav class="navbar">
-        <div class="nav-container">
-            <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
-            <div class="nav-links">
-                <a href="/feed" class="nav-link">Fil</a>
-                <a href="/bourses" class="nav-link">Bourses</a>
-                <a href="/opportunites" class="nav-link">Stages</a>
-                <a href="/annonces" class="nav-link">Annonces</a>
-                <a href="/entraide" class="nav-link">Entraide</a>
-                <a href="/decouvrir" class="nav-link">Decouvrir</a>
-                <a href="/parametres" class="nav-link">Parametres</a>
-                <a href="/calendrier" class="nav-link">Calendrier</a>
-                <a href="/groupes" class="nav-link">Groupes</a>
-                <a href="/notifications" class="nav-link active">Notifications</a>
-                <a href="/messagerie" class="nav-link">Messages</a>
-                <a href="/documents" class="nav-link">Cours</a>
-                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
-                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
-            </div>
-        </div>
-    </nav>
-
-    <div class="container" style="max-width:700px;">
+{% extends 'base_app.html' %}
+{% block titre %}Notifications{% endblock %}
+{% block styles_anciens %}<link rel="stylesheet" href="/static/css/style.css">{% endblock %}
+{% block contenu %}
+<div class="container" style="max-width:700px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
             <h2>Notifications</h2>
             {% if non_lu > 0 %}
@@ -79,5 +40,4 @@
             {% endfor %}
         </div>
     </div>
-</body>
-</html>
+{% endblock %}

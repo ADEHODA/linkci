@@ -1792,6 +1792,8 @@ def rechercher_utilisateurs():
 def recherche():
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
+    # remplacee par la recherche globale de /decouvrir
+    return redirect(url_for('decouvrir_web', q=request.args.get('q', '')))
     q = request.args.get('q', '').strip()
     resultats = {'posts': [], 'bourses': [], 'formations': [], 'utilisateurs': [], 'documents': []}
     if q:

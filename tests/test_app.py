@@ -73,5 +73,5 @@ def test_search_page(client):
     client.post('/connexion', data={
         'email': 'search@test.com', 'mot_de_passe': 'password123'
     }, follow_redirects=True)
-    resp = client.get('/recherche?q=test')
-    assert resp.status_code == 200
+    resp = client.get('/recherche?q=test', follow_redirects=True)  # redirige vers /decouvrir
+    assert resp.status_code == 200 and 'Decouvrir' in resp.get_data(as_text=True)

@@ -1,25 +1,18 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Messagerie — LINK CI</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
-    <script src="/static/js/main.js" defer></script>
-    <style>
-        .messagerie-layout { display: grid; grid-template-columns: 300px 1fr; gap: 0; min-height: calc(100vh - 80px); background: white; border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
+{% extends 'base_app.html' %}
+{% block titre %}Messagerie{% endblock %}
+{% block styles_anciens %}<link rel="stylesheet" href="/static/css/style.css">{% endblock %}
+{% block tete %}
+<style>
+        .messagerie-layout { display: grid; grid-template-columns: 300px 1fr; gap: 0; min-height: calc(100vh - 80px); background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); overflow: hidden; }
         .msg-sidebar { display: flex; flex-direction: column; border-right: 1px solid var(--border); background: #FAFAF8; }
         .msg-sidebar-header { padding: 1rem; border-bottom: 1px solid var(--border); }
         .msg-sidebar-header h2 { font-size: 1.1rem; margin: 0 0 0.75rem 0; }
-        .msg-search { width: 100%; padding: 0.55rem 0.85rem; border: 1.5px solid var(--border); border-radius: 50px; font-size: 0.85rem; font-family: inherit; background: white; }
+        .msg-search { width: 100%; padding: 0.55rem 0.85rem; border: 1.5px solid var(--border); border-radius: 50px; font-size: 0.85rem; font-family: inherit; background: var(--card); }
         .msg-search:focus { outline: none; border-color: var(--orange); }
         .msg-conv-list { flex: 1; overflow-y: auto; }
         .msg-conv-item { display: flex; align-items: center; gap: 0.75rem; padding: 0.85rem 1rem; cursor: pointer; transition: all 0.15s; text-decoration: none; color: inherit; border-bottom: 1px solid var(--border); position: relative; }
         .msg-conv-item:hover { background: var(--orange-light); }
-        .msg-conv-item.active { background: white; border-left: 3px solid var(--orange); }
+        .msg-conv-item.active { background: var(--card); border-left: 3px solid var(--orange); }
         .msg-conv-avatar { width: 42px; height: 42px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.85rem; color: white; flex-shrink: 0; }
         .msg-conv-info { flex: 1; min-width: 0; }
         .msg-conv-name { font-weight: 600; font-size: 0.9rem; display: flex; justify-content: space-between; align-items: center; }
@@ -28,7 +21,7 @@
         .msg-conv-preview.unread { color: var(--text); font-weight: 600; }
         .msg-conv-badge { background: var(--orange); color: white; border-radius: 50%; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 0.6rem; font-weight: 700; flex-shrink: 0; margin-left: auto; }
         .msg-main { display: flex; flex-direction: column; }
-        .msg-main-header { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); background: white; }
+        .msg-main-header { display: flex; align-items: center; gap: 0.75rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--border); background: var(--card); }
         .msg-main-avatar { width: 38px; height: 38px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.8rem; color: white; flex-shrink: 0; }
         .msg-main-header h3 { margin: 0; font-size: 1rem; }
         .msg-main-header .status { font-size: 0.7rem; color: var(--text-muted); }
@@ -42,7 +35,7 @@
         .msg-bubble-row.moi .msg-bubble { background: var(--orange-grad); color: white; border-bottom-right-radius: 4px; }
         .msg-bubble-time { font-size: 0.6rem; opacity: 0.6; margin-top: 0.25rem; display: block; }
         .msg-bubble-row.moi .msg-bubble-time { text-align: right; }
-        .msg-input-area { padding: 0.75rem 1.25rem; border-top: 1px solid var(--border); display: flex; gap: 0.5rem; background: white; }
+        .msg-input-area { padding: 0.75rem 1.25rem; border-top: 1px solid var(--border); display: flex; gap: 0.5rem; background: var(--card); }
         .msg-input-area input { flex: 1; padding: 0.65rem 1rem; border: 1.5px solid var(--border); border-radius: 50px; font-size: 0.875rem; font-family: inherit; }
         .msg-input-area input:focus { outline: none; border-color: var(--orange); }
         .msg-input-area button { padding: 0.65rem 1.25rem; border: none; border-radius: 50px; background: var(--orange-grad); color: white; font-weight: 600; cursor: pointer; font-size: 0.875rem; white-space: nowrap; }
@@ -52,7 +45,7 @@
         .msg-empty p { margin: 0.25rem 0; }
         .msg-new-btn { width: 100%; padding: 0.55rem; border: 2px dashed var(--border); border-radius: var(--radius-sm); background: transparent; cursor: pointer; font-size: 0.85rem; color: var(--text-muted); transition: all 0.15s; margin-top: 0.5rem; font-family: inherit; }
         .msg-new-btn:hover { border-color: var(--orange); color: var(--orange); background: var(--orange-light); }
-        .msg-new-section { display: none; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); background: white; }
+        .msg-new-section { display: none; padding: 0.75rem 1rem; border-bottom: 1px solid var(--border); background: var(--card); }
         .msg-new-section.open { display: block; }
         .msg-new-search { width: 100%; padding: 0.5rem 0.75rem; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-size: 0.85rem; font-family: inherit; margin-bottom: 0.5rem; }
         .msg-new-search:focus { outline: none; border-color: var(--orange); }
@@ -71,39 +64,8 @@
             .msg-main.show { display: flex; }
         }
     </style>
-</head>
-<body>
-{% with messages = get_flashed_messages(with_categories=true) %}
-{% if messages %}
-<div class="flash-container">
-{% for category, message in messages %}
-<div class="flash {{ category }}">{{ message }}</div>
-{% endfor %}
-</div>
-{% endif %}
-{% endwith %}
-<nav class="navbar">
-    <div class="nav-container">
-        <a href="/feed" class="nav-logo"><img src="/static/images/logo.svg" alt="LINK CI" height="36"></a>
-        <div class="nav-links">
-                <a href="/feed" class="nav-link">Fil</a>
-                <a href="/bourses" class="nav-link">Bourses</a>
-                <a href="/opportunites" class="nav-link">Stages</a>
-                <a href="/annonces" class="nav-link">Annonces</a>
-                <a href="/entraide" class="nav-link">Entraide</a>
-                <a href="/decouvrir" class="nav-link">Decouvrir</a>
-                <a href="/parametres" class="nav-link">Parametres</a>
-                <a href="/calendrier" class="nav-link">Calendrier</a>
-                <a href="/groupes" class="nav-link">Groupes</a>
-                <a href="/notifications" class="nav-link" id="notif-link">Alerts <span id="notif-count" style="background:var(--primary);color:white;border-radius:50%;padding:0.1rem 0.4rem;font-size:0.7rem;display:none;"></span></a>
-                <a href="/messagerie" class="nav-link active">Messages</a>
-                <a href="/documents" class="nav-link">Cours</a>
-                <a href="/profil/{{ session.user_id }}" class="nav-link">Profil</a>
-                <a href="/deconnexion" class="nav-link nav-logout">Déconnexion</a>
-        </div>
-    </div>
-</nav>
-
+{% endblock %}
+{% block contenu %}
 <div class="container" style="padding-top:1rem;">
     <div class="messagerie-layout">
         <!-- Sidebar -->
@@ -211,7 +173,9 @@
         </div>
     </div>
 </div>
-
+{% endblock %}
+{% block scripts %}
+<script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
 <script>
 var socket = io('', { transports: ['polling', 'websocket'] });
 
@@ -332,5 +296,4 @@ var body = document.getElementById('msgBody');
 if (body) body.scrollTop = body.scrollHeight;
 </script>
 <script src="/static/js/app.js"></script>
-</body>
-</html>
+{% endblock %}
