@@ -244,11 +244,16 @@ export const rejoindreGroupe = (id) =>
   request(`/api/groupes/${id}/rejoindre`, { method: 'POST' });
 export const getGroupeMessages = (id) =>
   request(`/api/groupes/${id}/messages`);
-export const sendGroupeMessage = (id, contenu) =>
+export const sendGroupeMessage = (id, contenu, image = null) =>
   request(`/api/groupes/${id}/messages`, {
     method: 'POST',
-    body: JSON.stringify({ contenu }),
+    body: JSON.stringify(image ? { contenu, image } : { contenu }),
   });
+export const getMembresGroupe = (id) => request(`/api/groupes/${id}/membres`);
+export const modifierGroupe = (id, nom, description) =>
+  request(`/api/groupes/${id}`, { method: 'PUT', body: JSON.stringify({ nom, description }) });
+export const gererMembre = (id, uid, action) => request(`/api/groupes/${id}/membres/${uid}/${action}`, { method: 'POST' });
+export const supprimerMessageGroupe = (id, mid) => request(`/api/groupes/${id}/messages/${mid}`, { method: 'DELETE' });
 export const quitterGroupe = (id) =>
   request(`/api/groupes/${id}/quitter`, { method: 'POST' });
 
@@ -284,14 +289,17 @@ export const updateProfile = (data) =>
 export const searchAll = (q) => request(`/api/recherche?q=${encodeURIComponent(q)}`);
 
 // Note vocale (fichier .m4a enregistre par le telephone), duree en secondes
-export async function envoyerVocal(destinataire_id, uri, duree) {
+export const envoyerVocal = (destinataire_id, uri, duree) => envoyerAudio('/api/messages/vocal', uri, duree, { destinataire_id });
+export const envoyerVocalGroupe = (groupeId, uri, duree) => envoyerAudio(`/api/groupes/${groupeId}/vocal`, uri, duree);
+
+async function envoyerAudio(chemin, uri, duree, champs = {}) {
   const form = new FormData();
-  form.append('destinataire_id', String(destinataire_id));
+  Object.entries(champs).forEach(([k, v]) => form.append(k, String(v)));
   form.append('duree', String(Math.max(1, Math.round(duree))));
   form.append('audio', { uri, name: 'note.m4a', type: 'audio/mp4' });
   let res;
   try {
-    res = await fetch(API_BASE + '/api/messages/vocal', { method: 'POST', headers: { Authorization: `Bearer ${_token}` }, body: form });
+    res = await fetch(API_BASE + chemin, { method: 'POST', headers: { Authorization: `Bearer ${_token}` }, body: form });
   } catch (e) {
     throw new Error('Pas de connexion internet');
   }

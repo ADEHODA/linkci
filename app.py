@@ -562,6 +562,15 @@ def init_db():
         conn.execute("UPDATE users SET role = 'admin' WHERE lower(email) = ?", (email,))
     conn.commit()
 
+    # Groupes 2.0 : photos et notes vocales dans les groupes, filiere du groupe
+    for table, colonne in (('groupe_messages', 'image TEXT'), ('groupe_messages', 'audio TEXT'),
+                           ('groupe_messages', 'duree INTEGER'), ('groupes', "filiere TEXT DEFAULT ''")):
+        try:
+            conn.execute(f'ALTER TABLE {table} ADD COLUMN {colonne}')
+            conn.commit()
+        except Exception:
+            pass
+
     # Photos et notes vocales dans les messages prives
     for colonne in ('image TEXT', 'audio TEXT', 'duree INTEGER'):
         try:
@@ -4539,8 +4548,23 @@ def api_groupes():
             SELECT groupe_id FROM groupe_membres WHERE user_id = ?
         ) ORDER BY g.nom
     ''', (user_id,)).fetchall()
+    moi = conn.execute('SELECT universite, filiere FROM users WHERE id = ?', (user_id,)).fetchone()
     conn.close()
-    return jsonify({'mes_groupes': [dict(g) for g in mes_groupes], 'tous_groupes': [dict(g) for g in tous_groupes]})
+    uni = (moi['universite'] or '').strip().lower() if moi else ''
+    fil = (moi['filiere'] or '').strip().lower() if moi else ''
+
+    def score(g):  # meme universite et/ou meme filiere
+        texte = f"{g['nom']} {g['description']} {g['filiere'] or ''}".lower()
+        return (2 if uni and uni in (f"{g['universite'] or ''} {texte}".lower()) else 0) + (1 if fil and fil in texte else 0)
+    tous = sorted((dict(g) for g in tous_groupes), key=lambda g: (-score(g), -g['nb_membres'], g['nom']))
+    for g in tous:
+        g['suggere'] = score(g) > 0
+    # groupe de promo a creer en un geste s'il n'existe pas encore
+    a_creer = None
+    if uni and fil and not any(score(g) == 3 for g in tous) and not any(
+            uni in f"{g['universite'] or ''} {g['nom']}".lower() and fil in f"{g['nom']} {g['filiere'] or ''}".lower() for g in mes_groupes):
+        a_creer = {'nom': f"{moi['filiere'].strip()} · {moi['universite'].strip()}", 'universite': moi['universite'].strip(), 'filiere': moi['filiere'].strip()}
+    return jsonify({'mes_groupes': [dict(g) for g in mes_groupes], 'tous_groupes': tous, 'a_creer': a_creer})
 
 @app.route('/api/groupes', methods=['POST'])
 def api_creer_groupe():
@@ -4553,9 +4577,9 @@ def api_creer_groupe():
     if trop_rapide('groupe', user_id, 5, 3600):
         return jsonify({'error': 'Trop de groupes crees. Reessaie plus tard.'}), 429
     conn = get_db()
-    c = conn.execute('INSERT INTO groupes (nom, description, universite, createur_id) VALUES (?, ?, ?, ?)',
+    c = conn.execute('INSERT INTO groupes (nom, description, universite, filiere, createur_id) VALUES (?, ?, ?, ?, ?)',
                      (sanitize_text(data['nom'], 100), sanitize_text(data.get('description', ''), 500),
-                      sanitize_text(data.get('universite', ''), 100), user_id))
+                      sanitize_text(data.get('universite', ''), 100), sanitize_text(data.get('filiere', ''), 100), user_id))
     gid = c.lastrowid
     conn.execute('INSERT INTO groupe_membres (groupe_id, user_id, role) VALUES (?, ?, ?)', (gid, user_id, 'admin'))
     conn.commit()
@@ -4601,22 +4625,159 @@ def api_envoyer_message_groupe(id):
     user_id = api_require_auth()
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
-    data = request.json
-    if not data or not data.get('contenu', '').strip():
+    data = request.get_json(silent=True) or {}
+    if not (str(data.get('contenu') or '').strip() or data.get('image')):
         return jsonify({'error': 'Contenu requis'}), 400
     if trop_rapide('message', user_id, 30, 60):
         return jsonify({'error': 'Tu vas trop vite. Patiente une minute.'}), 429
-    conn = get_db()
-    membre = conn.execute('SELECT id FROM groupe_membres WHERE groupe_id = ? AND user_id = ?', (id, user_id)).fetchone()
-    if not membre:
-        conn.close()
+    if not est_membre_groupe(id, user_id):
         return jsonify({'error': 'Tu n\'es pas membre'}), 403
-    conn.execute('INSERT INTO groupe_messages (groupe_id, user_id, contenu) VALUES (?, ?, ?)',
-                 (id, user_id, sanitize_text(data['contenu'], FIELD_MAXLEN['message'])))
+    image, erreur = image_depuis_base64(data.get('image'))
+    if erreur:
+        return jsonify({'error': erreur}), 400
+    contenu = sanitize_text(str(data.get('contenu') or ''), FIELD_MAXLEN['message'])
+    conn = get_db()
+    mid = conn.execute('INSERT INTO groupe_messages (groupe_id, user_id, contenu, image) VALUES (?, ?, ?, ?)',
+                       (id, user_id, contenu, image)).lastrowid
     conn.commit()
     conn.close()
+    apres_message_groupe(id, user_id, contenu or 'Photo')
+    return jsonify({'message': 'Envoye', 'id': mid}), 201
+
+@app.route('/api/groupes/<int:id>/vocal', methods=['POST'])
+def api_vocal_groupe(id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if trop_rapide('message', user_id, 30, 60):
+        return jsonify({'error': 'Tu vas trop vite. Patiente une minute.'}), 429
+    if not est_membre_groupe(id, user_id):
+        return jsonify({'error': 'Tu n\'es pas membre'}), 403
+    try:
+        duree = max(1, min(VOCAL_DUREE_MAX, int(float(request.form.get('duree', '1')))))
+    except ValueError:
+        return jsonify({'error': 'duree invalide'}), 400
+    fichier = request.files.get('audio')
+    data = fichier.read(VOCAL_TAILLE_MAX + 1) if fichier else b''
+    if not data or len(data) > VOCAL_TAILLE_MAX:
+        return jsonify({'error': 'Note vocale absente ou trop longue (3 min max)'}), 400
+    ext = extension_audio(data)
+    if not ext:
+        return jsonify({'error': 'Fichier audio invalide'}), 400
+    nom_fichier = f'{uuid.uuid4().hex}{ext}'
+    stocker_fichier('static/uploads/' + nom_fichier, data)
+    conn = get_db()
+    mid = conn.execute('INSERT INTO groupe_messages (groupe_id, user_id, contenu, audio, duree) VALUES (?, ?, ?, ?, ?)',
+                       (id, user_id, '', nom_fichier, duree)).lastrowid
+    conn.commit()
+    conn.close()
+    apres_message_groupe(id, user_id, 'Note vocale')
+    return jsonify({'message': 'Envoye', 'id': mid}), 201
+
+# ---- Administration d'un groupe
+def est_membre_groupe(groupe_id, user_id):
+    conn = get_db()
+    m = conn.execute('SELECT role FROM groupe_membres WHERE groupe_id = ? AND user_id = ?', (groupe_id, user_id)).fetchone()
+    conn.close()
+    return m
+
+def est_admin_groupe(groupe_id, user_id):
+    m = est_membre_groupe(groupe_id, user_id)
+    return bool(m) and m['role'] == 'admin'
+
+def apres_message_groupe(groupe_id, auteur_id, apercu):
+    """Temps reel + notification push aux membres + @mentions."""
+    diffuser_message_groupe(groupe_id, auteur_id)
+    conn = get_db()
+    g = conn.execute('SELECT nom FROM groupes WHERE id = ?', (groupe_id,)).fetchone()
+    auteur = conn.execute('SELECT prenom FROM users WHERE id = ?', (auteur_id,)).fetchone()
+    membres = conn.execute('''SELECT users.id, users.prenom FROM groupe_membres gm JOIN users ON users.id = gm.user_id
+                              WHERE gm.groupe_id = ? AND users.id != ?''', (groupe_id, auteur_id)).fetchall()
+    conn.close()
+    if not g or not membres:
+        return
+    lien = f'/groupes/{groupe_id}'
+    # @Prenom : notification dediee aux membres mentionnes
+    mots = {m.lower() for m in re.findall(r'@([\w\-]{2,40})', apercu, re.UNICODE)}
+    mentionnes = [m['id'] for m in membres if (m['prenom'] or '').lower() in mots]
+    for uid in mentionnes:
+        creer_notification(uid, 'mention', f"{auteur['prenom']} t'a mentionne dans {g['nom']}", lien)
+    autres = [m['id'] for m in membres if m['id'] not in mentionnes]
+    envoyer_push(autres, 'message', f"{g['nom']} · {auteur['prenom']} : {apercu[:120]}", lien)
+
+@app.route('/api/groupes/<int:id>/membres')
+def api_membres_groupe(id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if not est_membre_groupe(id, user_id):
+        return jsonify({'error': 'Tu n\'es pas membre'}), 403
+    conn = get_db()
+    membres = conn.execute('''SELECT users.id, users.prenom, users.nom, users.avatar, gm.role FROM groupe_membres gm
+                              JOIN users ON users.id = gm.user_id WHERE gm.groupe_id = ?
+                              ORDER BY gm.role = 'admin' DESC, users.prenom''', (id,)).fetchall()
+    g = conn.execute('SELECT id, nom, description FROM groupes WHERE id = ?', (id,)).fetchone()
+    conn.close()
+    return jsonify({'groupe': dict(g) if g else None, 'membres': [dict(m) for m in membres],
+                    'je_suis_admin': est_admin_groupe(id, user_id)})
+
+@app.route('/api/groupes/<int:id>', methods=['PUT'])
+def api_modifier_groupe(id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if not est_admin_groupe(id, user_id):
+        return jsonify({'error': 'Reserve aux admins du groupe'}), 403
+    data = request.get_json(silent=True) or {}
+    nom = sanitize_text(str(data.get('nom') or ''), 100)
+    if not nom:
+        return jsonify({'error': 'Nom du groupe requis'}), 400
+    conn = get_db()
+    conn.execute('UPDATE groupes SET nom = ?, description = ? WHERE id = ?', (nom, sanitize_text(str(data.get('description') or ''), 500), id))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Groupe modifie'})
+
+@app.route('/api/groupes/<int:id>/membres/<int:uid>/<action>', methods=['POST'])
+def api_gerer_membre(id, uid, action):
+    """action : retirer | admin (nommer admin) | membre (retirer le role admin)."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if not est_admin_groupe(id, user_id):
+        return jsonify({'error': 'Reserve aux admins du groupe'}), 403
+    if uid == user_id or action not in ('retirer', 'admin', 'membre') or not est_membre_groupe(id, uid):
+        return jsonify({'error': 'Action impossible'}), 400
+    conn = get_db()
+    if action == 'retirer':
+        conn.execute('DELETE FROM groupe_membres WHERE groupe_id = ? AND user_id = ?', (id, uid))
+    else:
+        conn.execute('UPDATE groupe_membres SET role = ? WHERE groupe_id = ? AND user_id = ?', (action, id, uid))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Fait'})
+
+@app.route('/api/groupes/<int:id>/messages/<int:mid>', methods=['DELETE'])
+def api_supprimer_message_groupe(id, mid):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    m = conn.execute('SELECT user_id, image, audio FROM groupe_messages WHERE id = ? AND groupe_id = ?', (mid, id)).fetchone()
+    conn.close()
+    if not m:
+        return jsonify({'error': 'Message introuvable'}), 404
+    if m['user_id'] != user_id and not est_admin_groupe(id, user_id):
+        return jsonify({'error': 'Non autorise'}), 403
+    conn = get_db()
+    conn.execute('DELETE FROM groupe_messages WHERE id = ?', (mid,))
+    conn.commit()
+    conn.close()
+    for f in (m['image'], m['audio']):
+        if f:
+            supprimer_fichier('static/uploads/' + f)
     diffuser_message_groupe(id, user_id)
-    return jsonify({'message': 'Envoye'}), 201
+    return jsonify({'message': 'Message supprime'})
 
 @app.route('/api/groupes/<int:id>/quitter', methods=['POST'])
 def api_quitter_groupe(id):
@@ -4625,6 +4786,11 @@ def api_quitter_groupe(id):
         return jsonify({'error': 'Non authentifie'}), 401
     conn = get_db()
     conn.execute('DELETE FROM groupe_membres WHERE groupe_id = ? AND user_id = ?', (id, user_id))
+    # plus aucun admin : le plus ancien membre le devient
+    if not conn.execute("SELECT 1 FROM groupe_membres WHERE groupe_id = ? AND role = 'admin'", (id,)).fetchone():
+        suivant = conn.execute('SELECT user_id FROM groupe_membres WHERE groupe_id = ? ORDER BY id LIMIT 1', (id,)).fetchone()
+        if suivant:
+            conn.execute("UPDATE groupe_membres SET role = 'admin' WHERE groupe_id = ? AND user_id = ?", (id, suivant['user_id']))
     conn.commit()
     conn.close()
     return jsonify({'message': 'Quitte'})
