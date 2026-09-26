@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, spacing, font, shadow, creerStyles, useTheme } from '../theme';
 
 const TUILES = [
+  { route: 'EmploiDuTemps', icon: 'time', titre: 'Emploi du temps', texte: 'Cours, examens, rappels', couleur: '#D97706' },
   { route: 'Entraide', icon: 'help-buoy', titre: 'Entraide', texte: 'Questions et reponses', couleur: '#7C3AED' },
   { route: 'Bourses', icon: 'cash', titre: 'Bourses', texte: 'Financements et aides', couleur: '#FF6B35' },
   { route: 'Opportunites', icon: 'briefcase', titre: 'Stages & emplois', texte: 'Stages, jobs, alternances', couleur: '#0891B2' },

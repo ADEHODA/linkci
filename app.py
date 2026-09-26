@@ -724,6 +724,24 @@ def init_db():
             visiteur_id INTEGER NOT NULL,
             date_vue TEXT NOT NULL,
             PRIMARY KEY (profil_id, visiteur_id))''',
+        # Emploi du temps personnel (jour : 1 = lundi ... 7 = dimanche) et examens
+        '''CREATE TABLE IF NOT EXISTS cours (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            jour INTEGER NOT NULL,
+            debut TEXT NOT NULL,
+            fin TEXT NOT NULL,
+            matiere TEXT NOT NULL,
+            salle TEXT DEFAULT '',
+            enseignant TEXT DEFAULT '')''',
+        '''CREATE TABLE IF NOT EXISTS examens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            matiere TEXT NOT NULL,
+            date_examen TEXT NOT NULL,
+            heure TEXT DEFAULT '',
+            salle TEXT DEFAULT '',
+            note TEXT DEFAULT '')''',
         # Blocages : bloqueur ne voit plus les publications de bloque, et plus
         # aucun message ne passe entre eux
         '''CREATE TABLE IF NOT EXISTS blocages (
@@ -4365,7 +4383,7 @@ def supprimer_compte(user_id):
     for table in ('posts', 'likes', 'commentaires', 'reactions', 'post_sondage_votes', 'signalements_posts', 'questions',
                   'reponses', 'votes_reponses', 'documents', 'notifications', 'abonnements_alertes', 'reset_tokens',
                   'evenements', 'groupe_membres', 'groupe_messages', 'user_badges', 'codes_verification', 'opportunites',
-                  'annonces', 'stories', 'expo_push_tokens', 'conversations_effacees'):
+                  'annonces', 'stories', 'expo_push_tokens', 'conversations_effacees', 'cours', 'examens'):
         conn.execute(f'DELETE FROM {table} WHERE user_id = ?', (user_id,))
     conn.execute('DELETE FROM groupes WHERE createur_id = ?', (user_id,))
     conn.execute('DELETE FROM messages WHERE expediteur_id = ? OR destinataire_id = ?', (user_id, user_id))
@@ -4476,6 +4494,88 @@ def api_invitations():
     return jsonify({'code': code, 'lien': lien, 'nb_filleuls': len(filleuls), 'objectif_badge': 3,
                     'filleuls': [dict(f) for f in filleuls],
                     'message': f"Rejoins-moi sur LinkCI, le reseau des etudiants de Cote d'Ivoire : bourses, stages, entraide, groupes de promo. Inscris-toi ici : {lien}"})
+
+# ===================== EMPLOI DU TEMPS ET EXAMENS =====================
+HEURE_RE = re.compile(r'^([01]\d|2[0-3]):[0-5]\d$')
+
+@app.route('/api/emploi_du_temps', methods=['GET', 'POST'])
+def api_emploi_du_temps():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    if request.method == 'POST':
+        d = request.get_json(silent=True) or {}
+        try:
+            jour = int(d.get('jour'))
+        except (TypeError, ValueError):
+            jour = 0
+        debut, fin = str(d.get('debut') or ''), str(d.get('fin') or '')
+        matiere = sanitize_text(str(d.get('matiere') or ''), 80)
+        if not 1 <= jour <= 7 or not HEURE_RE.match(debut) or not HEURE_RE.match(fin) or fin <= debut or not matiere:
+            conn.close()
+            return jsonify({'error': 'Jour, heures (HH:MM, fin apres debut) et matiere requis'}), 400
+        if conn.execute('SELECT COUNT(*) AS nb FROM cours WHERE user_id = ?', (user_id,)).fetchone()['nb'] >= 80:
+            conn.close()
+            return jsonify({'error': 'Emploi du temps plein (80 cours max)'}), 400
+        conn.execute('INSERT INTO cours (user_id, jour, debut, fin, matiere, salle, enseignant) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                     (user_id, jour, debut, fin, matiere, sanitize_text(str(d.get('salle') or ''), 60), sanitize_text(str(d.get('enseignant') or ''), 60)))
+        conn.commit()
+    cours = conn.execute('SELECT id, jour, debut, fin, matiere, salle, enseignant FROM cours WHERE user_id = ? ORDER BY jour, debut', (user_id,)).fetchall()
+    conn.close()
+    return jsonify([dict(c) for c in cours])
+
+@app.route('/api/emploi_du_temps/<int:cid>', methods=['DELETE'])
+def api_supprimer_cours(cid):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    conn.execute('DELETE FROM cours WHERE id = ? AND user_id = ?', (cid, user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Cours supprime'})
+
+@app.route('/api/examens', methods=['GET', 'POST'])
+def api_examens():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    if request.method == 'POST':
+        d = request.get_json(silent=True) or {}
+        matiere = sanitize_text(str(d.get('matiere') or ''), 80)
+        date_ex = str(d.get('date_examen') or '')
+        heure = str(d.get('heure') or '')
+        try:
+            datetime.strptime(date_ex, '%Y-%m-%d')
+            valide = bool(matiere) and (not heure or HEURE_RE.match(heure))
+        except ValueError:
+            valide = False
+        if not valide:
+            conn.close()
+            return jsonify({'error': 'Matiere et date (AAAA-MM-JJ) requises, heure au format HH:MM'}), 400
+        if conn.execute('SELECT COUNT(*) AS nb FROM examens WHERE user_id = ?', (user_id,)).fetchone()['nb'] >= 100:
+            conn.close()
+            return jsonify({'error': "Trop d'examens (100 max)"}), 400
+        conn.execute('INSERT INTO examens (user_id, matiere, date_examen, heure, salle, note) VALUES (?, ?, ?, ?, ?, ?)',
+                     (user_id, matiere, date_ex, heure, sanitize_text(str(d.get('salle') or ''), 60), sanitize_text(str(d.get('note') or ''), 200)))
+        conn.commit()
+    examens = conn.execute('SELECT id, matiere, date_examen, heure, salle, note FROM examens WHERE user_id = ? ORDER BY date_examen, heure',
+                           (user_id,)).fetchall()
+    conn.close()
+    return jsonify([dict(e) for e in examens])
+
+@app.route('/api/examens/<int:eid>', methods=['DELETE'])
+def api_supprimer_examen(eid):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    conn.execute('DELETE FROM examens WHERE id = ? AND user_id = ?', (eid, user_id))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Examen supprime'})
 
 @app.route('/api/formations')
 def api_formations():

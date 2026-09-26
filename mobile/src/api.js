@@ -346,6 +346,14 @@ export const searchAll = (q) => request(`/api/recherche?q=${encodeURIComponent(q
 export const getDecouverte = () => request('/api/decouverte');
 export const getVuesProfil = () => request('/api/profil/vues');
 export const getInvitations = () => request('/api/invitations');
+
+// Emploi du temps et examens
+export const getEmploiDuTemps = () => request('/api/emploi_du_temps');
+export const ajouterCours = (c) => request('/api/emploi_du_temps', { method: 'POST', body: JSON.stringify(c) });
+export const supprimerCours = (id) => request(`/api/emploi_du_temps/${id}`, { method: 'DELETE' });
+export const getExamens = () => request('/api/examens');
+export const ajouterExamen = (e) => request('/api/examens', { method: 'POST', body: JSON.stringify(e) });
+export const supprimerExamen = (id) => request(`/api/examens/${id}`, { method: 'DELETE' });
 export const SITE = 'https://linkci.onrender.com';
 export const suivre = (id) => request(`/api/utilisateurs/${id}/suivre`, { method: 'POST' });
 export const nePlusSuivre = (id) => request(`/api/utilisateurs/${id}/suivre`, { method: 'DELETE' });
