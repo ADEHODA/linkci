@@ -1,0 +1,93 @@
+{% extends 'base_app.html' %}
+{% block titre %}Emploi du temps{% endblock %}
+{% block contenu %}
+<h1 class="titre-page">⏰ Emploi du temps</h1>
+<div id="prochain"></div>
+<div class="puces" id="onglets">
+  <button class="puce active" data-o="semaine">Semaine</button><button class="puce" data-o="examens">Examens</button>
+</div>
+<div id="zone"><div class="chargement">Chargement...</div></div>
+<form class="carte" id="ajout"></form>
+<p class="sous">Les rappels sur le telephone (15 min avant les cours, la veille des examens) se reglent dans l'application.</p>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const L = LinkCI;
+  const JOURS = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+  let onglet = 'semaine', cours = [], examens = [];
+  const jAvant = (d) => { const t = new Date(); t.setHours(0, 0, 0, 0); return Math.round((new Date(d + 'T00:00:00') - t) / 86400000); };
+  const dateFr = (d) => d.split('-').reverse().join('/');
+
+  const dessiner = () => {
+    const avenir = examens.filter((e) => jAvant(e.date_examen) >= 0);
+    const p = avenir[0];
+    document.getElementById('prochain').innerHTML = p ? `<div class="carte" style="background:var(--primary);color:#fff;text-align:center">
+      <div style="font-size:12px;font-weight:700;opacity:.85">PROCHAIN EXAMEN</div><div style="font-size:18px;font-weight:800">${L.esc(p.matiere)}</div>
+      <div style="font-size:38px;font-weight:900">${jAvant(p.date_examen) === 0 ? "Aujourd'hui !" : 'J-' + jAvant(p.date_examen)}</div>
+      <div>${L.esc([dateFr(p.date_examen), p.heure, p.salle].filter(Boolean).join(' · '))}</div></div>` : '';
+    const zone = document.getElementById('zone');
+    if (onglet === 'semaine') {
+      zone.innerHTML = JOURS.map((j, k) => {
+        const liste = cours.filter((c) => c.jour === k + 1);
+        return liste.length ? `<div class="carte"><strong>${j}</strong>${liste.map((c) => `<div class="ligne" style="padding:8px 0;border-top:1px solid var(--border)">
+          <strong style="width:95px">${L.esc(c.debut)}–${L.esc(c.fin)}</strong><div style="flex:1"><div style="font-weight:700">${L.esc(c.matiere)}</div>
+          <div class="sous">${L.esc([c.salle, c.enseignant].filter(Boolean).join(' · '))}</div></div>
+          <button class="act" data-suppr-cours="${c.id}" title="Supprimer">🗑️</button></div>`).join('')}</div>` : '';
+      }).join('') || '<div class="vide">Aucun cours. Ajoute ton emploi du temps ci-dessous.</div>';
+    } else {
+      zone.innerHTML = examens.map((e) => `<div class="carte ligne" style="${jAvant(e.date_examen) < 0 ? 'opacity:.5' : ''}">
+        <strong style="width:60px;color:var(--primary);font-size:18px">${jAvant(e.date_examen) >= 0 ? 'J-' + jAvant(e.date_examen) : 'passe'}</strong>
+        <div style="flex:1"><div style="font-weight:800">${L.esc(e.matiere)}</div><div class="sous">${L.esc([dateFr(e.date_examen), e.heure, e.salle, e.note].filter(Boolean).join(' · '))}</div></div>
+        <button class="act" data-suppr-examen="${e.id}" title="Supprimer">🗑️</button></div>`).join('') || '<div class="vide">Aucun examen. Ajoute-les pour un compte a rebours.</div>';
+    }
+    const f = document.getElementById('ajout');
+    f.innerHTML = onglet === 'semaine' ? `<strong>Ajouter un cours</strong>
+      <div class="ligne" style="flex-wrap:wrap;margin-top:10px">
+        <select class="champ" name="jour" style="width:auto">${JOURS.map((j, k) => `<option value="${k + 1}">${j}</option>`).join('')}</select>
+        <input class="champ" name="debut" type="time" value="08:00" style="width:auto" required> <input class="champ" name="fin" type="time" value="10:00" style="width:auto" required>
+        <input class="champ" name="matiere" placeholder="Matiere" maxlength="80" required style="flex:1;min-width:160px">
+        <input class="champ" name="salle" placeholder="Salle" maxlength="60" style="width:130px">
+        <button class="btn">Ajouter</button></div>` : `<strong>Ajouter un examen</strong>
+      <div class="ligne" style="flex-wrap:wrap;margin-top:10px">
+        <input class="champ" name="matiere" placeholder="Matiere" maxlength="80" required style="flex:1;min-width:160px">
+        <input class="champ" name="date_examen" type="date" required style="width:auto"> <input class="champ" name="heure" type="time" style="width:auto">
+        <input class="champ" name="salle" placeholder="Salle" maxlength="60" style="width:130px">
+        <button class="btn">Ajouter</button></div>`;
+  };
+
+  const charger = async () => {
+    [cours, examens] = await Promise.all([L.api('/api/emploi_du_temps'), L.api('/api/examens')]);
+    dessiner();
+  };
+
+  document.getElementById('onglets').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-o]'); if (!b) return;
+    onglet = b.dataset.o;
+    document.querySelectorAll('#onglets .puce').forEach((x) => x.classList.toggle('active', x === b));
+    dessiner();
+  });
+  document.getElementById('ajout').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(e.target));
+    try {
+      if (onglet === 'semaine') cours = await L.api('/api/emploi_du_temps', { methode: 'POST', corps: { ...d, jour: Number(d.jour) } });
+      else examens = await L.api('/api/examens', { methode: 'POST', corps: d });
+      dessiner();
+      L.toast('Ajoute');
+    } catch (err) { L.erreur(err); }
+  });
+  document.getElementById('zone').addEventListener('click', async (e) => {
+    const c = e.target.closest('[data-suppr-cours]'), x = e.target.closest('[data-suppr-examen]');
+    if (!c && !x) return;
+    if (!L.confirmer('Supprimer ?')) return;
+    try {
+      if (c) await L.api(`/api/emploi_du_temps/${c.dataset.supprCours}`, { methode: 'DELETE' });
+      else await L.api(`/api/examens/${x.dataset.supprExamen}`, { methode: 'DELETE' });
+      await charger();
+    } catch (err) { L.erreur(err); }
+  });
+  charger().catch(L.erreur);
+})();
+</script>
+{% endblock %}

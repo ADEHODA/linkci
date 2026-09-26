@@ -1308,6 +1308,10 @@ def question_web(qid):
 def parametres_web():
     return page_app('parametres.html')
 
+@app.route('/emploi-du-temps')
+def emploi_du_temps_web():
+    return page_app('emploi_du_temps.html')
+
 @app.route('/decouvrir')
 def decouvrir_web():
     return page_app('decouvrir.html', q=request.args.get('q', ''))
@@ -1813,14 +1817,41 @@ def modifier_profil():
             else:
                 conn.execute('UPDATE users SET prenom=?, nom=?, universite=?, filiere=?, annee=?, bio=? WHERE id=?',
                              (prenom, nom, universite, filiere, annee, bio, session['user_id']))
+            # profil riche : competences (virgules), parcours (une ligne 'titre | lieu | periode'), liens, couverture
+            riches, erreur = lire_profil_riche({
+                'competences': [c.strip() for c in request.form.get('competences', '').split(',')],
+                'parcours': [dict(zip(('titre', 'lieu', 'periode'), [x.strip() for x in l.split('|')]))
+                             for l in request.form.get('parcours', '').splitlines() if l.strip()],
+                'lien_linkedin': request.form.get('lien_linkedin', ''), 'lien_github': request.form.get('lien_github', ''),
+                'lien_site': request.form.get('lien_site', '')})
+            couv = request.files.get('couverture')
+            if not erreur and couv and couv.filename:
+                data_couv = couv.read()
+                ext_couv = extension_image(data_couv)
+                if not ext_couv:
+                    erreur = 'Photo de couverture invalide'
+                else:
+                    ancienne = conn.execute('SELECT couverture FROM users WHERE id = ?', (session['user_id'],)).fetchone()['couverture']
+                    riches['couverture'] = f'{uuid.uuid4().hex}{ext_couv}'
+                    stocker_fichier('static/uploads/' + riches['couverture'], data_couv)
+                    if ancienne:
+                        supprimer_fichier('static/uploads/' + ancienne)
+            if erreur:
+                flash(erreur, 'error')
+            else:
+                for cle, valeur in riches.items():  # cles validees par lire_profil_riche
+                    conn.execute(f'UPDATE users SET {cle} = ? WHERE id = ?', (valeur, session['user_id']))
             conn.commit()
             session['user_nom'] = prenom + ' ' + nom
-            flash('Profil mis a jour', 'success')
+            if not erreur:
+                flash('Profil mis a jour', 'success')
         else:
             flash('Prenom et nom requis', 'error')
     user = conn.execute('SELECT * FROM users WHERE id = ?', (session['user_id'],)).fetchone()
     conn.close()
-    return render_template('modifier_profil.html', user=user)
+    return render_template('modifier_profil.html', user=user, competences=', '.join(liste_json(user['competences'])),
+                           parcours='\n'.join(' | '.join(filter(None, (e.get('titre'), e.get('lieu'), e.get('periode'))))
+                                              for e in liste_json(user['parcours'])))
 
 @app.route('/api/mentions')
 def api_mentions():

@@ -55,3 +55,16 @@ def test_email_cache_sur_le_site(client):
     inscrire(client, 'cache.b@test.ci')
     connecter(client, 'cache.b@test.ci')
     assert 'cache.a@test.ci' not in client.get(f'/profil/{uid}').get_data(as_text=True)
+
+
+def test_edition_profil_riche_sur_le_site(client):
+    inscrire(client, 'web.riche@test.ci')
+    connecter(client, 'web.riche@test.ci')
+    client.post('/profil/modifier', data={'prenom': 'Ama', 'nom': 'Kone', 'competences': 'Python, Excel, Python',
+                                          'parcours': 'Licence Info | UFHB | 2023-2026\n\nStage | Orange CI | 2025',
+                                          'lien_github': 'https://github.com/ama', 'lien_linkedin': '', 'lien_site': ''})
+    u = sql("SELECT competences, parcours, lien_github FROM users WHERE email = 'web.riche@test.ci'")[0]
+    assert u['lien_github'] == 'https://github.com/ama'
+    page = client.get('/profil/modifier').get_data(as_text=True)
+    assert 'Python, Excel' in page and 'Stage | Orange CI | 2025' in page
+    assert client.get('/emploi-du-temps').status_code == 200
