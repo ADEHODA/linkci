@@ -44,3 +44,11 @@ def test_retour_apres_connexion(client):
     client.get('/deconnexion')
     r = client.post('/connexion', data={'email': 'retour@test.ci', 'mot_de_passe': 'motdepasse123', 'suivant': '//pirate.com'})
     assert 'pirate' not in r.headers['Location']
+
+
+def test_redirection_apres_connexion_pieges(client):
+    inscrire(client, 'piege.redir@test.ci')
+    for piege in ('/\t/pirate.com', '/\n/pirate.com', 'https://pirate.com', '/a//pirate.com', '/\pirate.com'):
+        client.get('/deconnexion')
+        r = client.post('/connexion', data={'email': 'piege.redir@test.ci', 'mot_de_passe': 'motdepasse123', 'suivant': piege})
+        assert r.headers['Location'].endswith('/feed'), repr(piege)

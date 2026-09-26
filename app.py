@@ -1232,7 +1232,8 @@ def connexion():
             ouvrir_session(user)
             flash('Connecte !', 'success')
             suivant = request.form.get('suivant') or request.args.get('suivant') or ''
-            if suivant.startswith('/') and not suivant.startswith('//') and '\\' not in suivant:
+            # chemin interne strict : pas de '//' ni de caracteres invisibles (que les navigateurs suppriment)
+            if re.fullmatch(r'/[A-Za-z0-9_\-./?=&%#]*', suivant) and '//' not in suivant:
                 return redirect(suivant)
             return redirect(url_for('feed'))
         else:
@@ -2073,6 +2074,9 @@ def api_suivre(autre_id):
         conn.close()
         return jsonify({'error': 'Introuvable'}), 404
     deja = conn.execute('SELECT 1 FROM follows WHERE follower_id = ? AND followed_id = ?', (user_id, autre_id)).fetchone()
+    if request.method == 'POST' and not deja and trop_rapide('suivi', user_id, 60, 3600):  # pas de rafale de notifications
+        conn.close()
+        return jsonify({'error': "Tu suis trop de personnes d'un coup. Reessaie plus tard."}), 429
     if request.method == 'POST' and not deja:
         conn.execute('INSERT INTO follows (follower_id, followed_id) VALUES (?, ?)', (user_id, autre_id))
         moi = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (user_id,)).fetchone()
