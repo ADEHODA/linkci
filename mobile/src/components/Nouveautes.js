@@ -6,13 +6,13 @@ import { PrimaryButton } from './ui';
 import { radius, spacing, creerStyles } from '../theme';
 
 // Changer ID a chaque nouvelle serie de nouveautes a annoncer
-const ID = '2026-09-29';
+const ID = '2026-09-30';
 const CLE = 'linkci_nouveautes_vues';
 const LISTE = [
-  ['👥', 'Groupes comme WhatsApp', 'Reagis, reponds en citant, modifie ou supprime pour tous, et cree des sondages 📊 dans tes groupes.'],
-  ['🟢', 'Statuts', 'Publie un statut texte sur fond colore, vois qui l\'a regarde, et reponds au statut d\'un ami en message prive.'],
-  ['📚', 'Documents de cours', 'Cherche un cours, un TD ou un ancien sujet par matiere ou filiere, et vote 👍 pour les plus utiles.'],
-  ['🎨', "Fond d'ecran", 'Change aussi le fond de tes groupes (icone palette en haut du groupe).'],
+  ['🔍', 'Recherche dans les messages', 'Tape un mot en haut de Messages : retrouve-le dans toutes tes discussions et tes groupes.'],
+  ['🔎', 'Chercher dans une discussion', "Menu ⋮ > Rechercher dans la discussion, puis navigue d'un resultat a l'autre avec les fleches."],
+  ['🖼️', 'Photos partagees', 'Menu ⋮ > Photos partagees (ou icone photos dans un groupe) pour revoir toutes les images echangees.'],
+  ['💻', 'Sur le site aussi', 'Reactions, reponses, sondages de groupe, documents 2.0 et statuts texte arrivent sur linkci.onrender.com.'],
 ];
 
 export default function Nouveautes() {

@@ -1963,13 +1963,7 @@ def api_mentions():
 
 @app.route('/documents')
 def documents():
-    if 'user_id' not in session:
-        return redirect(url_for('connexion'))
-    conn = get_db()
-    docs = conn.execute('SELECT documents.*, users.prenom, users.nom FROM documents JOIN users ON documents.user_id = users.id ORDER BY date_upload DESC').fetchall()
-    matieres = conn.execute('SELECT DISTINCT matiere FROM documents WHERE matiere IS NOT NULL ORDER BY matiere').fetchall()
-    conn.close()
-    return render_template('documents.html', docs=docs, matieres=matieres)
+    return page_app('documents_v2.html')
 
 @app.route('/documents/ajouter', methods=['GET', 'POST'])
 def ajouter_document():
@@ -1980,12 +1974,18 @@ def ajouter_document():
         if not fichier or fichier.filename == '':
             flash('Titre et fichier requis', 'error')
             return redirect(url_for('ajouter_document'))
-        _, erreur = enregistrer_document(session['user_id'], request.form.get('titre', ''), request.form.get('description', ''),
-                                         request.form.get('matiere', ''), request.form.get('universite', ''),
-                                         fichier.filename, fichier.read())
+        doc_id, erreur = enregistrer_document(session['user_id'], request.form.get('titre', ''), request.form.get('description', ''),
+                                              request.form.get('matiere', ''), request.form.get('universite', ''),
+                                              fichier.filename, fichier.read())
         if erreur:
             flash(erreur, 'error')
             return redirect(url_for('ajouter_document'))
+        conn = get_db()
+        conn.execute('UPDATE documents SET filiere = ?, type_doc = ? WHERE id = ?',
+                     (sanitize_text(request.form.get('filiere', ''), 100),
+                      request.form.get('type_doc') if request.form.get('type_doc') in TYPES_DOCUMENT else 'cours', doc_id))
+        conn.commit()
+        conn.close()
         flash('Document publie avec succes', 'success')
         return redirect(url_for('documents'))
     return render_template('ajouter_document.html')
@@ -5274,6 +5274,72 @@ def api_posts_enregistres():
                           params_ordre=(user_id,), limite=100)
     conn.close()
     return jsonify(enrichir_posts([dict(p) for p in posts], user_id))
+
+# ---- Recherche dans les messages et medias partages
+def motif_recherche(q):
+    """Texte cherche -> motif LIKE (les jokers % et _ tapes par l'etudiant sont retires)."""
+    q = re.sub(r'[%_]', ' ', (q or '').strip())[:80].strip()
+    return f'%{q}%' if len(q) >= 2 else None
+
+@app.route('/api/messages/recherche')
+def api_recherche_messages():
+    """?q= : mes messages prives et ceux de mes groupes qui contiennent ce texte (50 + 30 max)."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    motif = motif_recherche(request.args.get('q'))
+    if not motif:
+        return jsonify({'prives': [], 'groupes': []})
+    conn = get_db()
+    prives = conn.execute("""
+        SELECT m.id, m.expediteur_id, m.contenu, m.date_envoi, u.id AS autre_id, u.prenom, u.nom, u.avatar
+        FROM messages m JOIN users u ON u.id = CASE WHEN m.expediteur_id = ? THEN m.destinataire_id ELSE m.expediteur_id END
+        WHERE (m.expediteur_id = ? OR m.destinataire_id = ?) AND COALESCE(m.supprime, 0) = 0 AND m.contenu LIKE ?
+          AND m.date_envoi > COALESCE((SELECT date_effacement FROM conversations_effacees e WHERE e.user_id = ? AND e.autre_id = u.id), '')
+        ORDER BY m.date_envoi DESC LIMIT 50""", (user_id, user_id, user_id, motif, user_id)).fetchall()
+    groupes = conn.execute("""
+        SELECT gm.id, gm.groupe_id, g.nom AS groupe_nom, gm.contenu, gm.date_envoi, gm.user_id, users.prenom
+        FROM groupe_messages gm JOIN groupes g ON g.id = gm.groupe_id JOIN users ON users.id = gm.user_id
+        WHERE gm.groupe_id IN (SELECT groupe_id FROM groupe_membres WHERE user_id = ?)
+          AND COALESCE(gm.supprime, 0) = 0 AND gm.contenu LIKE ?
+        ORDER BY gm.date_envoi DESC LIMIT 30""", (user_id, motif)).fetchall()
+    conn.close()
+    return jsonify({'prives': [dict(m) for m in prives], 'groupes': [dict(m) for m in groupes]})
+
+@app.route('/api/messages/medias')
+def api_medias_conversation():
+    """?avec= : photos echangees dans une discussion privee (les plus recentes d'abord)."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    autre_id = request.args.get('avec', type=int)
+    if not autre_id:
+        return jsonify({'error': 'Parametre "avec" requis'}), 400
+    conn = get_db()
+    efface = conn.execute('SELECT date_effacement FROM conversations_effacees WHERE user_id = ? AND autre_id = ?',
+                          (user_id, autre_id)).fetchone()
+    medias = conn.execute("""
+        SELECT id, expediteur_id, image, date_envoi FROM messages
+        WHERE ((expediteur_id = ? AND destinataire_id = ?) OR (expediteur_id = ? AND destinataire_id = ?))
+          AND image IS NOT NULL AND image != '' AND COALESCE(supprime, 0) = 0 AND date_envoi > ?
+        ORDER BY date_envoi DESC LIMIT 200""", (user_id, autre_id, autre_id, user_id, efface['date_effacement'] if efface else '')).fetchall()
+    conn.close()
+    return jsonify([dict(m) for m in medias])
+
+@app.route('/api/groupes/<int:id>/medias')
+def api_medias_groupe(id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if not est_membre_groupe(id, user_id):
+        return jsonify({'error': "Tu n'es pas membre"}), 403
+    conn = get_db()
+    medias = conn.execute("""
+        SELECT id, user_id, image, date_envoi FROM groupe_messages
+        WHERE groupe_id = ? AND image IS NOT NULL AND image != '' AND COALESCE(supprime, 0) = 0
+        ORDER BY date_envoi DESC LIMIT 200""", (id,)).fetchall()
+    conn.close()
+    return jsonify([dict(m) for m in medias])
 
 # ---- Classement et defis de la semaine
 def debut_semaine(maintenant=None):

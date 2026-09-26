@@ -272,7 +272,7 @@
     const miennes = groupes.find((g) => g.est_moi);
     const bouton = (g, texte) => `<button class="story" data-g="${g ? groupes.indexOf(g) : ''}">
       <span class="anneau ${g ? (g.tout_vu && !g.est_moi ? 'vu' : '') : 'vide'}">${L.avatar(g ? `${g.prenom} ${g.nom}` : `${m.prenom} ${m.nom}`, g ? g.user_id : m.id, g ? g.avatar : m.avatar, 56)}</span>${L.esc(texte)}</button>`;
-    conteneur.innerHTML = bouton(miennes, 'Ma story') + groupes.filter((g) => !g.est_moi).map((g) => bouton(g, g.prenom)).join('');
+    conteneur.innerHTML = bouton(miennes, 'Mon statut') + groupes.filter((g) => !g.est_moi).map((g) => bouton(g, g.prenom)).join('');
     conteneur.onclick = async (e) => {
       const b = e.target.closest('.story');
       if (!b) return;
@@ -281,7 +281,41 @@
     };
   };
 
+  // Statut texte sur fond colore (comme WhatsApp)
+  const FONDS_STATUT = ['#FF6B35', '#009E60', '#2563EB', '#7C3AED', '#DB2777', '#0F172A', '#D97706', '#0891B2'];
+  const statutTexte = (conteneur) => {
+    let fond = FONDS_STATUT[0];
+    const f = L.fenetre(`<h3>Statut texte (24 h)</h3>
+      <textarea id="texte" maxlength="250" placeholder="Ecris ton statut..." style="width:100%;min-height:180px;border:0;border-radius:14px;padding:20px;
+        font-size:22px;font-weight:800;text-align:center;color:#fff;background:${fond};resize:none;box-sizing:border-box"></textarea>
+      <div class="ligne" style="gap:6px;margin:10px 0;flex-wrap:wrap">${FONDS_STATUT.map((c) => `<button data-fond="${c}" title="Couleur"
+        style="width:30px;height:30px;border-radius:50%;border:2px solid var(--border);background:${c}"></button>`).join('')}</div>
+      <div class="ligne"><button class="btn gris" data-fermer>Annuler</button><button class="btn" id="publier" style="margin-left:auto">Publier</button></div>`);
+    const zone = f.el.querySelector('#texte');
+    zone.focus();
+    f.el.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-fond]');
+      if (b) { fond = b.dataset.fond; zone.style.background = fond; }
+    });
+    f.el.querySelector('#publier').onclick = async (e) => {
+      if (!zone.value.trim()) return L.toast('Ecris quelque chose');
+      e.target.disabled = true;
+      try {
+        await L.api('/api/stories', { methode: 'POST', corps: { texte: zone.value.trim(), fond } });
+        f.fermer();
+        L.toast('Statut publie pour 24 h');
+        L.stories(conteneur);
+      } catch (err) { e.target.disabled = false; L.erreur(err); }
+    };
+  };
   const nouvelleStory = async (conteneur) => {
+    const choix = L.fenetre(`<h3>Nouveau statut</h3><p class="sous">Visible 24 h par les etudiants de LinkCI</p>
+      <div class="ligne" style="gap:10px"><button class="btn" data-choix="photo" style="flex:1">🖼️ Photo</button><button class="btn vert" data-choix="texte" style="flex:1">✍️ Texte</button></div>`);
+    const mode = await new Promise((ok) => choix.el.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-choix]');
+      if (b) { choix.fermer(); ok(b.dataset.choix); }
+    }));
+    if (mode === 'texte') return statutTexte(conteneur);
     const fichier = await L.choisirPhoto();
     if (!fichier) return;
     const f = L.fenetre(`<h3>Nouvelle story (24 h)</h3><img id="apercu" style="border-radius:12px;max-height:50vh;width:100%;object-fit:contain;background:#000">

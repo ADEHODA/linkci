@@ -29,6 +29,18 @@
             <label>Université</label>
             <input type="text" name="universite" placeholder="ex: UFHB, INPHB...">
 
+            <label>Filière</label>
+            <input type="text" name="filiere" placeholder="ex: Informatique, Droit...">
+
+            <label>Type de document</label>
+            <select name="type_doc">
+                <option value="cours">📘 Cours</option>
+                <option value="td">✏️ TD / exercices</option>
+                <option value="examen">📝 Sujet d'examen</option>
+                <option value="resume">🗒️ Résumé / fiche</option>
+                <option value="autre">📎 Autre</option>
+            </select>
+
             <label>Fichier * (PDF, Word, PowerPoint, TXT, ZIP, images)</label>
             <input type="file" name="fichier" required accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.zip,.rar,.png,.jpg,.jpeg">
 

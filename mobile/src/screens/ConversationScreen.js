@@ -14,6 +14,7 @@ import { heure, jourLisible, memeJour } from '../utils';
 import { useEvenement, useRealtime } from '../realtime';
 import { Fond, ChoixFondEcran, useFondEcran } from '../components/FondEcran';
 import { useFocusEffect } from '@react-navigation/native';
+import Medias from '../components/Medias';
 
 const EMOJIS = ['❤️', '😂', '😮', '😢', '🙏', '👍'];
 const extrait = (m) => (m.supprime ? 'Message supprime' : m.contenu || (m.audio || m.audioLocal ? 'Note vocale' : m.image || m.imageLocale ? 'Photo' : ''));
@@ -51,6 +52,41 @@ export default function ConversationScreen({ route, navigation }) {
   const [edition, setEdition] = useState(null); // message en cours de modification
   const [presence, setPresence] = useState(null);
   const [choixFond, setChoixFond] = useState(false);
+  const [medias, setMedias] = useState(false);
+  const [recherche, setRecherche] = useState(null); // null = barre fermee
+  const [position, setPosition] = useState(0); // resultat affiche (0 = le plus recent)
+  const [surbrillance, setSurbrillance] = useState(conv.cible || null);
+  const suivreFin = useRef(!conv.cible); // defile en bas a chaque nouveau contenu, sauf pendant une recherche
+
+  const allerA = (id) => {
+    const index = messages.findIndex((m) => m.id === id);
+    if (index < 0) return;
+    suivreFin.current = false;
+    setSurbrillance(id);
+    listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.4 });
+  };
+  // arrivee depuis la recherche : on va au message trouve
+  const cibleFaite = useRef(false);
+  useEffect(() => {
+    if (conv.cible && !cibleFaite.current && messages.some((m) => m.id === conv.cible)) {
+      cibleFaite.current = true;
+      setTimeout(() => allerA(conv.cible), 300);
+    }
+  }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
+  // recherche dans la discussion (sur le telephone)
+  const mot = (recherche || '').trim().toLowerCase();
+  const resultats = mot.length >= 2 ? messages.filter((m) => (m.contenu || '').toLowerCase().includes(mot)).map((m) => m.id).reverse() : [];
+  useEffect(() => {
+    setPosition(0);
+    if (resultats.length) allerA(resultats[0]);
+  }, [mot]); // eslint-disable-line react-hooks/exhaustive-deps
+  const naviguer = (sens) => {
+    if (!resultats.length) return;
+    const p = (position + sens + resultats.length) % resultats.length;
+    setPosition(p);
+    allerA(resultats[p]);
+  };
+  const fermerRecherche = () => { setRecherche(null); setSurbrillance(null); suivreFin.current = true; };
   const { fond } = useFondEcran(conv.autre_id);
 
   // "en ligne" / "vu a" : actualise toutes les 30 s tant que la discussion est ouverte
@@ -87,6 +123,8 @@ export default function ConversationScreen({ route, navigation }) {
   // Menu de la discussion : effacer l'historique (pour moi seulement)
   const menu = () => Alert.alert(`${conv.prenom} ${conv.nom}`, undefined, [
     { text: 'Voir le profil', onPress: () => navigation.navigate('ProfilEtudiant', { id: conv.autre_id }) },
+    { text: 'Rechercher dans la discussion', onPress: () => setRecherche('') },
+    { text: 'Photos partagees', onPress: () => setMedias(true) },
     { text: "Fond d'ecran", onPress: () => setChoixFond(true) },
     {
       text: "Effacer l'historique",
@@ -186,6 +224,8 @@ export default function ConversationScreen({ route, navigation }) {
     }
     const contenu = text.trim();
     const cite = reponse;
+    suivreFin.current = true;
+    setSurbrillance(null);
     setText('');
     setReponse(null);
     // affichage immediat, remplace par la version du serveur ensuite
@@ -245,6 +285,17 @@ export default function ConversationScreen({ route, navigation }) {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90}>
+      {recherche !== null ? (
+        <View style={styles.barreRecherche}>
+          <Ionicons name="search" size={18} color={colors.textMuted} />
+          <TextInput style={styles.rechercheChamp} value={recherche} onChangeText={setRecherche} placeholder="Chercher dans la discussion..."
+            placeholderTextColor={colors.textFaint} autoFocus returnKeyType="search" onSubmitEditing={() => naviguer(1)} />
+          <Text style={styles.rechercheCompte}>{mot.length >= 2 ? (resultats.length ? `${position + 1}/${resultats.length}` : '0') : ''}</Text>
+          <TouchableOpacity onPress={() => naviguer(1)} hitSlop={8} accessibilityLabel="Resultat precedent"><Ionicons name="chevron-up" size={22} color={colors.text} /></TouchableOpacity>
+          <TouchableOpacity onPress={() => naviguer(-1)} hitSlop={8} accessibilityLabel="Resultat suivant"><Ionicons name="chevron-down" size={22} color={colors.text} /></TouchableOpacity>
+          <TouchableOpacity onPress={fermerRecherche} hitSlop={8}><Ionicons name="close" size={22} color={colors.textMuted} /></TouchableOpacity>
+        </View>
+      ) : null}
       <Fond fond={fond} style={{ flex: 1 }}>
       {loading ? <Loading /> : (
         <FlatList
@@ -253,7 +304,12 @@ export default function ConversationScreen({ route, navigation }) {
           contentContainerStyle={{ padding: spacing.md, flexGrow: 1 }}
           data={[...messages, ...enFile.map((m) => ({ ...m, expediteur_id: -1, enAttente: true, horsLigne: true }))]}
           keyExtractor={(item) => String(item.id)}
-          onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
+          onContentSizeChange={() => { if (suivreFin.current) listRef.current?.scrollToEnd({ animated: false }); }}
+          onScrollToIndexFailed={(info) => {
+            // hauteur des messages pas encore connue : on s'approche, puis on reessaie
+            listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: false });
+            setTimeout(() => listRef.current?.scrollToIndex({ index: info.index, animated: true, viewPosition: 0.4 }), 150);
+          }}
           renderItem={({ item, index }) => {
             const recu = item.expediteur_id === conv.autre_id;
             const precedent = messages[index - 1];
@@ -263,7 +319,8 @@ export default function ConversationScreen({ route, navigation }) {
                 {nouveauJour ? <Text style={styles.jour}>{jourLisible(item.date_envoi)}</Text> : null}
                 <TouchableOpacity activeOpacity={0.85} delayLongPress={300}
                   onLongPress={item.enAttente || item.supprime ? undefined : () => setActions(item)}
-                  style={[styles.msg, recu ? styles.msgReceived : styles.msgSent, item.enAttente && { opacity: 0.6 }]}>
+                  style={[styles.msg, recu ? styles.msgReceived : styles.msgSent, item.enAttente && { opacity: 0.6 },
+                    surbrillance === item.id && styles.surbrillance]}>
                   {item.transfere ? <Text style={[styles.transfere, !recu && styles.msgTimeSent]}>↪ Transfere</Text> : null}
                   {item.story_apercu ? (
                     <View style={[styles.citation, !recu && styles.citationEnvoyee]}>
@@ -383,6 +440,7 @@ export default function ConversationScreen({ route, navigation }) {
         </TouchableOpacity>
       </Modal>
       <Transfert message={transfert} onFermer={() => setTransfert(null)} />
+      <Medias visible={medias} titre={`Photos avec ${conv.prenom}`} charger={() => api.getMediasConversation(conv.autre_id)} onFermer={() => setMedias(false)} />
       <ChoixFondEcran visible={choixFond} onFermer={() => setChoixFond(false)} autreId={conv.autre_id} nom={conv.prenom} />
     </KeyboardAvoidingView>
   );
@@ -455,6 +513,10 @@ const useStyles = creerStyles(({ colors }) => ({
   headerName: { fontWeight: '800', fontSize: 16, color: colors.text },
   ecrit: { fontSize: 12, color: colors.accent, fontStyle: 'italic' },
   presence: { fontSize: 12, color: colors.textMuted },
+  surbrillance: { borderWidth: 2, borderColor: '#FACC15' },
+  barreRecherche: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingHorizontal: spacing.md, paddingVertical: 6, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border },
+  rechercheChamp: { flex: 1, paddingVertical: 8, fontSize: 15, color: colors.text },
+  rechercheCompte: { fontSize: 12, color: colors.textMuted, minWidth: 30, textAlign: 'right' },
   photo: { width: 220, marginBottom: 4, borderRadius: 14 },
   attache: { height: 44, justifyContent: 'center', paddingHorizontal: 4 },
   messageList: { flex: 1 },

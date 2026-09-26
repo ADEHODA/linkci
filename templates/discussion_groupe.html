@@ -31,23 +31,11 @@
         </div>
         <div class="groupe-chat">
             <div class="groupe-messages">
-                <div class="msg-list" id="msgList">
-                    {% for m in messages %}
-                    <div class="msg-item">
-                        <span class="sender">{{ m.prenom }} {{ m.nom }}</span>
-                        <span class="time">{{ m.date_envoi[11:16] }}</span>
-                        {% if m.image %}<a href="/static/uploads/{{ m.image }}" target="_blank" rel="noopener"><img src="/static/uploads/{{ m.image }}" alt="Photo" style="display:block;max-width:220px;max-height:260px;border-radius:10px;margin:0.3rem 0;object-fit:cover;"></a>{% endif %}
-                        {% if m.audio %}<audio controls preload="none" src="/static/uploads/{{ m.audio }}" style="max-width:240px;display:block;margin:0.3rem 0;"></audio>{% endif %}
-                        <div class="text">{{ m.contenu }}</div>
-                    </div>
-                    {% endfor %}
-                    {% if messages|length == 0 %}
-                    <p style="text-align:center;color:var(--text-muted);padding:2rem 0;">Aucun message. Sois le premier à écrire !</p>
-                    {% endif %}
-                </div>
-                <form method="POST" action="/groupes/{{ groupe.id }}/envoyer" style="display:flex;gap:0.5rem;">
-                    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                    <input type="text" name="contenu" placeholder="Écris un message..." required style="flex:1;padding:0.7rem 1rem;border-radius:10px;border:1px solid var(--border);font-size:0.9rem;">
+                <div class="msg-list disc-zone" id="msgList"></div>
+                <div class="disc-barre" id="discBarre" hidden></div>
+                <form id="discForm" style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+                    <input type="text" id="discChamp" placeholder="Ecris un message... (clique sur un message pour reagir ou repondre)" autocomplete="off" style="flex:1;padding:0.7rem 1rem;border-radius:10px;border:1px solid var(--border);font-size:0.9rem;background:var(--card);color:var(--text);">
+                    <button type="button" id="btnSondage" title="Creer un sondage" style="padding:0 0.8rem;border-radius:10px;border:1px solid var(--border);background:var(--card);cursor:pointer;">📊</button>
                     <button type="submit" class="btn btn-orange" style="padding:0.7rem 1.25rem;">Envoyer</button>
                 </form>
             </div>
@@ -64,8 +52,46 @@
     </div>
 {% endblock %}
 {% block scripts %}
+<script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+<script src="/static/js/discussion.js"></script>
 <script>
-        const msgList = document.getElementById('msgList');
-        if (msgList) msgList.scrollTop = msgList.scrollHeight;
-    </script>
+(() => {
+  const L = LinkCI;
+  const gid = {{ groupe.id }};
+  const moiId = {{ session.user_id }};
+  const admin = {{ ((membre['role'] if membre else '') == 'admin') | tojson }};
+  const d = L.discussion({
+    zone: document.getElementById('msgList'), formulaire: document.getElementById('discForm'),
+    champ: document.getElementById('discChamp'), barre: document.getElementById('discBarre'),
+    moiId, groupe: true,
+    charger: () => L.api(`/api/groupes/${gid}/messages`),
+    envoyer: (contenu, reponse_a) => L.api(`/api/groupes/${gid}/messages`, { methode: 'POST', corps: { contenu, reponse_a } }),
+    reagir: (id, emoji) => L.api(`/api/groupes/${gid}/messages/${id}/reaction`, { methode: 'POST', corps: { emoji } }),
+    modifier: (id, contenu) => L.api(`/api/groupes/${gid}/messages/${id}`, { methode: 'PUT', corps: { contenu } }),
+    supprimer: (id) => L.api(`/api/groupes/${gid}/messages/${id}`, { methode: 'DELETE' }),
+    voter: (id, option_id) => L.api(`/api/groupes/${gid}/messages/${id}/vote`, { methode: 'POST', corps: { option_id } }),
+    peutSupprimer: (m) => m.user_id === moiId || admin,
+  });
+  // nouveau message, reaction, vote... : mise a jour en direct
+  const socket = io('', { transports: ['polling', 'websocket'] });
+  socket.on('groupe_message', (x) => { if (x.groupe_id === gid) d.recharger(); });
+
+  document.getElementById('btnSondage').addEventListener('click', () => {
+    const f = L.fenetre(`<h3 style="margin-top:0">📊 Nouveau sondage</h3>
+      <input class="champ" id="sq" placeholder="Question (ex. On revise quel jour ?)" maxlength="200">
+      ${[1, 2, 3, 4].map((k) => `<input class="champ" data-choix placeholder="Choix ${k}${k > 2 ? ' (facultatif)' : ''}" maxlength="80" style="margin-top:6px">`).join('')}
+      <div class="ligne" style="margin-top:10px;justify-content:flex-end"><button class="btn gris" data-fermer>Annuler</button><button class="btn" id="sok">Envoyer</button></div>`);
+    f.el.querySelector('#sok').addEventListener('click', async () => {
+      const question = f.el.querySelector('#sq').value.trim();
+      const choix = [...f.el.querySelectorAll('[data-choix]')].map((i) => i.value.trim()).filter(Boolean);
+      if (!question || choix.length < 2) return L.toast('Une question et au moins 2 choix');
+      try {
+        await L.api(`/api/groupes/${gid}/messages`, { methode: 'POST', corps: { contenu: question, sondage: choix } });
+        f.fermer();
+        d.recharger();
+      } catch (e) { L.erreur(e); }
+    });
+  });
+})();
+</script>
 {% endblock %}

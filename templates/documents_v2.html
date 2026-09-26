@@ -1,0 +1,78 @@
+{% extends 'base_app.html' %}
+{% block titre %}Documents de cours{% endblock %}
+{% block contenu %}
+<div class="ligne" style="justify-content:space-between;flex-wrap:wrap">
+  <h1 class="titre-page">📚 Documents de cours</h1>
+  <a class="btn" href="/documents/ajouter">+ Partager un document</a>
+</div>
+<form class="carte ligne" id="form" style="padding:10px 14px">
+  <span>🔎</span><input class="champ" id="q" style="background:none" placeholder="Chercher un cours, un sujet, une matiere...">
+</form>
+<div class="puces" id="types"></div>
+<div class="ligne" style="flex-wrap:wrap;gap:8px;margin-bottom:12px">
+  <select class="champ" id="matiere" style="width:auto"><option value="">Toutes les matieres</option></select>
+  <select class="champ" id="filiere" style="width:auto"><option value="">Toutes les filieres</option></select>
+  <select class="champ" id="tri" style="width:auto"><option value="">Plus recents</option><option value="utiles">Plus utiles</option><option value="telecharges">Plus telecharges</option></select>
+</div>
+<div id="zone"><div class="chargement">Chargement...</div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const L = LinkCI;
+  const TYPES = { cours: '📘 Cours', td: '✏️ TD', examen: '📝 Sujets', resume: '🗒️ Resumes', autre: '📎 Autre' };
+  const ICONES = { pdf: '📕', doc: '📘', docx: '📘', ppt: '📙', pptx: '📙', zip: '🗜️', rar: '🗜️', png: '🖼️', jpg: '🖼️', jpeg: '🖼️', txt: '📄' };
+  let type = '', docs = [];
+  const zoneTypes = document.getElementById('types');
+  zoneTypes.innerHTML = [['', 'Tout'], ...Object.entries(TYPES)].map(([c, l]) => `<button class="puce${c ? '' : ' active'}" data-t="${c}">${l}</button>`).join('');
+
+  const f = await L.api('/api/documents/filtres').catch(() => ({ matiere: [], filiere: [] }));
+  const remplir = (id, liste) => { document.getElementById(id).insertAdjacentHTML('beforeend', liste.map((v) => `<option>${L.esc(v)}</option>`).join('')); };
+  remplir('matiere', f.matiere || []);
+  remplir('filiere', f.filiere || []);
+
+  const dessiner = () => {
+    document.getElementById('zone').innerHTML = docs.map((d) => `<div class="carte ligne" style="align-items:flex-start">
+      <a href="/documents/${d.id}/telecharger" style="font-size:30px;text-decoration:none">${ICONES[(d.fichier || '').split('.').pop().toLowerCase()] || '📄'}</a>
+      <div style="flex:1;min-width:0">
+        <div class="sous" style="color:var(--primary);font-weight:700">${TYPES[d.type_doc] || TYPES.cours}${d.matiere ? ' · ' + L.esc(d.matiere) : ''}</div>
+        <a href="/documents/${d.id}/telecharger" style="font-weight:800;color:var(--text)">${L.esc(d.titre)}</a>
+        ${d.description ? `<div class="sous">${L.esc(d.description).slice(0, 160)}</div>` : ''}
+        <div class="sous">${L.esc([d.universite, d.filiere].filter(Boolean).join(' · '))}${d.universite || d.filiere ? ' · ' : ''}par ${L.esc(d.prenom)} ${L.esc(d.nom)} · ⬇️ ${d.telechargements}</div>
+      </div>
+      <button class="btn petit ${d.mon_vote ? '' : 'gris'}" data-vote="${d.id}" title="Utile">👍 ${d.nb_votes || 0}</button>
+    </div>`).join('') || '<div class="vide">Aucun document trouve. Partage le premier !</div>';
+  };
+
+  const charger = async () => {
+    const p = new URLSearchParams();
+    const q = document.getElementById('q').value.trim();
+    if (q) p.set('q', q);
+    if (type) p.set('type', type);
+    ['matiere', 'filiere', 'tri'].forEach((c) => { const v = document.getElementById(c).value; if (v) p.set(c, v); });
+    docs = await L.api('/api/documents?' + p);
+    dessiner();
+  };
+
+  let minuterie;
+  document.getElementById('q').addEventListener('input', () => { clearTimeout(minuterie); minuterie = setTimeout(() => charger().catch(L.erreur), 400); });
+  document.getElementById('form').addEventListener('submit', (e) => { e.preventDefault(); charger().catch(L.erreur); });
+  ['matiere', 'filiere', 'tri'].forEach((c) => document.getElementById(c).addEventListener('change', () => charger().catch(L.erreur)));
+  zoneTypes.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-t]'); if (!b) return;
+    type = b.dataset.t;
+    zoneTypes.querySelectorAll('.puce').forEach((x) => x.classList.toggle('active', x === b));
+    charger().catch(L.erreur);
+  });
+  document.getElementById('zone').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-vote]'); if (!b) return;
+    try {
+      const r = await L.api(`/api/documents/${b.dataset.vote}/vote`, { methode: 'POST' });
+      Object.assign(docs.find((d) => d.id === Number(b.dataset.vote)), r);
+      dessiner();
+    } catch (err) { L.erreur(err); }
+  });
+  charger().catch(L.erreur);
+})();
+</script>
+{% endblock %}

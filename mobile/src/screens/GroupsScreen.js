@@ -13,6 +13,7 @@ import { radius, spacing, creerStyles, useTheme } from '../theme';
 import { heure } from '../utils';
 import { useEvenement } from '../realtime';
 import { Fond, ChoixFondEcran, useFondEcran } from '../components/FondEcran';
+import Medias from '../components/Medias';
 
 const EMOJIS = ['❤️', '😂', '😮', '😢', '🙏', '👍'];
 const extraitMsg = (m) => (m.supprime ? 'Message supprime' : m.contenu || (m.audio || m.audioLocal ? 'Note vocale' : m.image || m.imageLocale ? 'Photo' : ''));
@@ -161,6 +162,7 @@ function GroupChat({ groupe: groupeInitial, moi, onBack, onVoirProfil }) {
   const [edition, setEdition] = useState(null);
   const [sondage, setSondage] = useState(false);
   const [choixFond, setChoixFond] = useState(false);
+  const [medias, setMedias] = useState(false);
   const { fond } = useFondEcran(`g${groupe.id}`);
 
   const chargerInfos = () => api.getMembresGroupe(groupe.id).then((r) => { setInfos(r); if (r.groupe) setGroupe((g) => ({ ...g, ...r.groupe })); }).catch(() => {});
@@ -269,6 +271,9 @@ function GroupChat({ groupe: groupeInitial, moi, onBack, onVoirProfil }) {
             <Text style={styles.chatName} numberOfLines={1}>{groupe.nom}</Text>
             <Text style={styles.chatDesc} numberOfLines={1}>{infos.membres.length ? `${infos.membres.length} membres · toucher pour les infos` : groupe.description}</Text>
           </View>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setMedias(true)} hitSlop={10} accessibilityLabel="Photos partagees">
+          <Ionicons name="images-outline" size={22} color={colors.textMuted} />
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setChoixFond(true)} hitSlop={10} accessibilityLabel="Fond d'ecran">
           <Ionicons name="color-palette-outline" size={22} color={colors.textMuted} />
@@ -397,6 +402,7 @@ function GroupChat({ groupe: groupeInitial, moi, onBack, onVoirProfil }) {
           ) : null}
         </TouchableOpacity>
       </Modal>
+      <Medias visible={medias} titre={`Photos de ${groupe.nom}`} charger={() => api.getMediasGroupe(groupe.id)} onFermer={() => setMedias(false)} />
       <CreerSondage visible={sondage} onFermer={() => setSondage(false)} onCreer={envoyerSondage} />
       <ChoixFondEcran visible={choixFond} onFermer={() => setChoixFond(false)} autreId={`g${groupe.id}`} nom={groupe.nom} />
       <GestionGroupe visible={gestion} groupe={groupe} infos={infos} moi={moi} onFermer={() => setGestion(false)}

@@ -141,3 +141,34 @@ textarea.champ { resize: vertical; min-height: 70px; }
 
 /* statut deja vu : anneau gris */
 .story .anneau.vu { border-color: var(--border); }
+
+/* ---- discussions (messages prives et groupes) */
+.disc-zone { overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 2px; }
+.disc-ligne { display: flex; flex-direction: column; align-items: flex-start; margin-bottom: 6px; }
+.disc-ligne.moi { align-items: flex-end; }
+.disc-bulle { max-width: 75%; background: var(--card); color: var(--text); border: 1px solid var(--border); border-radius: 18px 18px 18px 6px; padding: 8px 12px; cursor: pointer; word-wrap: break-word; }
+.disc-ligne.moi .disc-bulle { background: var(--primary); color: #fff; border-color: var(--primary); border-radius: 18px 18px 6px 18px; }
+.disc-bulle.surligne { outline: 3px solid #FACC15; }
+.disc-bulle img { display: block; max-width: 240px; max-height: 280px; border-radius: 12px; margin: 4px 0; object-fit: cover; }
+.disc-bulle audio { max-width: 240px; display: block; margin: 4px 0; }
+.disc-auteur { font-size: 12px; font-weight: 800; color: var(--primary); }
+.disc-texte { white-space: pre-wrap; }
+.disc-petit { font-size: 12px; opacity: .75; font-style: italic; }
+.disc-citation { border-left: 3px solid currentColor; background: rgba(0,0,0,.07); border-radius: 6px; padding: 3px 8px; margin-bottom: 4px; font-size: 13px; opacity: .9; }
+.disc-citation b { display: block; font-size: 12px; }
+.disc-meta { font-size: 11px; opacity: .7; text-align: right; margin-top: 2px; }
+.disc-reacs { display: flex; gap: 4px; margin-top: -4px; }
+.disc-reac { background: var(--card); border: 1px solid var(--border); border-radius: 999px; padding: 0 7px; font-size: 13px; color: var(--text); }
+.disc-reac.moi { border-color: var(--primary); background: var(--primary-soft); }
+.disc-jour { text-align: center; margin: 10px 0; } .disc-jour span { background: var(--card); color: var(--muted); font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 999px; }
+.disc-vide { text-align: center; color: var(--muted); padding: 40px 0; }
+.disc-sondage { display: flex; flex-direction: column; gap: 5px; margin-top: 6px; min-width: 220px; }
+.disc-option { position: relative; overflow: hidden; display: flex; justify-content: space-between; gap: 8px; text-align: left; border: 1px solid currentColor; border-radius: 10px; padding: 7px 10px; background: none; color: inherit; }
+.disc-option i { position: absolute; left: 0; top: 0; bottom: 0; background: rgba(255,255,255,.25); } .disc-ligne:not(.moi) .disc-option i { background: var(--primary-soft); }
+.disc-option span, .disc-option b { position: relative; } .disc-option.mien { border-width: 2px; font-weight: 700; }
+.disc-sondage small { opacity: .75; font-size: 11px; }
+.disc-barre { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-left: 3px solid var(--primary); background: var(--card-alt); margin: 0 12px; border-radius: 6px; }
+.disc-barre div { flex: 1; min-width: 0; } .disc-barre b { display: block; font-size: 12px; color: var(--primary); }
+.disc-barre span { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+.disc-menu-emojis { display: flex; justify-content: space-between; gap: 4px; font-size: 26px; } .disc-menu-emojis button { background: none; border: 0; font-size: 26px; }
+.disc-menu-action { display: block; width: 100%; text-align: left; padding: 11px 4px; border: 0; border-top: 1px solid var(--border); background: none; color: var(--text); font-size: 15px; font-weight: 600; }

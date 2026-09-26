@@ -282,6 +282,9 @@ export const supprimerMessage = (id) => request(`/api/messages/${id}`, { method:
 export const modifierMessage = (id, contenu) => request(`/api/messages/${id}`, { method: 'PUT', body: JSON.stringify({ contenu }) });
 export const vocalEcoute = (id) => request(`/api/messages/${id}/ecoute`, { method: 'POST' });
 export const getPresence = (id) => request(`/api/presence/${id}`);
+export const rechercherMessages = (q) => request(`/api/messages/recherche?q=${encodeURIComponent(q)}`);
+export const getMediasConversation = (id) => request(`/api/messages/medias?avec=${id}`);
+export const getMediasGroupe = (id) => request(`/api/groupes/${id}/medias`);
 // Fil : publications enregistrees et hashtags
 export const enregistrerPost = (id, oui = true) => request(`/api/posts/${id}/enregistrer`, { method: oui ? 'POST' : 'DELETE' });
 export const getPostsEnregistres = () => request('/api/posts/enregistres');

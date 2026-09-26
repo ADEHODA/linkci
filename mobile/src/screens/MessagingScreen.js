@@ -2,7 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { ouvrirMessages } from '../verrou';
-import { View, Text, FlatList, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Alert, TextInput, ScrollView } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as api from '../api';
 import Avatar from '../components/Avatar';
@@ -58,6 +58,17 @@ function ListeConversations({ navigation }) {
       { text: 'Fermer', style: 'cancel' },
     ]);
   };
+  // recherche : noms des discussions (sur le telephone) + contenu des messages (serveur)
+  const [q, setQ] = useState('');
+  const [trouves, setTrouves] = useState(null);
+  const minuterie = React.useRef(null);
+  const chercher = (t) => {
+    setQ(t);
+    clearTimeout(minuterie.current);
+    if (t.trim().length < 2) { setTrouves(null); return; }
+    minuterie.current = setTimeout(() => api.rechercherMessages(t.trim()).then(setTrouves).catch(() => setTrouves({ prives: [], groupes: [] })), 400);
+  };
+
   // discussions epinglees d'abord (dans l'ordre d'epinglage), puis les autres par date
   const triees = [...conversations].sort((a, b) => {
     const ia = epingles.indexOf(a.autre_id), ib = epingles.indexOf(b.autre_id);
@@ -74,9 +85,67 @@ function ListeConversations({ navigation }) {
 
   const ouvrir = (c) => navigation.navigate('Conversation', { autre_id: c.autre_id, prenom: c.prenom, nom: c.nom, avatar: c.avatar });
 
+  const barre = (
+    <View style={styles.recherche}>
+      <Ionicons name="search" size={18} color={colors.textMuted} />
+      <TextInput style={styles.rechercheChamp} value={q} onChangeText={chercher} placeholder="Rechercher un nom ou un message..."
+        placeholderTextColor={colors.textFaint} returnKeyType="search" />
+      {q ? <TouchableOpacity onPress={() => chercher('')} hitSlop={8}><Ionicons name="close-circle" size={18} color={colors.textFaint} /></TouchableOpacity> : null}
+    </View>
+  );
+
+  if (q.trim().length >= 2) {
+    const mot = q.trim().toLowerCase();
+    const noms = conversations.filter((c) => `${c.prenom} ${c.nom}`.toLowerCase().includes(mot));
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 30 }} keyboardShouldPersistTaps="handled">
+        {barre}
+        {noms.length ? <Text style={styles.section}>Discussions</Text> : null}
+        {noms.map((c) => (
+          <TouchableOpacity key={`c${c.autre_id}`} style={styles.convItem} onPress={() => ouvrir(c)}>
+            <Avatar name={`${c.prenom} ${c.nom}`} size={44} index={c.autre_id} avatar={c.avatar} />
+            <Text style={[styles.convName, { flex: 1 }]} numberOfLines={1}>{c.prenom} {c.nom}</Text>
+          </TouchableOpacity>
+        ))}
+        {!trouves ? <Text style={styles.section}>Recherche...</Text> : null}
+        {trouves?.prives.length ? <Text style={styles.section}>Messages</Text> : null}
+        {trouves?.prives.map((m) => (
+          <TouchableOpacity key={`m${m.id}`} style={styles.convItem}
+            onPress={() => navigation.navigate('Conversation', { autre_id: m.autre_id, prenom: m.prenom, nom: m.nom, avatar: m.avatar, cible: m.id })}>
+            <Avatar name={`${m.prenom} ${m.nom}`} size={44} index={m.autre_id} avatar={m.avatar} />
+            <View style={styles.convInfo}>
+              <View style={styles.convTop}>
+                <Text style={styles.convName} numberOfLines={1}>{m.prenom} {m.nom}</Text>
+                <Text style={styles.convDate}>{dateRelative(m.date_envoi)}</Text>
+              </View>
+              <TexteSurligne texte={m.contenu} mot={mot} style={styles.convPreview} />
+            </View>
+          </TouchableOpacity>
+        ))}
+        {trouves?.groupes.length ? <Text style={styles.section}>Dans tes groupes</Text> : null}
+        {trouves?.groupes.map((m) => (
+          <TouchableOpacity key={`g${m.id}`} style={styles.convItem} onPress={() => navigation.navigate('Groupes', { ouvrir: m.groupe_id })}>
+            <Avatar name={m.groupe_nom} size={44} index={m.groupe_id} />
+            <View style={styles.convInfo}>
+              <View style={styles.convTop}>
+                <Text style={styles.convName} numberOfLines={1}>{m.groupe_nom}</Text>
+                <Text style={styles.convDate}>{dateRelative(m.date_envoi)}</Text>
+              </View>
+              <TexteSurligne texte={`${m.prenom} : ${m.contenu}`} mot={mot} style={styles.convPreview} />
+            </View>
+          </TouchableOpacity>
+        ))}
+        {trouves && !noms.length && !trouves.prives.length && !trouves.groupes.length ? (
+          <EmptyState icon="search-outline" title="Aucun resultat" hint={`Rien ne contient "${q.trim()}".`} />
+        ) : null}
+      </ScrollView>
+    );
+  }
+
   return (
     <FlatList
       style={styles.container}
+      ListHeaderComponent={conversations.length ? barre : null}
       contentContainerStyle={styles.listContent}
       data={triees}
       keyExtractor={(item) => String(item.autre_id)}
@@ -109,7 +178,25 @@ function ListeConversations({ navigation }) {
   );
 }
 
+// Texte avec le mot cherche en gras (orange)
+function TexteSurligne({ texte, mot, style }) {
+  const { colors } = useTheme();
+  const i = (texte || '').toLowerCase().indexOf(mot);
+  if (i < 0) return <Text style={style} numberOfLines={2}>{texte}</Text>;
+  const debut = Math.max(0, i - 30); // montre le passage autour du mot
+  return (
+    <Text style={style} numberOfLines={2}>
+      {debut ? '...' : ''}{texte.slice(debut, i)}
+      <Text style={{ color: colors.primary, fontWeight: '800' }}>{texte.slice(i, i + mot.length)}</Text>
+      {texte.slice(i + mot.length)}
+    </Text>
+  );
+}
+
 const useStyles = creerStyles(({ colors }) => ({
+  recherche: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.card, borderRadius: radius.pill, paddingHorizontal: spacing.lg, marginHorizontal: spacing.md, marginTop: spacing.sm, marginBottom: spacing.xs, borderWidth: 1, borderColor: colors.border },
+  rechercheChamp: { flex: 1, paddingVertical: 10, fontSize: 15, color: colors.text },
+  section: { fontSize: 12, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase', marginHorizontal: spacing.lg, marginTop: spacing.md, marginBottom: 4 },
   verrou: { alignItems: 'center', justifyContent: 'center', gap: 16, padding: 32 },
   verrouTexte: { fontSize: 16, fontWeight: '700', color: colors.textMuted },
   container: { flex: 1, backgroundColor: colors.bg },

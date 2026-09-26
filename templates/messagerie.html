@@ -72,7 +72,8 @@
         <div class="msg-sidebar" id="msgSidebar">
             <div class="msg-sidebar-header">
                 <h2>💬 Messages</h2>
-                <input type="text" class="msg-search" placeholder="Rechercher une conversation..." oninput="filterConversations(this.value)">
+                <input type="text" class="msg-search" placeholder="Rechercher un nom ou un message..." oninput="filterConversations(this.value)">
+                <div id="resultatsMessages"></div>
                 <button class="msg-new-btn" onclick="toggleNewMessage()">+ Nouvelle conversation</button>
             </div>
             <div class="msg-new-section" id="newMsgSection">
@@ -126,42 +127,13 @@
                 </div>
             </div>
 
-            <div class="msg-body" id="msgBody">
-                {% if messages|length == 0 %}
-                <div class="msg-empty">
-                    <div class="icon">👋</div>
-                    <p>Démarrez la conversation avec <strong>{{ conversation_avec.prenom }}</strong></p>
-                    <p style="font-size:0.85rem;">Envoyez votre premier message ci-dessous</p>
-                </div>
-                {% else %}
-                    {% set ns = namespace(last_date='') %}
-                    {% for msg in messages %}
-                        {% set msg_date = msg.date_envoi[:10] %}
-                        {% if msg_date != ns.last_date %}
-                            {% set ns.last_date = msg_date %}
-                            <div class="msg-date-sep"><span>{{ msg.date_envoi|format_date(full=true) }}</span></div>
-                        {% endif %}
-                        <div class="msg-bubble-row {{ 'moi' if msg.expediteur_id == session.user_id else 'autre' }}">
-                            <div class="msg-bubble">
-                                {% if msg.transfere %}<div style="font-size:0.7rem;opacity:0.75;font-style:italic;">↪ Transfere</div>{% endif %}
-                                {% if msg.reponse %}<div style="border-left:3px solid currentColor;opacity:0.8;padding:0.2rem 0.5rem;margin-bottom:0.3rem;font-size:0.8rem;border-radius:4px;background:rgba(0,0,0,0.06);"><strong>{{ msg.reponse.prenom }}</strong><br>{{ msg.reponse.extrait }}</div>{% endif %}
-                                {% if msg.supprime %}<em style="opacity:0.7;">🚫 Message supprime</em>{% endif %}
-                                {% if msg.image %}<a href="/static/uploads/{{ msg.image }}" target="_blank" rel="noopener"><img src="/static/uploads/{{ msg.image }}" alt="Photo" style="display:block;max-width:220px;max-height:260px;border-radius:10px;margin-bottom:0.3rem;object-fit:cover;"></a>{% endif %}
-                                {% if msg.audio %}<audio controls preload="none" src="/static/uploads/{{ msg.audio }}" style="max-width:240px;display:block;margin-bottom:0.3rem;"></audio>{% endif %}
-                                {{ msg.contenu }}
-                                <span class="msg-bubble-time">{{ msg.date_envoi[11:16] }}</span>
-                                {% if msg.reactions %}<div style="margin-top:0.2rem;">{% for r in msg.reactions %}<span style="background:rgba(0,0,0,0.08);border-radius:999px;padding:0 0.4rem;font-size:0.8rem;margin-right:0.2rem;">{{ r.emoji }}{% if r.nb > 1 %} {{ r.nb }}{% endif %}</span>{% endfor %}</div>{% endif %}
-                            </div>
-                        </div>
-                    {% endfor %}
-                {% endif %}
-            </div>
+            <div class="msg-body disc-zone" id="msgBody"></div>
 
             <div id="typingIndicator" style="display:none;padding:0.25rem 1.25rem;font-size:0.75rem;color:var(--text-muted);font-style:italic;"></div>
+            <div class="disc-barre" id="discBarre" hidden></div>
 
-            <form method="POST" action="/envoyer_message/{{ conversation_avec.id }}" class="msg-input-area" onsubmit="return sendMessage(this)">
-                <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
-                <input type="text" name="contenu" placeholder="Ecris un message..." required autofocus onkeyup="onTyping()">
+            <form class="msg-input-area" id="discForm">
+                <input type="text" name="contenu" id="discChamp" placeholder="Ecris un message... (clique sur un message pour reagir ou repondre)" autocomplete="off" autofocus onkeyup="onTyping()">
                 <button type="submit">Envoyer</button>
             </form>
             {% else %}
@@ -180,6 +152,7 @@
 {% endblock %}
 {% block scripts %}
 <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+<script src="/static/js/discussion.js"></script>
 <script>
 var socket = io('', { transports: ['polling', 'websocket'] });
 
@@ -190,22 +163,14 @@ socket.on('connect', function() {
     {% endif %}
 });
 
-socket.on('new_message', function(data) {
-    var body = document.getElementById('msgBody');
-    if (body && data.expediteur_id != {{ session.user_id }}) {
-        // Check if we're in the right conversation
-        var currentOtherId = {{ conversation_avec.id if conversation_avec else 'null' }};
-        if (currentOtherId && data.expediteur_id == currentOtherId) {
-            var div = document.createElement('div');
-            div.className = 'msg-bubble-row autre';
-            div.innerHTML = '<div class="msg-bubble">' + escapeHtml(data.contenu) + '<span class="msg-bubble-time">a l\'instant</span></div>';
-            body.appendChild(div);
-            body.scrollTop = body.scrollHeight;
-        }
-        // Update notification badge
-        updateNotifCount();
-    }
-});
+function surNouveau(data) {
+    var autre = {{ conversation_avec.id if conversation_avec else 'null' }};
+    if (window.discussion && autre && (data.expediteur_id == autre || data.destinataire_id == autre)) window.discussion.recharger();
+    updateNotifCount();
+}
+socket.on('message_recu', surNouveau);
+socket.on('message_maj', surNouveau);
+socket.on('messages_lus', function () { if (window.discussion) window.discussion.recharger(); });
 
 socket.on('typing_indicator', function(data) {
     var typingDiv = document.getElementById('typingIndicator');
@@ -243,7 +208,27 @@ function updateNotifCount() {
     }).catch(function() {});
 }
 
+var minuterieRecherche;
+function chercherMessages(q) {
+    var zone = document.getElementById('resultatsMessages');
+    clearTimeout(minuterieRecherche);
+    if (q.trim().length < 2) { zone.innerHTML = ''; return; }
+    minuterieRecherche = setTimeout(function () {
+        LinkCI.api('/api/messages/recherche?q=' + encodeURIComponent(q.trim())).then(function (r) {
+            var html = r.prives.map(function (m) {
+                return '<a class="msg-conv-item" href="/conversation/' + m.autre_id + '#m' + m.id + '" style="display:block">'
+                    + '<strong>' + LinkCI.esc(m.prenom + ' ' + m.nom) + '</strong><div class="msg-conv-preview">' + LinkCI.esc(m.contenu).slice(0, 90) + '</div></a>';
+            }).concat(r.groupes.map(function (m) {
+                return '<a class="msg-conv-item" href="/groupes/' + m.groupe_id + '#m' + m.id + '" style="display:block">'
+                    + '<strong>👥 ' + LinkCI.esc(m.groupe_nom) + '</strong><div class="msg-conv-preview">' + LinkCI.esc(m.prenom + ' : ' + m.contenu).slice(0, 90) + '</div></a>';
+            })).join('');
+            zone.innerHTML = html ? '<div style="font-size:0.7rem;font-weight:800;color:var(--text-muted);padding:0.5rem 0 0.25rem">MESSAGES</div>' + html : '';
+        }).catch(function () {});
+    }, 400);
+}
+
 function filterConversations(q) {
+    chercherMessages(q);
     q = q.toLowerCase();
     document.querySelectorAll('.msg-conv-item').forEach(function(el) {
         el.style.display = el.getAttribute('data-name').includes(q) ? '' : 'none';
@@ -272,32 +257,24 @@ function onTyping() {
     }
 }
 
-// Send message via SocketIO
-function sendMessage(form) {
-    var input = form.querySelector('input[name="contenu"]');
-    var text = input.value.trim();
-    if (!text) return false;
-    
-    var body = document.getElementById('msgBody');
-    var div = document.createElement('div');
-    div.className = 'msg-bubble-row moi';
-    div.innerHTML = '<div class="msg-bubble">' + escapeHtml(text) + '<span class="msg-bubble-time">a l\'instant</span></div>';
-    body.appendChild(div);
-    body.scrollTop = body.scrollHeight;
-    input.value = '';
-    
-    // Send via SocketIO
-    socket.emit('send_message', {
-        destinataire_id: {{ conversation_avec.id if conversation_avec else 'null' }},
-        contenu: text
-    });
-    
-    return false;
-}
-
-// Scroll to bottom
-var body = document.getElementById('msgBody');
-if (body) body.scrollTop = body.scrollHeight;
+{% if conversation_avec %}
+window.discussion = LinkCI.discussion({
+    zone: document.getElementById('msgBody'), formulaire: document.getElementById('discForm'),
+    champ: document.getElementById('discChamp'), barre: document.getElementById('discBarre'),
+    moiId: {{ session.user_id }}, groupe: false, prenomAutre: {{ conversation_avec.prenom|tojson }},
+    charger: function () { return LinkCI.api('/api/messages?avec={{ conversation_avec.id }}'); },
+    envoyer: function (contenu, reponse_a) {
+        return LinkCI.api('/api/messages', { methode: 'POST', corps: { destinataire_id: {{ conversation_avec.id }}, contenu: contenu, reponse_a: reponse_a } });
+    },
+    reagir: function (id, emoji) { return LinkCI.api('/api/messages/' + id + '/reaction', { methode: 'POST', corps: { emoji: emoji } }); },
+    modifier: function (id, contenu) { return LinkCI.api('/api/messages/' + id, { methode: 'PUT', corps: { contenu: contenu } }); },
+    supprimer: function (id) { return LinkCI.api('/api/messages/' + id, { methode: 'DELETE' }); },
+    voter: function () { return Promise.resolve(); },
+    peutSupprimer: function (m) {
+        return m.expediteur_id == {{ session.user_id }} && Date.now() - new Date(String(m.date_envoi).slice(0, 19).replace(' ', 'T') + 'Z') < 48 * 3600 * 1000;
+    },
+});
+{% endif %}
 </script>
 <script src="/static/js/app.js"></script>
 {% endblock %}

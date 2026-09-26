@@ -4,7 +4,7 @@ import { View, Image, Modal, TouchableOpacity, ActivityIndicator, StatusBar, Sty
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, creerStyles, useTheme } from '../theme';
 
-export default function PostImage({ uri, style }) {
+export default function PostImage({ uri, style, carre = false }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const [ratio, setRatio] = useState(4 / 3);
@@ -19,7 +19,7 @@ export default function PostImage({ uri, style }) {
       <TouchableOpacity activeOpacity={0.9} onPress={() => setPleinEcran(true)} style={[styles.frame, style]}>
         <Image
           source={{ uri }}
-          style={[styles.image, { aspectRatio: Math.max(ratio, 0.8) }]}
+          style={[styles.image, { aspectRatio: carre ? 1 : Math.max(ratio, 0.8) }]}
           resizeMode="cover"
           onLoad={(e) => {
             const { width, height } = e.nativeEvent.source;
