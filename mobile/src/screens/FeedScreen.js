@@ -7,6 +7,7 @@ import PostCard from '../components/PostCard';
 import Avatar from '../components/Avatar';
 import CompleterProfil from '../components/CompleterProfil';
 import StoriesBar from '../components/Stories';
+import Nouveautes from '../components/Nouveautes';
 import { Card, EmptyState, PrimaryButton, SkeletonList, pullToRefresh } from '../components/ui';
 import { choisirPhoto } from '../photos';
 import { radius, spacing, creerStyles, useTheme } from '../theme';
@@ -140,6 +141,7 @@ export default function FeedScreen() {
               <Avatar name={`${moi.prenom} ${moi.nom}`} size={44} index={moi.id} avatar={moi.avatar} />
             </View>
           ) : null}
+          <Nouveautes />
           <StoriesBar moi={moi} rechargement={tour} />
           <View style={styles.onglets}>
             {[[false, 'Pour toi'], [true, 'Ma fac']].map(([v, label]) => (
