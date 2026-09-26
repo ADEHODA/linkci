@@ -8,6 +8,7 @@ import QRCode from 'react-native-qrcode-svg';
 import * as api from '../api';
 import Avatar from '../components/Avatar';
 import { PrimaryButton, Loading } from '../components/ui';
+import { verifierMaintenant } from '../misesAJour';
 import { verrouActif, changerVerrou, verrouMessagesActif, changerVerrouMessages } from '../verrou';
 import { radius, spacing, creerStyles, useTheme } from '../theme';
 
@@ -93,6 +94,20 @@ export default function SettingsScreen({ navigation, onLogin, onLogout }) {
     } catch (e) { Alert.alert('Erreur', e.message); }
   };
 
+  const [recherche, setRecherche] = useState(false);
+  const rechercherMiseAJour = async () => {
+    setRecherche(true);
+    const resultat = await verifierMaintenant();
+    setRecherche(false);
+    const textes = {
+      installee: ['Mise a jour trouvee 🎉', "LinkCI redemarre dans un instant avec la nouvelle version."],
+      a_jour: ['Tout est a jour ✅', 'Tu as deja la derniere version de LinkCI.'],
+      hors_ligne: ['Pas de connexion', 'Verifie ta connexion internet puis reessaie.'],
+      indisponible: ['Indisponible', 'Les mises a jour ne sont pas disponibles dans ce mode.'],
+    };
+    Alert.alert(...textes[resultat]);
+  };
+
   const version = `${Constants.expoConfig?.version || ''}${Updates.updateId ? ` · maj ${Updates.updateId.slice(0, 8)}` : ''}`;
 
   return (
@@ -168,6 +183,8 @@ export default function SettingsScreen({ navigation, onLogin, onLogout }) {
       </Section>
 
       <Section titre="Aide">
+        <Ligne icone="cloud-download-outline" texte={recherche ? 'Recherche en cours...' : 'Rechercher une mise a jour'}
+          onPress={recherche ? undefined : rechercherMiseAJour} />
         <Ligne icone="help-circle-outline" texte="Questions frequentes" onPress={() => setFenetre('faq')} />
         <Ligne icone="chatbubbles-outline" texte="Contacter l'administrateur" onPress={contacterAdmin} />
         <Ligne icone="bug-outline" texte="Signaler un probleme" onPress={contacterAdmin} />

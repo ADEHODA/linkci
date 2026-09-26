@@ -558,6 +558,15 @@ def init_db():
         except Exception:
             pass
 
+    # Version de l'app utilisee (envoyee par l'app depuis 1.2.0) ; sans_version_depuis : premiere
+    # requete sans version (ancienne app), averti_version : dernier avertissement envoye
+    for colonne in ('version_app TEXT', 'sans_version_depuis TEXT', 'averti_version TEXT'):
+        try:
+            conn.execute('ALTER TABLE users ADD COLUMN ' + colonne)
+            conn.commit()
+        except Exception:
+            pass
+
     # Securite : role (admin) et version des jetons (revocation des sessions de l'app)
     for colonne in ("role TEXT DEFAULT 'etudiant'", 'jeton_version INTEGER DEFAULT 0'):
         try:
@@ -2246,7 +2255,7 @@ def diffuser_message_groupe(groupe_id, auteur_id):
 TITRES_PUSH = {
     'message': 'Nouveau message', 'like': "J'aime", 'commentaire': 'Nouveau commentaire',
     'mention': 'Tu es mentionne', 'suivi': 'Nouvel abonne', 'bourse': 'Nouvelle bourse',
-    'document': 'Nouveau document', 'formation': 'Nouvelle formation', 'annonce': 'LinkCI',
+    'document': 'Nouveau document', 'formation': 'Nouvelle formation', 'annonce': 'LinkCI', 'mise_a_jour': 'Nouvelle version de LinkCI',
     'opportunite': 'Nouvelle offre', 'entraide': 'Entraide', 'signalement': 'Signalement',
 }
 
@@ -2947,6 +2956,8 @@ def api_require_auth():
     user_id = None
     if auth.startswith('Bearer '):
         user_id = verifier_jeton_api(auth[7:])
+        if user_id:
+            suivre_version_app(user_id, request.headers.get('X-LinkCI-Version', '')[:40])
     # Site web : la session du navigateur, seulement pour les appels fetch du
     # site lui-meme. Un autre site ne peut ni envoyer cet en-tete sans CORS
     # (non active), ni joindre le cookie SameSite=Lax a une requete POST.
@@ -2955,6 +2966,57 @@ def api_require_auth():
     if user_id:
         noter_jour_actif(user_id)
     return user_id
+
+# ---- Anciennes versions de l'app (1.0.0 et 1.1.0 ne recoivent pas les mises a jour automatiques)
+APK_URL = os.environ.get('APK_URL', 'https://expo.dev/artifacts/eas/S59NF_cSzEQcYRFq9U39l2UxS1b1EsEhX2TLzvzMs44.apk')
+MESSAGE_ANCIENNE_VERSION = ("📲 Ta version de LinkCI est ancienne et ne se met plus a jour toute seule. "
+                            "Ouvre linkci.onrender.com/app dans ton navigateur et installe la nouvelle version "
+                            "(sans desinstaller : tes messages et ton compte sont gardes).")
+_version_vue = {}  # user_id -> (jour, version) deja traite aujourd'hui
+
+def suivre_version_app(user_id, version):
+    """Note la version de l'app. Une app qui n'envoie pas sa version depuis plus de 24 h, et encore
+    apres 3 minutes d'utilisation aujourd'hui (le temps qu'une mise a jour automatique s'applique),
+    est une ancienne version : on previent l'etudiant, au plus une fois tous les 3 jours."""
+    maintenant = datetime.now(timezone.utc)
+    jour = maintenant.strftime('%Y-%m-%d')
+    etat = _version_vue.get(user_id)
+    try:
+        if version:
+            if etat != ('ok', jour, version):
+                conn = get_db()
+                conn.execute('UPDATE users SET version_app = ?, sans_version_depuis = NULL WHERE id = ?', (version, user_id))
+                conn.commit()
+                conn.close()
+                _version_vue[user_id] = ('ok', jour, version)
+            return
+        meme_jour = etat and etat[0] == 'sans' and etat[1] == jour
+        if meme_jour and maintenant < etat[3]:
+            return  # au plus une verification par minute
+        premiere = etat[2] if meme_jour else maintenant
+        _version_vue[user_id] = ('sans', jour, premiere, maintenant + timedelta(minutes=1))
+        fmt = lambda d: d.strftime('%Y-%m-%d %H:%M:%S')
+        conn = get_db()
+        u = conn.execute('SELECT sans_version_depuis, averti_version FROM users WHERE id = ?', (user_id,)).fetchone()
+        if not u['sans_version_depuis']:
+            conn.execute('UPDATE users SET sans_version_depuis = ? WHERE id = ?', (fmt(maintenant), user_id))
+            conn.commit()
+        elif (maintenant - premiere >= timedelta(minutes=3)
+              and u['sans_version_depuis'] <= fmt(maintenant - timedelta(hours=24))
+              and (u['averti_version'] or '') <= fmt(maintenant - timedelta(days=3))):
+            conn.execute('UPDATE users SET averti_version = ? WHERE id = ?', (fmt(maintenant), user_id))
+            conn.commit()
+            conn.close()
+            creer_notification(user_id, 'mise_a_jour', MESSAGE_ANCIENNE_VERSION, '/app')
+            return
+        conn.close()
+    except Exception:
+        pass  # jamais bloquant
+
+@app.route('/app')
+@app.route('/telecharger')
+def telecharger_app():
+    return render_template('telecharger.html', apk_url=APK_URL)
 
 _jour_actif_note = {}  # user_id -> dernier jour deja enregistre (evite une ecriture par requete)
 
@@ -4206,6 +4268,11 @@ def statistiques_admin(jours=14):
         'universites': [dict(l) for l in conn.execute(
             "SELECT universite, COUNT(*) AS nb FROM users WHERE COALESCE(universite, '') != '' "
             "GROUP BY universite ORDER BY nb DESC LIMIT 5").fetchall()],
+        # versions de l'app : 'ancienne' = app qui n'envoie pas sa version (1.0.0 / 1.1.0)
+        'versions_app': [dict(l) for l in conn.execute(
+            "SELECT CASE WHEN sans_version_depuis IS NOT NULL THEN 'ancienne' ELSE version_app END AS version, COUNT(*) AS nb "
+            "FROM users WHERE version_app IS NOT NULL OR sans_version_depuis IS NOT NULL "
+            "GROUP BY CASE WHEN sans_version_depuis IS NOT NULL THEN 'ancienne' ELSE version_app END ORDER BY nb DESC").fetchall()],
     }
     conn.close()
     return stats

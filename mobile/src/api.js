@@ -1,8 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 
 export const API_BASE = 'https://linkci.onrender.com';
 
 let _token = null;
+// Version de l'app, envoyee au serveur : les anciennes versions (sans cet en-tete) sont prevenues
+const VERSION_APP = Constants.expoConfig?.version || '';
 
 export function setToken(token) {
   _token = token;
@@ -121,7 +124,7 @@ async function depuisCache(path, messageErreur) {
 
 async function request(path, options = {}) {
   const url = API_BASE + path;
-  const headers = { 'Content-Type': 'application/json' };
+  const headers = { 'Content-Type': 'application/json', 'X-LinkCI-Version': VERSION_APP };
   if (_token) headers['Authorization'] = `Bearer ${_token}`;
   const lecture = !options.method || options.method === 'GET';
   const enCache = lecture && _token && !PAS_EN_CACHE.some((re) => re.test(path));
@@ -332,7 +335,7 @@ export async function uploadDocument({ titre, matiere, description, fichier }) {
   let res;
   try {
     // pas de Content-Type : fetch ajoute lui-meme la bonne frontiere multipart
-    res = await fetch(API_BASE + '/api/documents', { method: 'POST', headers: { Authorization: `Bearer ${_token}` }, body: form });
+    res = await fetch(API_BASE + '/api/documents', { method: 'POST', headers: { Authorization: `Bearer ${_token}`, 'X-LinkCI-Version': VERSION_APP }, body: form });
   } catch (e) {
     throw new Error('Pas de connexion internet');
   }
@@ -376,7 +379,7 @@ async function envoyerAudio(chemin, uri, duree, champs = {}) {
   form.append('audio', { uri, name: 'note.m4a', type: 'audio/mp4' });
   let res;
   try {
-    res = await fetch(API_BASE + chemin, { method: 'POST', headers: { Authorization: `Bearer ${_token}` }, body: form });
+    res = await fetch(API_BASE + chemin, { method: 'POST', headers: { Authorization: `Bearer ${_token}`, 'X-LinkCI-Version': VERSION_APP }, body: form });
   } catch (e) {
     throw new Error('Pas de connexion internet');
   }

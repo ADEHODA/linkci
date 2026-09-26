@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Telecharger LinkCI</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
+    <style>
+      :root { --primary: #FF6B35; --accent: #009E60; --bg: #F4F4F6; --card: #fff; --text: #16161D; --muted: #6B6F7B; --border: #E9E9EE; }
+      @media (prefers-color-scheme: dark) { :root { --bg: #0E1014; --card: #191C22; --text: #F2F3F5; --muted: #A7ACB7; --border: #2A2F38; } }
+      * { box-sizing: border-box; }
+      body { margin: 0; font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.55; }
+      main { max-width: 520px; margin: 0 auto; padding: 28px 16px 40px; }
+      .carte { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 22px; margin-bottom: 14px; }
+      h1 { font-size: 26px; font-weight: 900; margin: 14px 0 6px; }
+      .sous { color: var(--muted); font-size: 15px; }
+      .bouton { display: block; text-align: center; background: var(--primary); color: #fff; text-decoration: none; font-weight: 800; font-size: 18px; padding: 16px; border-radius: 999px; margin: 18px 0 8px; }
+      ol { padding-left: 20px; margin: 0; } li { margin-bottom: 10px; }
+      .ok { color: var(--accent); font-weight: 700; }
+    </style>
+</head>
+<body>
+<main>
+  <a href="/"><img src="/static/images/logo.svg" alt="LinkCI" height="38"></a>
+  <h1>📲 Installer LinkCI</h1>
+  <p class="sous">L'application des etudiants de Cote d'Ivoire, pour Android. Derniere version, avec mises a jour automatiques.</p>
+  <div class="carte">
+    <a class="bouton" href="{{ apk_url }}">Telecharger l'application</a>
+    <p class="sous" style="text-align:center;margin:0">Fichier APK · Android</p>
+  </div>
+  <div class="carte">
+    <strong>Comment l'installer</strong>
+    <ol style="margin-top:10px">
+      <li>Touche <b>Telecharger l'application</b> et attends la fin du telechargement.</li>
+      <li>Ouvre le fichier telecharge (dans la notification ou le dossier <i>Telechargements</i>).</li>
+      <li>Si le telephone le demande, autorise l'installation depuis ton navigateur, puis reviens en arriere.</li>
+      <li>Touche <b>Installer</b> (ou <b>Mettre a jour</b>).</li>
+    </ol>
+    <p class="ok">Tu avais deja LinkCI ? Ne le desinstalle pas : installe par-dessus, ton compte et tes messages sont gardes.</p>
+    <p class="sous" style="margin-bottom:0">Ensuite, tu n'auras plus rien a faire : les nouveautes s'installent toutes seules.</p>
+  </div>
+  <p class="sous" style="text-align:center">Tu preferes le site ? <a href="/connexion" style="color:var(--primary);font-weight:700">Continuer sur le navigateur</a></p>
+</main>
+</body>
+</html>

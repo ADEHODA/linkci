@@ -95,6 +95,19 @@ function Stats() {
           ))}
         </Card>
       ) : null}
+      {data.versions_app?.length ? (
+        <Card>
+          <Text style={styles.cardTitre}>Versions de l'application</Text>
+          {data.versions_app.map((v) => (
+            <View key={v.version} style={styles.ligne}>
+              <Text style={styles.ligneTexte} numberOfLines={1}>
+                {v.version === 'ancienne' ? 'Ancienne (1.0 / 1.1) : pas de mises a jour auto' : `Version ${v.version}`}
+              </Text>
+              <Text style={styles.ligneNb}>{v.nb}</Text>
+            </View>
+          ))}
+        </Card>
+      ) : null}
     </ScrollView>
   );
 }

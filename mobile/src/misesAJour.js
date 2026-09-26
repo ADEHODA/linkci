@@ -38,6 +38,25 @@ async function verifier() {
   }
 }
 
+// Bouton "Rechercher une mise a jour" (Parametres) : renvoie 'installee', 'a_jour', 'hors_ligne' ou 'indisponible'.
+// Si une mise a jour est trouvee, l'app redemarre juste apres.
+export async function verifierMaintenant() {
+  if (__DEV__ || !Updates.isEnabled) return 'indisponible';
+  try {
+    if (!enAttente) {
+      const { isAvailable } = await Updates.checkForUpdateAsync();
+      if (!isAvailable) return 'a_jour';
+      const { isNew } = await Updates.fetchUpdateAsync();
+      if (!isNew) return 'a_jour';
+      enAttente = true;
+    }
+    setTimeout(appliquer, 1500); // le temps d'afficher le message
+    return 'installee';
+  } catch (e) {
+    return 'hors_ligne';
+  }
+}
+
 export function surveillerMisesAJour() {
   verifier();
   const minuteur = setInterval(verifier, PERIODE);
