@@ -1,6 +1,6 @@
 // Discussion privee avec un etudiant : navigate('Conversation', { autre_id, prenom, nom, avatar })
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { View, Text, FlatList, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, FlatList, TextInput, TouchableOpacity, Alert, KeyboardAvoidingView, Platform, Modal, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import Avatar from '../components/Avatar';
@@ -13,6 +13,11 @@ import { radius, spacing, creerStyles, useTheme } from '../theme';
 import { heure, jourLisible, memeJour } from '../utils';
 import { useEvenement, useRealtime } from '../realtime';
 
+const EMOJIS = ['❤️', '😂', '😮', '😢', '🙏', '👍'];
+const extrait = (m) => (m.supprime ? 'Message supprime' : m.contenu || (m.audio || m.audioLocal ? 'Note vocale' : m.image || m.imageLocale ? 'Photo' : ''));
+// un message ne peut etre supprime pour tous que pendant 48 h
+const supprimable = (m) => Date.now() - new Date(`${String(m.date_envoi).slice(0, 19).replace(' ', 'T')}Z`).getTime() < 48 * 3600 * 1000;
+
 export default function ConversationScreen({ route, navigation }) {
   const conv = route.params;
   const styles = useStyles();
@@ -24,6 +29,9 @@ export default function ConversationScreen({ route, navigation }) {
   const [ecrit, setEcrit] = useState(false); // l'autre est en train d'ecrire
   const [enregistre, setEnregistre] = useState(false); // enregistrement d'une note vocale en cours
   const minuterieEcrit = useRef(null);
+  const [reponse, setReponse] = useState(null); // message auquel je reponds
+  const [actions, setActions] = useState(null); // message touche longuement
+  const [transfert, setTransfert] = useState(null); // message a transferer
   const dernierSignal = useRef(0);
 
   // En-tete : photo + nom, touchable pour voir le profil
@@ -91,6 +99,32 @@ export default function ConversationScreen({ route, navigation }) {
     }
   });
 
+  // reaction, suppression pour tous : on recharge la discussion
+  useEvenement('message_maj', (m) => {
+    if (m.expediteur_id === conv.autre_id || m.destinataire_id === conv.autre_id) reload();
+  });
+
+  const reagir = async (message, emoji) => {
+    setActions(null);
+    try {
+      const maj = await api.reagirMessage(message.id, emoji);
+      setData((liste) => liste.map((x) => (x.id === message.id ? { ...x, reactions: maj.reactions } : x)));
+    } catch (e) { Alert.alert('Erreur', e.message); }
+  };
+
+  const supprimerPourTous = (message) => {
+    setActions(null);
+    Alert.alert('Supprimer pour tout le monde ?', `Le message disparaitra aussi chez ${conv.prenom}.`, [
+      { text: 'Annuler', style: 'cancel' },
+      { text: 'Supprimer', style: 'destructive', onPress: async () => {
+        try { await api.supprimerMessage(message.id); reload(); } catch (e) { Alert.alert('Erreur', e.message); }
+      } },
+    ]);
+  };
+
+  // nom affiche dans une citation
+  const auteurCite = (c) => (c.expediteur_id === conv.autre_id ? conv.prenom : 'Toi');
+
   // messages ecrits hors ligne pour cette discussion (affiches avec une horloge)
   const [enFile, setEnFile] = useState([]);
   const lireEnFile = () => api.lireFile().then((f) => setEnFile(f.filter((m) => m.destinataire_id === conv.autre_id)));
@@ -102,12 +136,15 @@ export default function ConversationScreen({ route, navigation }) {
   const handleSend = async () => {
     if (!text.trim()) return;
     const contenu = text.trim();
+    const cite = reponse;
     setText('');
+    setReponse(null);
     // affichage immediat, remplace par la version du serveur ensuite
-    const provisoire = { id: `tmp-${Date.now()}`, contenu, expediteur_id: -1, date_envoi: new Date().toISOString().slice(0, 19).replace('T', ' '), enAttente: true };
+    const provisoire = { id: `tmp-${Date.now()}`, contenu, expediteur_id: -1, date_envoi: new Date().toISOString().slice(0, 19).replace('T', ' '), enAttente: true,
+      reponse: cite ? { expediteur_id: cite.expediteur_id, extrait: extrait(cite) } : null };
     setData((m) => [...m, provisoire]);
     try {
-      await api.sendMessage(conv.autre_id, contenu);
+      await api.sendMessage(conv.autre_id, contenu, null, cite?.id);
       await reload();
     } catch (e) {
       setData((m) => m.filter((x) => x.id !== provisoire.id));
@@ -117,6 +154,7 @@ export default function ConversationScreen({ route, navigation }) {
         return;
       }
       setText(contenu);
+      setReponse(cite);
       Alert.alert('Message non envoye', e.message);
     }
   };
@@ -126,7 +164,8 @@ export default function ConversationScreen({ route, navigation }) {
     const provisoire = { id: `tmp-${Date.now()}`, contenu: '', audioLocal: uri, duree: Math.round(duree), expediteur_id: -1, date_envoi: new Date().toISOString().slice(0, 19).replace('T', ' '), enAttente: true };
     setData((m) => [...m, provisoire]);
     try {
-      await api.envoyerVocal(conv.autre_id, uri, duree);
+      await api.envoyerVocal(conv.autre_id, uri, duree, reponse?.id);
+      setReponse(null);
       await reload();
     } catch (e) {
       setData((m) => m.filter((x) => x.id !== provisoire.id));
@@ -146,7 +185,8 @@ export default function ConversationScreen({ route, navigation }) {
     const provisoire = { id: `tmp-${Date.now()}`, contenu: '', imageLocale: photo.uri, expediteur_id: -1, date_envoi: new Date().toISOString().slice(0, 19).replace('T', ' '), enAttente: true };
     setData((m) => [...m, provisoire]);
     try {
-      await api.sendMessage(conv.autre_id, '', photo.base64);
+      await api.sendMessage(conv.autre_id, '', photo.base64, reponse?.id);
+      setReponse(null);
       await reload();
     } catch (e) {
       setData((m) => m.filter((x) => x.id !== provisoire.id));
@@ -171,7 +211,17 @@ export default function ConversationScreen({ route, navigation }) {
             return (
               <>
                 {nouveauJour ? <Text style={styles.jour}>{jourLisible(item.date_envoi)}</Text> : null}
-                <View style={[styles.msg, recu ? styles.msgReceived : styles.msgSent, item.enAttente && { opacity: 0.6 }]}>
+                <TouchableOpacity activeOpacity={0.85} delayLongPress={300}
+                  onLongPress={item.enAttente || item.supprime ? undefined : () => setActions(item)}
+                  style={[styles.msg, recu ? styles.msgReceived : styles.msgSent, item.enAttente && { opacity: 0.6 }]}>
+                  {item.transfere ? <Text style={[styles.transfere, !recu && styles.msgTimeSent]}>↪ Transfere</Text> : null}
+                  {item.reponse ? (
+                    <View style={[styles.citation, !recu && styles.citationEnvoyee]}>
+                      <Text style={[styles.citationNom, !recu && { color: colors.white }]} numberOfLines={1}>{auteurCite(item.reponse)}</Text>
+                      <Text style={[styles.citationTexte, !recu && styles.msgTimeSent]} numberOfLines={2}>{item.reponse.extrait}</Text>
+                    </View>
+                  ) : null}
+                  {item.supprime ? <Text style={[styles.supprime, !recu && styles.msgTimeSent]}>🚫 Message supprime</Text> : null}
                   {item.image || item.imageLocale ? (
                     <PostImage uri={item.imageLocale || api.imageUrl(item.image)} style={styles.photo} />
                   ) : null}
@@ -184,7 +234,16 @@ export default function ConversationScreen({ route, navigation }) {
                     {item.horsLigne ? <Text style={styles.horsLigne}>en attente de reseau</Text> : null}
                     {!recu ? <Ionicons name={item.enAttente ? 'time-outline' : item.lu ? 'checkmark-done' : 'checkmark'} size={13} color="rgba(255,255,255,0.8)" /> : null}
                   </View>
-                </View>
+                </TouchableOpacity>
+                {item.reactions?.length ? (
+                  <View style={[styles.reactions, recu ? { alignSelf: 'flex-start' } : { alignSelf: 'flex-end' }]}>
+                    {item.reactions.map((x) => (
+                      <TouchableOpacity key={x.emoji} style={[styles.reaction, x.moi && styles.reactionMoi]} onPress={() => reagir(item, x.emoji)}>
+                        <Text style={styles.reactionTexte}>{x.emoji}{x.nb > 1 ? ` ${x.nb}` : ''}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null}
               </>
             );
           }}
@@ -192,6 +251,16 @@ export default function ConversationScreen({ route, navigation }) {
         />
       )}
 
+      {reponse ? (
+        <View style={styles.barreReponse}>
+          <View style={styles.barreReponseTrait} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.citationNom}>Reponse a {reponse.expediteur_id === conv.autre_id ? conv.prenom : 'toi-meme'}</Text>
+            <Text style={styles.citationTexte} numberOfLines={1}>{extrait(reponse)}</Text>
+          </View>
+          <TouchableOpacity onPress={() => setReponse(null)} hitSlop={10}><Ionicons name="close" size={20} color={colors.textMuted} /></TouchableOpacity>
+        </View>
+      ) : null}
       <View style={styles.inputBar}>
         {enregistre ? (
           <Enregistreur onEnvoyer={envoyerVocal} onAnnuler={() => setEnregistre(false)} />
@@ -213,7 +282,94 @@ export default function ConversationScreen({ route, navigation }) {
           </>
         )}
       </View>
+
+      <Modal visible={!!actions} transparent animationType="fade" onRequestClose={() => setActions(null)}>
+        <TouchableOpacity style={styles.fond} activeOpacity={1} onPress={() => setActions(null)}>
+          {actions ? (
+            <View style={styles.feuille}>
+              <View style={styles.emojis}>
+                {EMOJIS.map((e) => {
+                  const mien = actions.reactions?.some((x) => x.moi && x.emoji === e);
+                  return (
+                    <TouchableOpacity key={e} style={[styles.emojiBtn, mien && styles.reactionMoi]} onPress={() => reagir(actions, e)} accessibilityLabel={`Reagir ${e}`}>
+                      <Text style={{ fontSize: 28 }}>{e}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <Text style={styles.apercu} numberOfLines={2}>{extrait(actions)}</Text>
+              <Action icone="arrow-undo-outline" texte="Repondre" onPress={() => { setReponse(actions); setActions(null); }} />
+              <Action icone="arrow-redo-outline" texte="Transferer" onPress={() => { setTransfert(actions); setActions(null); }} />
+              {actions.expediteur_id !== conv.autre_id && supprimable(actions) ? (
+                <Action icone="trash-outline" texte="Supprimer pour tout le monde" danger onPress={() => supprimerPourTous(actions)} />
+              ) : null}
+            </View>
+          ) : null}
+        </TouchableOpacity>
+      </Modal>
+      <Transfert message={transfert} onFermer={() => setTransfert(null)} />
     </KeyboardAvoidingView>
+  );
+}
+
+function Action({ icone, texte, onPress, danger }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  return (
+    <TouchableOpacity style={styles.action} onPress={onPress}>
+      <Ionicons name={icone} size={21} color={danger ? colors.danger : colors.text} />
+      <Text style={[styles.actionTexte, danger && { color: colors.danger }]}>{texte}</Text>
+    </TouchableOpacity>
+  );
+}
+
+// Choisir jusqu'a 5 discussions ou transferer le message
+function Transfert({ message, onFermer }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const [convs, setConvs] = useState([]);
+  const [choix, setChoix] = useState([]);
+  const [envoi, setEnvoi] = useState(false);
+  useEffect(() => {
+    setChoix([]);
+    if (message) api.getConversations().then(setConvs).catch(() => {});
+  }, [message]);
+  if (!message) return null;
+  const basculer = (id) => setChoix((c) => (c.includes(id) ? c.filter((x) => x !== id) : c.length < 5 ? [...c, id] : c));
+  const envoyer = async () => {
+    setEnvoi(true);
+    try {
+      const r = await api.transfererMessage(message.id, choix);
+      onFermer();
+      Alert.alert('Transfere', r.envoyes > 1 ? `Envoye dans ${r.envoyes} discussions.` : 'Message transfere.');
+    } catch (e) { Alert.alert('Erreur', e.message); }
+    setEnvoi(false);
+  };
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onFermer}>
+      <View style={styles.fondBas}>
+        <View style={styles.feuilleBas}>
+          <Text style={styles.feuilleTitre}>Transferer a...</Text>
+          <Text style={styles.apercu} numberOfLines={2}>{extrait(message)}</Text>
+          <ScrollView style={{ maxHeight: 360 }}>
+            {convs.length ? convs.map((c) => (
+              <TouchableOpacity key={c.autre_id} style={styles.choixLigne} onPress={() => basculer(c.autre_id)}>
+                <Avatar name={`${c.prenom} ${c.nom}`} size={40} index={c.autre_id} avatar={c.avatar} />
+                <Text style={styles.choixNom} numberOfLines={1}>{c.prenom} {c.nom}</Text>
+                <Ionicons name={choix.includes(c.autre_id) ? 'checkmark-circle' : 'ellipse-outline'} size={24}
+                  color={choix.includes(c.autre_id) ? colors.primary : colors.textFaint} />
+              </TouchableOpacity>
+            )) : <Text style={styles.apercu}>Aucune autre discussion pour l'instant.</Text>}
+          </ScrollView>
+          <TouchableOpacity style={[styles.btnEnvoyer, (!choix.length || envoi) && { opacity: 0.5 }]} disabled={!choix.length || envoi} onPress={envoyer}>
+            <Text style={styles.btnEnvoyerTexte}>{envoi ? 'Envoi...' : `Envoyer${choix.length ? ` (${choix.length})` : ''}`}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity onPress={onFermer} style={{ alignItems: 'center', padding: spacing.md }}>
+            <Text style={styles.annuler}>Annuler</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -237,5 +393,32 @@ const useStyles = creerStyles(({ colors }) => ({
   horsLigne: { fontSize: 10, color: 'rgba(255,255,255,0.85)', fontStyle: 'italic' },
   inputBar: { flexDirection: 'row', alignItems: 'flex-end', padding: spacing.sm, backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.sm },
   input: { flex: 1, backgroundColor: colors.cardAlt, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, maxHeight: 110, color: colors.text },
+  transfere: { fontSize: 11, fontStyle: 'italic', color: colors.textMuted, marginBottom: 2 },
+  supprime: { fontSize: 14, fontStyle: 'italic', color: colors.textMuted },
+  citation: { borderLeftWidth: 3, borderLeftColor: colors.primary, backgroundColor: colors.cardAlt, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, marginBottom: 5 },
+  citationEnvoyee: { borderLeftColor: colors.white, backgroundColor: 'rgba(255,255,255,0.18)' },
+  citationNom: { fontSize: 12, fontWeight: '800', color: colors.primary },
+  citationTexte: { fontSize: 13, color: colors.textMuted },
+  reactions: { flexDirection: 'row', gap: 4, marginTop: -4, marginBottom: 6, marginHorizontal: 6 },
+  reaction: { backgroundColor: colors.card, borderRadius: radius.pill, paddingHorizontal: 7, paddingVertical: 2, borderWidth: 1, borderColor: colors.border },
+  reactionMoi: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  reactionTexte: { fontSize: 13, color: colors.text },
+  barreReponse: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.card, paddingHorizontal: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
+  barreReponseTrait: { width: 3, alignSelf: 'stretch', backgroundColor: colors.primary, borderRadius: 2 },
+  fond: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', padding: spacing.xl },
+  feuille: { backgroundColor: colors.card, borderRadius: radius.xl, padding: spacing.lg },
+  emojis: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.sm },
+  emojiBtn: { borderRadius: radius.pill, padding: 4, borderWidth: 1, borderColor: 'transparent' },
+  apercu: { fontSize: 13, color: colors.textMuted, marginVertical: spacing.sm },
+  action: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 13, borderTopWidth: 1, borderTopColor: colors.border },
+  actionTexte: { fontSize: 16, fontWeight: '600', color: colors.text },
+  fondBas: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'flex-end' },
+  feuilleBas: { backgroundColor: colors.card, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.xl, paddingBottom: 24 },
+  feuilleTitre: { fontSize: 18, fontWeight: '800', color: colors.text },
+  choixLigne: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 8 },
+  choixNom: { flex: 1, fontSize: 15, fontWeight: '600', color: colors.text },
+  btnEnvoyer: { backgroundColor: colors.primary, borderRadius: radius.pill, paddingVertical: 14, alignItems: 'center', marginTop: spacing.md },
+  btnEnvoyerTexte: { color: colors.white, fontWeight: '800', fontSize: 16 },
+  annuler: { color: colors.textMuted, fontWeight: '600' },
   sendBtn: { backgroundColor: colors.primary, borderRadius: 22, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },
 }));

@@ -48,6 +48,7 @@
       <a href="/emploi-du-temps" class="{{ 'actif' if p.startswith('/emploi-du-temps') }}">⏰ Emploi du temps</a>
       <a href="/calendrier" class="{{ 'actif' if p.startswith('/calendrier') }}">📅 Evenements</a>
       <a href="/mon-activite" class="{{ 'actif' if p.startswith('/mon-activite') }}">📊 Mon activite</a>
+      <a href="/classement" class="{{ 'actif' if p.startswith('/classement') }}">🏆 Classement</a>
       <div class="sep"></div>
       <a href="/parametres" class="{{ 'actif' if p.startswith('/parametres') }}">⚙️ Parametres</a>
       {% if utilisateur_est_admin() %}<a href="/admin">🛡️ Administration</a>{% endif %}

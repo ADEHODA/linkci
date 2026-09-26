@@ -41,6 +41,7 @@ export function RealtimeProvider({ token, children }) {
     socket.on('groupe_message', diffuser('groupe_message'));
     socket.on('typing_indicator', diffuser('typing_indicator')); // "en train d'ecrire..."
     socket.on('messages_lus', diffuser('messages_lus')); // "Vu" en direct
+    socket.on('message_maj', diffuser('message_maj')); // reaction ou message supprime pour tous
 
     // Au retour dans l'app (et toutes les minutes en secours) : compteurs a jour
     const sub = AppState.addEventListener('change', (etat) => {

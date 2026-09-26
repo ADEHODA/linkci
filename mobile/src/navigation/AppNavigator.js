@@ -29,6 +29,7 @@ import AdminScreen from '../screens/AdminScreen';
 import ScannerScreen from '../screens/ScannerScreen';
 import EmploiDuTempsScreen from '../screens/EmploiDuTempsScreen';
 import MonActiviteScreen from '../screens/MonActiviteScreen';
+import ClassementScreen from '../screens/ClassementScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import VerifyEmailScreen from '../screens/VerifyEmailScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
@@ -129,6 +130,7 @@ export default function AppNavigator({ token, onLogin, onLogout, accueilVu }) {
             <Stack.Screen name="Scanner" component={ScannerScreen} options={{ headerShown: false }} />
             <Stack.Screen name="EmploiDuTemps" component={EmploiDuTempsScreen} options={{ title: 'Emploi du temps' }} />
             <Stack.Screen name="MonActivite" component={MonActiviteScreen} options={{ title: 'Mon activite' }} />
+            <Stack.Screen name="Classement" component={ClassementScreen} options={{ title: 'Classement et defis' }} />
             <Stack.Screen name="Parametres" options={{ title: 'Parametres' }}>
               {(props) => <SettingsScreen {...props} onLogin={onLogin} onLogout={onLogout} />}
             </Stack.Screen>

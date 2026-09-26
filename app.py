@@ -588,7 +588,8 @@ def init_db():
             pass
 
     # Photos et notes vocales dans les messages prives
-    for colonne in ('image TEXT', 'audio TEXT', 'duree INTEGER'):
+    for colonne in ('image TEXT', 'audio TEXT', 'duree INTEGER', 'reponse_a INTEGER', 'supprime INTEGER DEFAULT 0',
+                    'transfere INTEGER DEFAULT 0'):
         try:
             conn.execute('ALTER TABLE messages ADD COLUMN ' + colonne)
             conn.commit()
@@ -759,6 +760,17 @@ def init_db():
             heure TEXT DEFAULT '',
             salle TEXT DEFAULT '',
             note TEXT DEFAULT '')''',
+        # Reactions (un emoji par personne) aux messages prives
+        '''CREATE TABLE IF NOT EXISTS message_reactions (
+            message_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            emoji TEXT NOT NULL,
+            PRIMARY KEY (message_id, user_id))''',
+        # Semaines ou l'etudiant a releve tous les defis (semaine = lundi AAAA-MM-JJ)
+        '''CREATE TABLE IF NOT EXISTS defis_reussis (
+            user_id INTEGER NOT NULL,
+            semaine TEXT NOT NULL,
+            PRIMARY KEY (user_id, semaine))''',
         # Participants aux evenements du campus
         '''CREATE TABLE IF NOT EXISTS evenement_participants (
             evenement_id INTEGER NOT NULL,
@@ -892,6 +904,10 @@ BADGES = [
     ('Bibliotheque', 'A partagé 5 documents', '📚', 'documents', 5),
     ('Networker', 'A envoyé 50 messages', '🌐', 'messages', 50),
     ('Ambassadeur', 'A invite 3 camarades sur LinkCI', '🎟️', 'filleuls', 3),
+    ('Regulier', 'Serie de 7 jours actifs', '📆', 'serie', 7),
+    ('Challenger', 'A releve tous les defis d\'une semaine', '🏅', 'defis', 1),
+    ('Champion', 'A releve les defis de 5 semaines', '🏆', 'defis', 5),
+    ('Mentor', "50 points d'entraide", '🎓', 'points_entraide', 50),
 ]
 
 def seed_badges():
@@ -933,6 +949,10 @@ def check_and_award_badges(user_id):
     stats['messages'] = conn.execute('SELECT COUNT(*) as nb FROM messages WHERE expediteur_id = ?', (user_id,)).fetchone()['nb']
     stats['filleuls'] = conn.execute('SELECT COUNT(*) as nb FROM users WHERE parrain_id = ? AND COALESCE(email_verifie, 1) = 1',
                                      (user_id,)).fetchone()['nb']
+    stats['defis'] = conn.execute('SELECT COUNT(*) as nb FROM defis_reussis WHERE user_id = ?', (user_id,)).fetchone()['nb']
+    stats['points_entraide'] = conn.execute('SELECT ' + SQL_POINTS + ' AS nb FROM users WHERE users.id = ?', (user_id,)).fetchone()['nb']
+    jours = [j['jour'] for j in conn.execute('SELECT jour FROM jours_actifs WHERE user_id = ?', (user_id,)).fetchall()]
+    stats['serie'] = serie_jours(jours, datetime.now(timezone.utc).date())[1] if jours else 0
 
     awarded = []
     for badge in badges:
@@ -1635,7 +1655,7 @@ def messagerie():
         SELECT DISTINCT 
             CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END as autre_id,
             users.prenom, users.nom,
-            (SELECT CASE WHEN contenu = '' AND audio IS NOT NULL THEN 'Note vocale' WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
+            (SELECT CASE WHEN COALESCE(supprime, 0) = 1 THEN 'Message supprime' WHEN contenu = '' AND audio IS NOT NULL THEN 'Note vocale' WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
             (SELECT date_envoi FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as date_dernier,
             (SELECT COUNT(*) FROM messages WHERE destinataire_id = ? AND expediteur_id = users.id AND lu = 0) as non_lu
         FROM messages
@@ -1697,7 +1717,7 @@ def conversation(autre_id):
         SELECT DISTINCT 
             CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END as autre_id,
             users.prenom, users.nom,
-            (SELECT CASE WHEN contenu = '' AND audio IS NOT NULL THEN 'Note vocale' WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
+            (SELECT CASE WHEN COALESCE(supprime, 0) = 1 THEN 'Message supprime' WHEN contenu = '' AND audio IS NOT NULL THEN 'Note vocale' WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
             (SELECT date_envoi FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as date_dernier,
             (SELECT COUNT(*) FROM messages WHERE destinataire_id = ? AND expediteur_id = users.id AND lu = 0) as non_lu
         FROM messages
@@ -1706,7 +1726,8 @@ def conversation(autre_id):
         ORDER BY date_dernier DESC
     ''', (session['user_id'], session['user_id'], session['user_id'], session['user_id'], session['user_id'], session['user_id'], session['user_id'], session['user_id'], session['user_id'])).fetchall()
     conn.close()
-    return render_template('messagerie.html', utilisateurs=utilisateurs, conversations=conversations, conversation_avec=dict(autre), messages=messages)
+    return render_template('messagerie.html', utilisateurs=utilisateurs, conversations=conversations, conversation_avec=dict(autre),
+                           messages=enrichir_messages(messages, session['user_id']))
 
 @app.route('/supprimer_post/<int:post_id>', methods=['POST'])
 def supprimer_post(post_id):
@@ -2512,6 +2533,10 @@ def sondage_resultats():
 @app.route('/calendrier')
 def calendrier():
     return page_app('evenements.html')
+
+@app.route('/classement')
+def classement_web():
+    return page_app('classement.html')
 
 @app.route('/mon-activite')
 def mon_activite_web():
@@ -4533,12 +4558,14 @@ def supprimer_compte(user_id):
         fichiers.append('static/uploads/' + couv['couverture'])
     conn.execute('DELETE FROM vues_profil WHERE profil_id = ? OR visiteur_id = ?', (user_id, user_id))
     conn.execute('DELETE FROM evenement_participants WHERE evenement_id IN (SELECT id FROM evenements WHERE user_id = ?)', (user_id,))
+    conn.execute('DELETE FROM message_reactions WHERE message_id IN (SELECT id FROM messages WHERE expediteur_id = ? OR destinataire_id = ?)',
+                 (user_id, user_id))
 
     for table in ('posts', 'likes', 'commentaires', 'reactions', 'post_sondage_votes', 'signalements_posts', 'questions',
                   'reponses', 'votes_reponses', 'documents', 'notifications', 'abonnements_alertes', 'reset_tokens',
                   'evenements', 'groupe_membres', 'groupe_messages', 'user_badges', 'codes_verification', 'opportunites',
                   'annonces', 'stories', 'expo_push_tokens', 'conversations_effacees', 'cours', 'examens',
-                  'evenement_participants', 'jours_actifs'):
+                  'evenement_participants', 'jours_actifs', 'message_reactions', 'defis_reussis'):
         conn.execute(f'DELETE FROM {table} WHERE user_id = ?', (user_id,))
     conn.execute('DELETE FROM groupes WHERE createur_id = ?', (user_id,))
     conn.execute('DELETE FROM messages WHERE expediteur_id = ? OR destinataire_id = ?', (user_id, user_id))
@@ -4772,7 +4799,7 @@ def api_messages():
             socketio.emit('messages_lus', {'par': user_id}, room='user_' + str(autre_id))
         except Exception:
             pass
-    resultat = [dict(m) for m in messages]
+    resultat = enrichir_messages(messages, user_id)
     if vu_masque:
         for m in resultat:
             if m['expediteur_id'] == user_id:
@@ -4807,8 +4834,9 @@ def api_send_message():
     if erreur:
         conn.close()
         return jsonify({'error': erreur}), 400
-    msg_id = conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu, image) VALUES (?, ?, ?, ?)',
-                          (user_id, destinataire_id, contenu, image)).lastrowid
+    reponse_a = reponse_valide(conn, data.get('reponse_a'), user_id, destinataire_id)
+    msg_id = conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu, image, reponse_a) VALUES (?, ?, ?, ?, ?)',
+                          (user_id, destinataire_id, contenu, image, reponse_a)).lastrowid
     conn.commit()
     auteur = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (user_id,)).fetchone()
     conn.close()
@@ -4860,14 +4888,262 @@ def api_message_vocal():
         return jsonify({'error': 'Destinataire introuvable'}), 404
     nom_fichier = f'{uuid.uuid4().hex}{ext}'
     stocker_fichier('static/uploads/' + nom_fichier, data)
-    msg_id = conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu, audio, duree) VALUES (?, ?, ?, ?, ?)',
-                          (user_id, destinataire_id, '', nom_fichier, duree)).lastrowid
+    reponse_a = reponse_valide(conn, request.form.get('reponse_a'), user_id, destinataire_id)
+    msg_id = conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu, audio, duree, reponse_a) VALUES (?, ?, ?, ?, ?, ?)',
+                          (user_id, destinataire_id, '', nom_fichier, duree, reponse_a)).lastrowid
     conn.commit()
     auteur = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (user_id,)).fetchone()
     conn.close()
     diffuser_message(user_id, destinataire_id, msg_id, '', audio=nom_fichier, duree=duree)
     creer_notification(destinataire_id, 'message', f"Note vocale de {auteur['prenom']} {auteur['nom']}", f'/conversation/{user_id}')
     return jsonify({'id': msg_id, 'message': 'Envoye'}), 201
+
+# ---- Messages 2.0 : reponse citee, reactions, suppression pour tous, transfert
+EMOJIS_MESSAGE = ('❤️', '😂', '😮', '😢', '🙏', '👍')
+DELAI_SUPPRESSION = timedelta(hours=48)
+
+def extrait_message(m):
+    if m['supprime']:
+        return 'Message supprime'
+    if m['contenu']:
+        return m['contenu'][:120]
+    return 'Note vocale' if m['audio'] else 'Photo' if m['image'] else ''
+
+def enrichir_messages(lignes, user_id):
+    """Messages -> dicts avec la citation (reponse), les reactions et le contenu efface si supprime."""
+    resultat = []
+    for m in lignes:
+        d = dict(m)
+        d['supprime'] = bool(d.get('supprime'))
+        d['transfere'] = bool(d.get('transfere'))
+        if d['supprime']:
+            d.update(contenu='', image=None, audio=None, duree=None)
+        resultat.append(d)
+    if not resultat:
+        return resultat
+    ids = [d['id'] for d in resultat]
+    cites = {d['reponse_a'] for d in resultat if d.get('reponse_a')}
+    conn = get_db()
+    marques = ','.join('?' * len(ids))
+    reactions = {}
+    for x in conn.execute(f'SELECT message_id, user_id, emoji FROM message_reactions WHERE message_id IN ({marques})', ids).fetchall():
+        par_emoji = reactions.setdefault(x['message_id'], {})
+        e = par_emoji.setdefault(x['emoji'], {'emoji': x['emoji'], 'nb': 0, 'moi': False})
+        e['nb'] += 1
+        e['moi'] = e['moi'] or x['user_id'] == user_id
+    citations = {}
+    if cites:
+        for c in conn.execute(f"""SELECT messages.id, messages.expediteur_id, messages.contenu, messages.image, messages.audio,
+                                         COALESCE(messages.supprime, 0) AS supprime, users.prenom
+                                  FROM messages JOIN users ON users.id = messages.expediteur_id
+                                  WHERE messages.id IN ({','.join('?' * len(cites))})""", list(cites)).fetchall():
+            citations[c['id']] = {'id': c['id'], 'expediteur_id': c['expediteur_id'], 'prenom': c['prenom'], 'extrait': extrait_message(c)}
+    conn.close()
+    for d in resultat:
+        d['reactions'] = list(reactions.get(d['id'], {}).values())
+        d['reponse'] = citations.get(d.get('reponse_a'))
+    return resultat
+
+def reponse_valide(conn, reponse_a, user_id, autre_id):
+    """Id du message cite s'il appartient bien a cette conversation, sinon None."""
+    try:
+        rid = int(reponse_a)
+    except (TypeError, ValueError):
+        return None
+    m = conn.execute('SELECT expediteur_id, destinataire_id FROM messages WHERE id = ?', (rid,)).fetchone()
+    if m and {m['expediteur_id'], m['destinataire_id']} == {user_id, autre_id}:
+        return rid
+    return None
+
+def message_de_la_conversation(message_id, user_id):
+    conn = get_db()
+    m = conn.execute('SELECT * FROM messages WHERE id = ?', (message_id,)).fetchone()
+    conn.close()
+    if not m or user_id not in (m['expediteur_id'], m['destinataire_id']):
+        return None
+    return m
+
+def signaler_maj_message(m):
+    for uid in {m['expediteur_id'], m['destinataire_id']}:
+        try:
+            socketio.emit('message_maj', {'id': m['id'], 'expediteur_id': m['expediteur_id'],
+                                          'destinataire_id': m['destinataire_id']}, room='user_' + str(uid))
+        except Exception:
+            pass
+
+@app.route('/api/messages/<int:mid>/reaction', methods=['POST'])
+def api_reaction_message(mid):
+    """{emoji} : ajoute ou change ma reaction ; le meme emoji une 2e fois (ou vide) la retire."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    m = message_de_la_conversation(mid, user_id)
+    if not m or m['supprime']:
+        return jsonify({'error': 'Message introuvable'}), 404
+    emoji = (request.get_json(silent=True) or {}).get('emoji') or ''
+    if emoji and emoji not in EMOJIS_MESSAGE:
+        return jsonify({'error': 'Reaction invalide'}), 400
+    conn = get_db()
+    actuelle = conn.execute('SELECT emoji FROM message_reactions WHERE message_id = ? AND user_id = ?', (mid, user_id)).fetchone()
+    conn.execute('DELETE FROM message_reactions WHERE message_id = ? AND user_id = ?', (mid, user_id))
+    if emoji and not (actuelle and actuelle['emoji'] == emoji):
+        conn.execute('INSERT INTO message_reactions (message_id, user_id, emoji) VALUES (?, ?, ?)', (mid, user_id, emoji))
+    conn.commit()
+    conn.close()
+    signaler_maj_message(m)
+    return jsonify(enrichir_messages([m], user_id)[0])
+
+@app.route('/api/messages/<int:mid>', methods=['DELETE'])
+def api_supprimer_message(mid):
+    """Supprimer pour tout le monde : mes messages, pendant 48 h."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    m = message_de_la_conversation(mid, user_id)
+    if not m or m['expediteur_id'] != user_id:
+        return jsonify({'error': 'Tu ne peux supprimer que tes messages'}), 403
+    envoi = str(m['date_envoi'] or '')[:19]
+    if envoi and envoi < (datetime.now(timezone.utc) - DELAI_SUPPRESSION).strftime('%Y-%m-%d %H:%M:%S'):
+        return jsonify({'error': 'Trop tard : un message ne peut etre supprime pour tous que pendant 48 h'}), 400
+    conn = get_db()
+    conn.execute("UPDATE messages SET supprime = 1, contenu = '', image = NULL, audio = NULL, duree = NULL WHERE id = ?", (mid,))
+    conn.execute('DELETE FROM message_reactions WHERE message_id = ?', (mid,))
+    conn.commit()
+    # fichier efface s'il n'est pas utilise ailleurs (message transfere)
+    for fichier in (m['image'], m['audio']):
+        if fichier and not conn.execute('SELECT 1 FROM messages WHERE image = ? OR audio = ?', (fichier, fichier)).fetchone():
+            supprimer_fichier('static/uploads/' + fichier)
+    conn.close()
+    signaler_maj_message(m)
+    return jsonify({'message': 'Supprime pour tout le monde'})
+
+@app.route('/api/messages/<int:mid>/transferer', methods=['POST'])
+def api_transferer_message(mid):
+    """{destinataires: [ids]} (5 max) : copie le message (texte, photo ou note vocale)."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    m = message_de_la_conversation(mid, user_id)
+    if not m or m['supprime']:
+        return jsonify({'error': 'Message introuvable'}), 404
+    destinataires = (request.get_json(silent=True) or {}).get('destinataires') or []
+    try:
+        destinataires = list(dict.fromkeys(int(d) for d in destinataires))[:5]
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Destinataires invalides'}), 400
+    conn = get_db()
+    moi = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (user_id,)).fetchone()
+    envoyes = []
+    for dest in destinataires:
+        if dest == user_id or not peut_ecrire(user_id, dest) or trop_rapide('message', user_id, 30, 60):
+            continue
+        if not conn.execute('SELECT 1 FROM users WHERE id = ?', (dest,)).fetchone():
+            continue
+        nid = conn.execute("""INSERT INTO messages (expediteur_id, destinataire_id, contenu, image, audio, duree, transfere)
+                              VALUES (?, ?, ?, ?, ?, ?, 1)""", (user_id, dest, m['contenu'], m['image'], m['audio'], m['duree'])).lastrowid
+        conn.commit()
+        diffuser_message(user_id, dest, nid, m['contenu'], m['image'], m['audio'], m['duree'])
+        envoyes.append(dest)
+    conn.close()
+    for dest in envoyes:
+        creer_notification(dest, 'message', f"Message transfere de {moi['prenom']} {moi['nom']}", f'/conversation/{user_id}')
+    return jsonify({'envoyes': len(envoyes)})
+
+# ---- Classement et defis de la semaine
+def debut_semaine(maintenant=None):
+    """Lundi 00:00 (UTC, = heure d'Abidjan) de la semaine en cours, au format de la base."""
+    maintenant = maintenant or datetime.now(timezone.utc)
+    lundi = (maintenant - timedelta(days=maintenant.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    return lundi.strftime('%Y-%m-%d %H:%M:%S')
+
+# Points d'activite depuis une date ('' = depuis toujours). Chaque ? recoit la date de debut.
+SQL_SCORE = """(
+    3 * (SELECT COUNT(*) FROM posts WHERE posts.user_id = users.id AND posts.date_post >= ?)
+  + (SELECT COUNT(*) FROM commentaires c WHERE c.user_id = users.id AND c.date_commentaire >= ?)
+  + 5 * (SELECT COUNT(*) FROM reponses r WHERE r.user_id = users.id AND r.date_creation >= ?)
+  + 2 * (SELECT COUNT(*) FROM jours_actifs j WHERE j.user_id = users.id AND j.jour >= substr(?, 1, 10))
+  + 2 * (SELECT COUNT(*) FROM evenement_participants e WHERE e.user_id = users.id AND e.date_inscription >= ?)
+  + 3 * (SELECT COUNT(*) FROM follows f WHERE f.followed_id = users.id AND f.date_follow >= ?)
+  + 10 * (SELECT COUNT(*) FROM users u2 WHERE u2.parrain_id = users.id AND COALESCE(u2.email_verifie, 1) = 1 AND u2.date_inscription >= ?)
+  + 20 * (SELECT COUNT(*) FROM defis_reussis d WHERE d.user_id = users.id AND d.semaine >= substr(?, 1, 10)))"""
+NB_PARAMS_SCORE = SQL_SCORE.count('?')
+
+DEFIS = [
+    ('actif', '📆', 'Utilise LinkCI 5 jours cette semaine', 5,
+     "SELECT COUNT(*) AS nb FROM jours_actifs WHERE user_id = ? AND jour >= substr(?, 1, 10)"),
+    ('publier', '✍️', 'Publie 2 fois dans le fil', 2,
+     'SELECT COUNT(*) AS nb FROM posts WHERE user_id = ? AND date_post >= ?'),
+    ('entraide', '🤝', "Reponds a 2 questions d'entraide", 2,
+     'SELECT COUNT(*) AS nb FROM reponses WHERE user_id = ? AND date_creation >= ?'),
+    ('commenter', '💬', 'Commente 5 publications', 5,
+     'SELECT COUNT(*) AS nb FROM commentaires WHERE user_id = ? AND date_commentaire >= ?'),
+    ('evenement', '📅', 'Participe a un evenement du campus', 1,
+     'SELECT COUNT(*) AS nb FROM evenement_participants WHERE user_id = ? AND date_inscription >= ?'),
+    ('suivre', '👥', 'Suis 3 nouveaux etudiants', 3,
+     'SELECT COUNT(*) AS nb FROM follows WHERE follower_id = ? AND date_follow >= ?'),
+    ('inviter', '🎟️', 'Invite un camarade sur LinkCI', 1,
+     'SELECT COUNT(*) AS nb FROM users WHERE parrain_id = ? AND COALESCE(email_verifie, 1) = 1 AND date_inscription >= ?'),
+]
+
+def defis_de_la_semaine(maintenant=None):
+    """3 defis differents chaque semaine (tournants)."""
+    maintenant = maintenant or datetime.now(timezone.utc)
+    k = maintenant.isocalendar()[1]
+    return [DEFIS[(k * 3 + i) % len(DEFIS)] for i in range(3)]
+
+@app.route('/api/defis')
+def api_defis():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    maintenant = datetime.now(timezone.utc)
+    debut = debut_semaine(maintenant)
+    conn = get_db()
+    defis = []
+    for cle, emoji, titre, objectif, requete in defis_de_la_semaine(maintenant):
+        fait = conn.execute(requete, (user_id, debut)).fetchone()['nb']
+        defis.append({'cle': cle, 'emoji': emoji, 'titre': titre, 'objectif': objectif,
+                      'progression': min(fait, objectif), 'fait': fait >= objectif})
+    tous = all(d['fait'] for d in defis)
+    nouveau = False
+    if tous and not conn.execute('SELECT 1 FROM defis_reussis WHERE user_id = ? AND semaine = ?', (user_id, debut[:10])).fetchone():
+        conn.execute('INSERT INTO defis_reussis (user_id, semaine) VALUES (?, ?)', (user_id, debut[:10]))
+        conn.commit()
+        nouveau = True
+    conn.close()
+    if nouveau:
+        creer_notification(user_id, 'badge', 'Bravo ! Tu as releve tous les defis de la semaine : +20 points 🏅', '/classement')
+        check_and_award_badges(user_id)
+    fin = datetime.strptime(debut, '%Y-%m-%d %H:%M:%S') + timedelta(days=7)
+    return jsonify({'defis': defis, 'tous_reussis': tous, 'bonus': 20, 'fin_semaine': fin.strftime('%Y-%m-%d %H:%M:%S')})
+
+@app.route('/api/classement')
+def api_classement():
+    """?periode=semaine|total & portee=tous|universite|filiere : top 50 et mon rang."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    periode = 'total' if request.args.get('periode') == 'total' else 'semaine'
+    portee = request.args.get('portee') if request.args.get('portee') in ('universite', 'filiere') else 'tous'
+    debut = debut_semaine() if periode == 'semaine' else ''
+    conn = get_db()
+    moi = conn.execute('SELECT universite, filiere FROM users WHERE id = ?', (user_id,)).fetchone()
+    filtre, params_filtre = '', []
+    if portee != 'tous':
+        if not moi[portee]:
+            conn.close()
+            return jsonify({'classement': [], 'moi': None, 'periode': periode, 'portee': portee,
+                            'message': f"Indique ton {'universite' if portee == 'universite' else 'filiere'} dans ton profil pour voir ce classement."})
+        filtre, params_filtre = f' AND users.{portee} = ?', [moi[portee]]
+    lignes = conn.execute(f"""SELECT * FROM (
+            SELECT users.id, users.prenom, users.nom, users.avatar, users.universite, users.filiere, {SQL_SCORE} AS points
+            FROM users WHERE COALESCE(users.banni, 0) = 0 AND COALESCE(users.email_verifie, 1) = 1{filtre}) t
+        WHERE t.points > 0 ORDER BY t.points DESC, t.id ASC""", [debut] * NB_PARAMS_SCORE + params_filtre).fetchall()
+    conn.close()
+    classement = [dict(l, rang=k + 1) for k, l in enumerate(lignes)]
+    mien = next((l for l in classement if l['id'] == user_id), None)
+    return jsonify({'classement': classement[:50], 'periode': periode, 'portee': portee, 'participants': len(classement),
+                    'moi': {'rang': mien['rang'], 'points': mien['points']} if mien else {'rang': None, 'points': 0}})
 
 @app.route('/api/conversations')
 def api_conversations():
@@ -4879,7 +5155,7 @@ def api_conversations():
         SELECT DISTINCT
             CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END as autre_id,
             users.prenom, users.nom, users.universite, users.avatar,
-            (SELECT CASE WHEN contenu = '' AND audio IS NOT NULL THEN 'Note vocale' WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
+            (SELECT CASE WHEN COALESCE(supprime, 0) = 1 THEN 'Message supprime' WHEN contenu = '' AND audio IS NOT NULL THEN 'Note vocale' WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
             (SELECT date_envoi FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as date_dernier,
             (SELECT COUNT(*) FROM messages WHERE destinataire_id = ? AND expediteur_id = users.id AND lu = 0) as non_lu
         FROM messages JOIN users ON users.id = CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END

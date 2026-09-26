@@ -64,6 +64,7 @@ export function destinationNotification(n) {
     message: ['Home', { screen: 'Messages' }], like: ['Home', { screen: 'Accueil' }],
     commentaire: ['Home', { screen: 'Accueil' }], mention: ['Home', { screen: 'Accueil' }],
     bourse: ['Bourses'], formation: ['Formations'], document: ['Documents'], opportunite: ['Opportunites'],
+    badge: ['Classement'], evenement: ['Calendrier'],
   };
   return (n && cibles[n.type]) || null;
 }

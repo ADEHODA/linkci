@@ -1,0 +1,61 @@
+{% extends 'base_app.html' %}
+{% block titre %}Classement{% endblock %}
+{% block contenu %}
+<h1 class="titre-page">🏆 Classement et defis</h1>
+<div id="defis"></div>
+<div class="puces" id="periodes"><button class="puce active" data-p="semaine">Cette semaine</button><button class="puce" data-p="total">Depuis toujours</button></div>
+<div class="puces" id="portees"><button class="puce active" data-t="tous">Tout LinkCI</button><button class="puce" data-t="universite">Mon universite</button><button class="puce" data-t="filiere">Ma filiere</button></div>
+<div id="moi"></div>
+<div id="zone"><div class="chargement">Chargement...</div></div>
+<div class="carte sous">
+  <strong style="color:var(--text)">Comment gagner des points ?</strong><br>
+  Publication +3 · Commentaire +1 · Reponse d'entraide +5 · Jour actif +2 · Evenement +2 · Nouvel abonne +3 · Camarade invite +10 · Defis de la semaine reussis +20
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const L = LinkCI;
+  let periode = 'semaine', portee = 'tous';
+  const MEDAILLES = ['🥇', '🥈', '🥉'];
+
+  const defis = async () => {
+    const d = await L.api('/api/defis');
+    const fin = new Date(d.fin_semaine.replace(' ', 'T') + 'Z');
+    const jours = Math.max(0, Math.ceil((fin - new Date()) / 86400000));
+    document.getElementById('defis').innerHTML = `<div class="carte"><div class="ligne" style="justify-content:space-between">
+      <strong>🎯 Defis de la semaine</strong><span class="sous">${d.tous_reussis ? '✅ Tous reussis, +20 points !' : `encore ${jours} jour${jours > 1 ? 's' : ''}`}</span></div>
+      ${d.defis.map((x) => `<div style="margin-top:12px"><div class="ligne" style="justify-content:space-between">
+        <span>${x.emoji} ${L.esc(x.titre)}</span><strong style="color:${x.fait ? 'var(--accent)' : 'var(--muted)'}">${x.fait ? '✓' : `${x.progression}/${x.objectif}`}</strong></div>
+        <div style="height:7px;border-radius:4px;background:var(--card-alt);margin-top:6px;overflow:hidden">
+        <div style="height:7px;width:${Math.round(100 * x.progression / Math.max(1, x.objectif))}%;background:${x.fait ? 'var(--accent)' : 'var(--primary)'}"></div></div></div>`).join('')}
+      <div class="sous" style="margin-top:10px">Releve les 3 defis pour gagner 20 points et le badge Challenger 🏅</div></div>`;
+  };
+
+  const classement = async () => {
+    const c = await L.api(`/api/classement?periode=${periode}&portee=${portee}`);
+    document.getElementById('moi').innerHTML = c.moi && c.moi.rang ? `<div class="carte ligne" style="background:var(--primary);color:#fff">
+      <strong style="font-size:22px">#${c.moi.rang}</strong><div style="flex:1">Ta place sur ${c.participants}</div><strong>${c.moi.points} pts</strong></div>` : '';
+    document.getElementById('zone').innerHTML = c.message ? `<div class="vide">${L.esc(c.message)}</div>` : c.classement.length
+      ? `<div class="carte">${c.classement.map((u) => `<a class="ligne" href="/profil/${u.id}" style="padding:8px 0;color:var(--text);border-top:1px solid var(--border)">
+          <strong style="width:34px;text-align:center;font-size:${u.rang <= 3 ? 22 : 15}px">${MEDAILLES[u.rang - 1] || u.rang}</strong>
+          ${L.avatar(`${u.prenom} ${u.nom}`, u.id, u.avatar, 38)}
+          <div style="flex:1;min-width:0"><div style="font-weight:700">${L.esc(u.prenom)} ${L.esc(u.nom)}</div>
+          <div class="sous">${L.esc([u.filiere, u.universite].filter(Boolean).join(' · '))}</div></div>
+          <strong style="color:var(--primary)">${u.points}</strong></a>`).join('')}</div>`
+      : '<div class="vide">Personne n\'a encore de points. Sois le premier !</div>';
+  };
+
+  const choisir = (id, attr, rappel) => document.getElementById(id).addEventListener('click', (e) => {
+    const b = e.target.closest(`[data-${attr}]`); if (!b) return;
+    document.querySelectorAll(`#${id} .puce`).forEach((x) => x.classList.toggle('active', x === b));
+    rappel(b.dataset[attr]);
+    classement().catch(L.erreur);
+  });
+  choisir('periodes', 'p', (v) => { periode = v; });
+  choisir('portees', 't', (v) => { portee = v; });
+  defis().catch(L.erreur);
+  classement().catch(L.erreur);
+})();
+</script>
+{% endblock %}

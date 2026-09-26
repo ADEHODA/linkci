@@ -268,11 +268,20 @@ export const getConversations = () => request('/api/conversations');
 
 export const getMessages = (avec) => request(`/api/messages?avec=${avec}`);
 
-export const sendMessage = (destinataire_id, contenu, image = null) =>
+export const sendMessage = (destinataire_id, contenu, image = null, reponse_a = null) =>
   request('/api/messages', {
     method: 'POST',
-    body: JSON.stringify(image ? { destinataire_id, contenu, image } : { destinataire_id, contenu }),
+    body: JSON.stringify({ destinataire_id, contenu, ...(image ? { image } : {}), ...(reponse_a ? { reponse_a } : {}) }),
   });
+// Reagir (le meme emoji une 2e fois retire la reaction), supprimer pour tous, transferer
+export const reagirMessage = (id, emoji) => request(`/api/messages/${id}/reaction`, { method: 'POST', body: JSON.stringify({ emoji }) });
+export const supprimerMessage = (id) => request(`/api/messages/${id}`, { method: 'DELETE' });
+export const transfererMessage = (id, destinataires) =>
+  request(`/api/messages/${id}/transferer`, { method: 'POST', body: JSON.stringify({ destinataires }) });
+
+// Classement et defis de la semaine
+export const getClassement = (periode = 'semaine', portee = 'tous') => request(`/api/classement?periode=${periode}&portee=${portee}`);
+export const getDefis = () => request('/api/defis');
 
 // Notifications
 export const getNotifications = () => request('/api/notifications');
@@ -369,7 +378,8 @@ export const suivre = (id) => request(`/api/utilisateurs/${id}/suivre`, { method
 export const nePlusSuivre = (id) => request(`/api/utilisateurs/${id}/suivre`, { method: 'DELETE' });
 
 // Note vocale (fichier .m4a enregistre par le telephone), duree en secondes
-export const envoyerVocal = (destinataire_id, uri, duree) => envoyerAudio('/api/messages/vocal', uri, duree, { destinataire_id });
+export const envoyerVocal = (destinataire_id, uri, duree, reponse_a = null) =>
+  envoyerAudio('/api/messages/vocal', uri, duree, reponse_a ? { destinataire_id, reponse_a } : { destinataire_id });
 export const envoyerVocalGroupe = (groupeId, uri, duree) => envoyerAudio(`/api/groupes/${groupeId}/vocal`, uri, duree);
 
 async function envoyerAudio(chemin, uri, duree, champs = {}) {

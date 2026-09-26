@@ -6,14 +6,14 @@ import { PrimaryButton } from './ui';
 import { radius, spacing, creerStyles } from '../theme';
 
 // Changer ID a chaque nouvelle serie de nouveautes a annoncer
-const ID = '2026-09-26';
+const ID = '2026-09-27';
 const CLE = 'linkci_nouveautes_vues';
 const LISTE = [
-  ['⏰', 'Emploi du temps', 'Tes cours et tes examens, avec un rappel 15 min avant chaque cours (Explorer > Emploi du temps).'],
-  ['🎟️', 'Invite tes camarades', 'Ton lien personnel dans ton profil : 3 camarades inscrits = badge Ambassadeur.'],
-  ['🧑‍🎓', 'Profil enrichi', 'Photo de couverture, competences, parcours, liens LinkedIn et GitHub, et qui a vu ton profil.'],
-  ['📶', 'Hors connexion', "L'app s'ouvre instantanement, et tes messages ecrits sans reseau partent tout seuls au retour."],
-  ['📤', 'Partager', 'Envoie une bourse, une offre, une annonce ou une question a tes amis sur WhatsApp.'],
+  ['💬', 'Messages', 'Appuie longuement sur un message : reagis avec un emoji, reponds en citant, transfere-le ou supprime-le pour tout le monde.'],
+  ['🏆', 'Classement et defis', '3 defis chaque semaine et le classement des etudiants les plus actifs, de ta fac ou de ta filiere (Explorer > Classement).'],
+  ['📅', 'Evenements du campus', 'Conferences, matchs, soirees : touche "Je participe" et recois un rappel la veille.'],
+  ['🔥', 'Mon activite', 'Ta serie de jours, tes abonnes et tes statistiques (Profil > Mon activite).'],
+  ['🔠', 'Texte plus grand', 'Agrandis le texte ou active le contraste eleve dans Parametres > Apparence.'],
 ];
 
 export default function Nouveautes() {
