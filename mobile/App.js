@@ -8,7 +8,8 @@ import { destinationNotification } from './src/utils';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { CLE_ACCUEIL } from './src/screens/OnboardingScreen';
 import { Alert } from 'react-native';
-import { setToken, onSessionExpiree, viderCache } from './src/api';
+import { setToken, onSessionExpiree, viderCache, envoyerFile } from './src/api';
+import { AppState } from 'react-native';
 import BanniereReseau from './src/components/BanniereReseau';
 import { RealtimeProvider } from './src/realtime';
 import { ThemeProvider, useTheme } from './src/theme';
@@ -21,6 +22,14 @@ export default function App() {
   const [accueilVu, setAccueilVu] = useState(true);
 
   useEffect(() => surveillerMisesAJour(), []);
+
+  // messages ecrits hors ligne : envoyes des que possible
+  useEffect(() => {
+    if (!token) return undefined;
+    envoyerFile();
+    const s = AppState.addEventListener('change', (e) => { if (e === 'active') envoyerFile(); });
+    return () => s.remove();
+  }, [token]);
 
   useEffect(() => {
     (async () => {

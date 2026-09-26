@@ -46,7 +46,19 @@ export default function FeedScreen() {
     setLoading(false);
   }, []);
 
-  useFocusEffect(useCallback(() => { recharger(); }, [])); // eslint-disable-line react-hooks/exhaustive-deps
+  // ouverture instantanee : dernier fil connu, remplace des que le serveur repond
+  const premierChargement = useRef(true);
+  React.useEffect(() => {
+    Promise.all([api.lireCache('/api/posts?page=1'), api.lireCache('/api/me')]).then(([p, me]) => {
+      if (premierChargement.current && Array.isArray(p) && p.length) {
+        setPosts(p);
+        if (me) setMoi(me);
+        setLoading(false);
+      }
+    });
+  }, []);
+
+  useFocusEffect(useCallback(() => { recharger().then(() => { premierChargement.current = false; }); }, [])); // eslint-disable-line react-hooks/exhaustive-deps
 
   const changerFil = (valeur) => {
     if (valeur === fac) return;

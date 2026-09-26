@@ -18,7 +18,7 @@ const ICONS = {
 export default function NotificationsScreen({ navigation }) {
   const styles = useStyles();
   const { colors } = useTheme();
-  const { data, loading, refreshing, refresh, reload } = useApiList(async () => (await api.getNotifications()).notifications || []);
+  const { data, loading, refreshing, refresh, reload } = useApiList(async () => (await api.getNotifications()).notifications || [], [], { cache: '/api/notifications', transformer: (d) => d.notifications || [] });
   const { rafraichirCompteurs } = useRealtime();
 
   // A l'ouverture : on affiche les non lues en surbrillance, puis on les marque comme lues

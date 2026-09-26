@@ -91,6 +91,14 @@ export default function ConversationScreen({ route, navigation }) {
     }
   });
 
+  // messages ecrits hors ligne pour cette discussion (affiches avec une horloge)
+  const [enFile, setEnFile] = useState([]);
+  const lireEnFile = () => api.lireFile().then((f) => setEnFile(f.filter((m) => m.destinataire_id === conv.autre_id)));
+  useEffect(() => {
+    lireEnFile();
+    return api.surFileEnvoi((m) => { if (m.destinataire_id === conv.autre_id) { lireEnFile(); reload(); } });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSend = async () => {
     if (!text.trim()) return;
     const contenu = text.trim();
@@ -103,6 +111,11 @@ export default function ConversationScreen({ route, navigation }) {
       await reload();
     } catch (e) {
       setData((m) => m.filter((x) => x.id !== provisoire.id));
+      if (/connexion internet/i.test(e.message)) {
+        await api.mettreEnFile(conv.autre_id, contenu); // envoye automatiquement au retour du reseau
+        lireEnFile();
+        return;
+      }
       setText(contenu);
       Alert.alert('Message non envoye', e.message);
     }
@@ -148,7 +161,7 @@ export default function ConversationScreen({ route, navigation }) {
           ref={listRef}
           style={styles.messageList}
           contentContainerStyle={{ padding: spacing.md, flexGrow: 1 }}
-          data={messages}
+          data={[...messages, ...enFile.map((m) => ({ ...m, expediteur_id: -1, enAttente: true, horsLigne: true }))]}
           keyExtractor={(item) => String(item.id)}
           onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
           renderItem={({ item, index }) => {
@@ -168,6 +181,7 @@ export default function ConversationScreen({ route, navigation }) {
                   {item.contenu ? <Text style={[styles.msgText, !recu && styles.msgTextSent]}>{item.contenu}</Text> : null}
                   <View style={styles.meta}>
                     <Text style={[styles.msgTime, !recu && styles.msgTimeSent]}>{heure(item.date_envoi)}</Text>
+                    {item.horsLigne ? <Text style={styles.horsLigne}>en attente de reseau</Text> : null}
                     {!recu ? <Ionicons name={item.enAttente ? 'time-outline' : item.lu ? 'checkmark-done' : 'checkmark'} size={13} color="rgba(255,255,255,0.8)" /> : null}
                   </View>
                 </View>
@@ -220,6 +234,7 @@ const useStyles = creerStyles(({ colors }) => ({
   meta: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-end', gap: 3, marginTop: 3 },
   msgTime: { fontSize: 10, color: colors.textFaint },
   msgTimeSent: { color: 'rgba(255,255,255,0.8)' },
+  horsLigne: { fontSize: 10, color: 'rgba(255,255,255,0.85)', fontStyle: 'italic' },
   inputBar: { flexDirection: 'row', alignItems: 'flex-end', padding: spacing.sm, backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.border, gap: spacing.sm },
   input: { flex: 1, backgroundColor: colors.cardAlt, borderRadius: 22, paddingHorizontal: 16, paddingVertical: 10, fontSize: 15, maxHeight: 110, color: colors.text },
   sendBtn: { backgroundColor: colors.primary, borderRadius: 22, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' },

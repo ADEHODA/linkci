@@ -32,7 +32,7 @@ export default function MessagingScreen(props) {
 
 function ListeConversations({ navigation }) {
   const styles = useStyles();
-  const { data: conversations, loading, refreshing, refresh, reload } = useApiList(api.getConversations);
+  const { data: conversations, loading, refreshing, refresh, reload } = useApiList(api.getConversations, [], { cache: '/api/conversations' });
 
   // un nouveau message met a jour la liste des conversations
   useEvenement('message_recu', () => reload());

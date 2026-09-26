@@ -35,6 +35,62 @@ function setHorsLigne(valeur) {
   if (valeur === _horsLigne) return;
   _horsLigne = valeur;
   _abonnesReseau.forEach((f) => f(valeur));
+  if (!valeur) envoyerFile(); // le reseau revient : on envoie les messages en attente
+}
+
+// Derniere version connue d'une lecture (affichage immediat au demarrage), ou null
+export async function lireCache(path) {
+  try {
+    const brut = await AsyncStorage.getItem(PREFIXE_CACHE + path);
+    return brut ? JSON.parse(brut) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+// ---- Messages ecrits sans reseau : gardes sur le telephone, envoyes au retour du reseau
+const CLE_FILE = 'linkci_file_envoi';
+const _abonnesFile = new Set();
+let _envoiEnCours = false;
+
+export async function lireFile() {
+  try { return JSON.parse((await AsyncStorage.getItem(CLE_FILE)) || '[]'); } catch (e) { return []; }
+}
+
+export async function mettreEnFile(destinataire_id, contenu) {
+  const file = await lireFile();
+  const msg = { id: `file-${Date.now()}`, destinataire_id, contenu, date_envoi: new Date().toISOString().slice(0, 19).replace('T', ' ') };
+  file.push(msg);
+  await AsyncStorage.setItem(CLE_FILE, JSON.stringify(file)).catch(() => {});
+  return msg;
+}
+
+// Previent les ecrans quand la file change (messages partis)
+export function surFileEnvoi(f) {
+  _abonnesFile.add(f);
+  return () => _abonnesFile.delete(f);
+}
+
+export async function envoyerFile() {
+  if (_envoiEnCours || !_token) return;
+  _envoiEnCours = true;
+  try {
+    let file = await lireFile();
+    while (file.length) {
+      const m = file[0];
+      try {
+        await request('/api/messages', { method: 'POST', body: JSON.stringify({ destinataire_id: m.destinataire_id, contenu: m.contenu }) });
+      } catch (e) {
+        if (/connexion internet|serveur demarre/i.test(e.message)) break; // toujours hors ligne : on reessaiera
+        // refuse par le serveur (bloque, trop long...) : on l'abandonne pour ne pas bloquer la file
+      }
+      file = file.slice(1);
+      await AsyncStorage.setItem(CLE_FILE, JSON.stringify(file)).catch(() => {});
+      _abonnesFile.forEach((f) => f(m));
+    }
+  } finally {
+    _envoiEnCours = false;
+  }
 }
 
 // Ecoute l'etat du reseau ; renvoie la fonction de desabonnement
@@ -47,7 +103,7 @@ export function surEtatReseau(f) {
 // A la deconnexion : les donnees du compte ne restent pas sur le telephone
 export async function viderCache() {
   try {
-    const cles = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(PREFIXE_CACHE));
+    const cles = (await AsyncStorage.getAllKeys()).filter((k) => k.startsWith(PREFIXE_CACHE) || k === CLE_FILE);
     if (cles.length) await AsyncStorage.multiRemove(cles);
   } catch (e) {}
 }
