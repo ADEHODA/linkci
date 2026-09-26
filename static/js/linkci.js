@@ -271,7 +271,7 @@
     const groupes = await L.api('/api/stories').catch(() => []);
     const miennes = groupes.find((g) => g.est_moi);
     const bouton = (g, texte) => `<button class="story" data-g="${g ? groupes.indexOf(g) : ''}">
-      <span class="anneau ${g ? '' : 'vide'}">${L.avatar(g ? `${g.prenom} ${g.nom}` : `${m.prenom} ${m.nom}`, g ? g.user_id : m.id, g ? g.avatar : m.avatar, 56)}</span>${L.esc(texte)}</button>`;
+      <span class="anneau ${g ? (g.tout_vu && !g.est_moi ? 'vu' : '') : 'vide'}">${L.avatar(g ? `${g.prenom} ${g.nom}` : `${m.prenom} ${m.nom}`, g ? g.user_id : m.id, g ? g.avatar : m.avatar, 56)}</span>${L.esc(texte)}</button>`;
     conteneur.innerHTML = bouton(miennes, 'Ma story') + groupes.filter((g) => !g.est_moi).map((g) => bouton(g, g.prenom)).join('');
     conteneur.onclick = async (e) => {
       const b = e.target.closest('.story');
@@ -314,7 +314,11 @@
         <div class="vis-haut">${L.avatar(`${groupe.prenom} ${groupe.nom}`, groupe.user_id, groupe.avatar, 34)}
           <strong>${groupe.est_moi ? 'Ma story' : L.esc(groupe.prenom)}</strong><span style="opacity:.7">${L.quand(s.date_creation)}</span>
           ${groupe.est_moi ? '<button data-suppr title="Supprimer" style="margin-left:auto;font-size:20px">🗑️</button>' : ''}<button data-fermer>✕</button></div>
-        <img src="${L.image(s.image)}" alt="">${s.texte ? `<div class="legende">${L.esc(s.texte)}</div>` : ''}`;
+        ${s.image ? `<img src="${L.image(s.image)}" alt="">${s.texte ? `<div class="legende">${L.esc(s.texte)}</div>` : ''}`
+          : `<div style="flex:1;display:flex;align-items:center;justify-content:center;padding:30px;background:${L.esc(s.fond || '#FF6B35')};border-radius:14px;margin:10px;
+             color:#fff;font-size:28px;font-weight:800;text-align:center;white-space:pre-wrap">${L.esc(s.texte)}</div>`}
+        ${groupe.est_moi ? `<div style="text-align:center;color:#fff;padding:8px">👁 ${s.nb_vues || 0} vue${(s.nb_vues || 0) > 1 ? 's' : ''}</div>` : ''}`;
+      if (!groupe.est_moi && !s.vue) { s.vue = true; L.api(`/api/stories/${s.id}/vue`, { methode: 'POST' }).catch(() => {}); }
       const barre = v.querySelectorAll('.barres i')[i];
       requestAnimationFrame(() => { barre.style.transition = 'width 5s linear'; barre.style.width = '100%'; });
       clearTimeout(minuterie);

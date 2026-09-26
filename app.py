@@ -760,6 +760,32 @@ def init_db():
             heure TEXT DEFAULT '',
             salle TEXT DEFAULT '',
             note TEXT DEFAULT '')''',
+        # Groupes : reactions, sondages
+        '''CREATE TABLE IF NOT EXISTS groupe_message_reactions (
+            message_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            emoji TEXT NOT NULL,
+            PRIMARY KEY (message_id, user_id))''',
+        '''CREATE TABLE IF NOT EXISTS groupe_sondage_options (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            message_id INTEGER NOT NULL,
+            texte TEXT NOT NULL)''',
+        '''CREATE TABLE IF NOT EXISTS groupe_sondage_votes (
+            message_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            option_id INTEGER NOT NULL,
+            PRIMARY KEY (message_id, user_id))''',
+        # Statuts : qui a vu
+        '''CREATE TABLE IF NOT EXISTS story_vues (
+            story_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            date_vue TEXT NOT NULL,
+            PRIMARY KEY (story_id, user_id))''',
+        # Documents : votes "utile"
+        '''CREATE TABLE IF NOT EXISTS documents_votes (
+            document_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            PRIMARY KEY (document_id, user_id))''',
         # Publications enregistrees pour plus tard
         '''CREATE TABLE IF NOT EXISTS posts_enregistres (
             user_id INTEGER NOT NULL,
@@ -798,6 +824,18 @@ def init_db():
     ):
         conn.execute(requete)
     conn.commit()
+    # Groupes (reponse, suppression pour tous, modification), statuts (fond colore),
+    # messages (reponse a un statut), documents (filiere, type)
+    for table, colonne in (('groupe_messages', 'reponse_a INTEGER'), ('groupe_messages', 'supprime INTEGER DEFAULT 0'),
+                           ('groupe_messages', 'modifie INTEGER DEFAULT 0'), ('stories', "fond TEXT DEFAULT ''"),
+                           ('messages', 'story_id INTEGER'), ('messages', "story_apercu TEXT DEFAULT ''"),
+                           ('documents', "filiere TEXT DEFAULT ''"), ('documents', "type_doc TEXT DEFAULT 'cours'")):
+        try:
+            conn.execute(f'ALTER TABLE {table} ADD COLUMN {colonne}')
+            conn.commit()
+        except Exception:
+            pass
+
     # Index : recherches rapides sur les colonnes les plus consultees (fil, messages, notifications...)
     for index in ('posts(date_post)', 'posts(user_id)', 'likes(post_id)', 'likes(user_id, post_id)', 'commentaires(post_id)',
                   'messages(expediteur_id, destinataire_id)', 'messages(destinataire_id, lu)', 'notifications(user_id, lu)',
@@ -3514,11 +3552,13 @@ def nettoyer_stories():
     conn = get_db()
     vieilles = conn.execute('SELECT id, image FROM stories WHERE date_creation < ?', (limite,)).fetchall()
     if vieilles:
+        conn.execute('DELETE FROM story_vues WHERE story_id IN (SELECT id FROM stories WHERE date_creation < ?)', (limite,))
         conn.execute('DELETE FROM stories WHERE date_creation < ?', (limite,))
         conn.commit()
     conn.close()
     for v in vieilles:
-        supprimer_fichier('static/uploads/' + v['image'])
+        if v['image']:
+            supprimer_fichier('static/uploads/' + v['image'])
 
 @app.route('/api/stories')
 def api_stories():
@@ -3529,21 +3569,29 @@ def api_stories():
     nettoyer_stories()
     conn = get_db()
     lignes = conn.execute('''
-        SELECT s.id, s.user_id, s.image, s.texte, s.date_creation, users.prenom, users.nom, users.avatar
+        SELECT s.id, s.user_id, s.image, s.texte, s.fond, s.date_creation, users.prenom, users.nom, users.avatar,
+               EXISTS(SELECT 1 FROM story_vues v WHERE v.story_id = s.id AND v.user_id = ?) AS vue,
+               (SELECT COUNT(*) FROM story_vues v WHERE v.story_id = s.id) AS nb_vues
         FROM stories s JOIN users ON users.id = s.user_id
         WHERE COALESCE(users.banni, 0) = 0
           AND s.user_id NOT IN (SELECT bloque_id FROM blocages WHERE bloqueur_id = ?)
           AND s.user_id NOT IN (SELECT bloqueur_id FROM blocages WHERE bloque_id = ?)
-        ORDER BY s.date_creation ASC''', (user_id, user_id)).fetchall()
+        ORDER BY s.date_creation ASC''', (user_id, user_id, user_id)).fetchall()
     conn.close()
     groupes = {}
     for l in lignes:
         g = groupes.setdefault(l['user_id'], {'user_id': l['user_id'], 'prenom': l['prenom'], 'nom': l['nom'],
                                               'avatar': l['avatar'], 'est_moi': l['user_id'] == user_id, 'stories': []})
-        g['stories'].append({'id': l['id'], 'image': l['image'], 'texte': l['texte'], 'date_creation': l['date_creation']})
-    # les miennes d'abord, puis les plus recentes
+        story = {'id': l['id'], 'image': l['image'] or None, 'texte': l['texte'], 'fond': l['fond'] or '',
+                 'date_creation': l['date_creation'], 'vue': bool(l['vue'])}
+        if l['user_id'] == user_id:
+            story['nb_vues'] = l['nb_vues']  # seulement pour mes statuts
+        g['stories'].append(story)
+    for g in groupes.values():
+        g['tout_vu'] = g['est_moi'] or all(st['vue'] for st in g['stories'])
+    # les miennes d'abord, puis les non vues, puis les plus recentes
     autres = sorted((g for g in groupes.values() if not g['est_moi']),
-                    key=lambda g: g['stories'][-1]['date_creation'], reverse=True)
+                    key=lambda g: (not g['tout_vu'], g['stories'][-1]['date_creation']), reverse=True)
     return jsonify([g for g in groupes.values() if g['est_moi']] + autres)
 
 @app.route('/api/stories', methods=['POST'])
@@ -3554,15 +3602,21 @@ def api_creer_story():
     if trop_rapide('story', user_id, 10, 3600):
         return jsonify({'error': 'Trop de stories. Reessaie plus tard.'}), 429
     data = request.get_json(silent=True) or {}
-    if not data.get('image'):
-        return jsonify({'error': 'Photo requise'}), 400
-    image, erreur = image_depuis_base64(data.get('image'))
-    if erreur:
-        return jsonify({'error': erreur}), 400
     texte = sanitize_text(str(data.get('texte') or ''), 150)
+    fond = data.get('fond') if data.get('fond') in FONDS_STATUT else ''
+    image = ''
+    if data.get('image'):
+        image, erreur = image_depuis_base64(data.get('image'))
+        if erreur:
+            return jsonify({'error': erreur}), 400
+    elif not texte.strip():
+        return jsonify({'error': 'Ajoute une photo ou un texte'}), 400
+    else:
+        texte = sanitize_text(str(data.get('texte') or ''), 250)  # statut texte : un peu plus long
+        fond = fond or FONDS_STATUT[0]
     conn = get_db()
-    sid = conn.execute('INSERT INTO stories (user_id, image, texte, date_creation) VALUES (?, ?, ?, ?)',
-                       (user_id, image, texte, datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))).lastrowid
+    sid = conn.execute('INSERT INTO stories (user_id, image, texte, fond, date_creation) VALUES (?, ?, ?, ?, ?)',
+                       (user_id, image, texte, fond, datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'))).lastrowid
     conn.commit()
     conn.close()
     return jsonify({'id': sid, 'message': 'Story publiee pour 24 h'}), 201
@@ -3577,11 +3631,48 @@ def api_supprimer_story(sid):
     if not st or st['user_id'] != user_id:
         conn.close()
         return jsonify({'error': 'Introuvable'}), 404
+    conn.execute('DELETE FROM story_vues WHERE story_id = ?', (sid,))
     conn.execute('DELETE FROM stories WHERE id = ?', (sid,))
     conn.commit()
     conn.close()
-    supprimer_fichier('static/uploads/' + st['image'])
+    if st['image']:
+        supprimer_fichier('static/uploads/' + st['image'])
     return jsonify({'message': 'Story supprimee'})
+
+FONDS_STATUT = ('#FF6B35', '#009E60', '#2563EB', '#7C3AED', '#DB2777', '#0F172A', '#D97706', '#0891B2')
+
+@app.route('/api/stories/<int:sid>/vue', methods=['POST'])
+def api_story_vue(sid):
+    """J'ai vu ce statut (pas le mien)."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    st = conn.execute('SELECT user_id FROM stories WHERE id = ?', (sid,)).fetchone()
+    if st and st['user_id'] != user_id and not blocage_entre(user_id, st['user_id']) and \
+            not conn.execute('SELECT 1 FROM story_vues WHERE story_id = ? AND user_id = ?', (sid, user_id)).fetchone():
+        conn.execute('INSERT INTO story_vues (story_id, user_id, date_vue) VALUES (?, ?, ?)',
+                     (sid, user_id, datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')))
+        conn.commit()
+    conn.close()
+    return jsonify({'vue': True})
+
+@app.route('/api/stories/<int:sid>/vues')
+def api_story_vues(sid):
+    """Qui a vu mon statut."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    st = conn.execute('SELECT user_id FROM stories WHERE id = ?', (sid,)).fetchone()
+    if not st or st['user_id'] != user_id:
+        conn.close()
+        return jsonify({'error': 'Introuvable'}), 404
+    vues = conn.execute('''SELECT users.id, users.prenom, users.nom, users.avatar, v.date_vue
+                           FROM story_vues v JOIN users ON users.id = v.user_id
+                           WHERE v.story_id = ? ORDER BY v.date_vue DESC''', (sid,)).fetchall()
+    conn.close()
+    return jsonify([dict(v) for v in vues])
 
 @app.route('/api/posts/<int:post_id>/comments', methods=['GET'])
 def api_comments(post_id):
@@ -4602,7 +4693,8 @@ def supprimer_compte(user_id):
                   'reponses', 'votes_reponses', 'documents', 'notifications', 'abonnements_alertes', 'reset_tokens',
                   'evenements', 'groupe_membres', 'groupe_messages', 'user_badges', 'codes_verification', 'opportunites',
                   'annonces', 'stories', 'expo_push_tokens', 'conversations_effacees', 'cours', 'examens',
-                  'evenement_participants', 'jours_actifs', 'message_reactions', 'defis_reussis', 'posts_enregistres'):
+                  'evenement_participants', 'jours_actifs', 'message_reactions', 'defis_reussis', 'posts_enregistres',
+                  'groupe_message_reactions', 'groupe_sondage_votes', 'story_vues', 'documents_votes'):
         conn.execute(f'DELETE FROM {table} WHERE user_id = ?', (user_id,))
     conn.execute('DELETE FROM groupes WHERE createur_id = ?', (user_id,))
     conn.execute('DELETE FROM messages WHERE expediteur_id = ? OR destinataire_id = ?', (user_id, user_id))
@@ -4872,8 +4964,14 @@ def api_send_message():
         conn.close()
         return jsonify({'error': erreur}), 400
     reponse_a = reponse_valide(conn, data.get('reponse_a'), user_id, destinataire_id)
-    msg_id = conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu, image, reponse_a) VALUES (?, ?, ?, ?, ?)',
-                          (user_id, destinataire_id, contenu, image, reponse_a)).lastrowid
+    # reponse a un statut du destinataire : on garde un apercu (le statut disparait apres 24 h)
+    story_id, story_apercu = None, ''
+    if data.get('story_id'):
+        st = conn.execute('SELECT id, user_id, texte, image FROM stories WHERE id = ?', (data.get('story_id'),)).fetchone()
+        if st and st['user_id'] == destinataire_id:
+            story_id, story_apercu = st['id'], (st['texte'] or ('Photo' if st['image'] else 'Statut'))[:120]
+    msg_id = conn.execute('INSERT INTO messages (expediteur_id, destinataire_id, contenu, image, reponse_a, story_id, story_apercu) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                          (user_id, destinataire_id, contenu, image, reponse_a, story_id, story_apercu)).lastrowid
     conn.commit()
     auteur = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (user_id,)).fetchone()
     conn.close()
@@ -5338,14 +5436,67 @@ def api_documents():
     user_id = api_require_auth()
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
+    # filtres : q (texte), universite, filiere, matiere, type ; tri : recent, utiles, telecharges
+    conditions, params = ['1 = 1'], []
+    q = (request.args.get('q') or '').strip()[:80]
+    if q:
+        conditions.append('(documents.titre LIKE ? OR documents.description LIKE ? OR documents.matiere LIKE ?)')
+        params += [f'%{q}%'] * 3
+    for champ in ('universite', 'filiere', 'matiere'):
+        if request.args.get(champ):
+            conditions.append(f'lower(documents.{champ}) = ?')
+            params.append(request.args[champ].strip().lower()[:100])
+    if request.args.get('type') in TYPES_DOCUMENT:
+        conditions.append('documents.type_doc = ?')
+        params.append(request.args['type'])
+    tri = {'utiles': 'nb_votes DESC, date_upload DESC', 'telecharges': 'documents.telechargements DESC, date_upload DESC'}.get(
+        request.args.get('tri'), 'date_upload DESC')
     conn = get_db()
-    docs = conn.execute('''
-        SELECT documents.*, users.prenom, users.nom
+    docs = conn.execute(f'''
+        SELECT documents.*, users.prenom, users.nom,
+               (SELECT COUNT(*) FROM documents_votes v WHERE v.document_id = documents.id) AS nb_votes,
+               EXISTS(SELECT 1 FROM documents_votes v WHERE v.document_id = documents.id AND v.user_id = ?) AS mon_vote
         FROM documents JOIN users ON documents.user_id = users.id
-        ORDER BY date_upload DESC
-    ''').fetchall()
+        WHERE {' AND '.join(conditions)}
+        ORDER BY {tri} LIMIT 200
+    ''', [user_id] + params).fetchall()
     conn.close()
-    return jsonify([dict(d) for d in docs])
+    return jsonify([dict(d, mon_vote=bool(d['mon_vote']), est_auteur=d['user_id'] == user_id) for d in docs])
+
+TYPES_DOCUMENT = ('cours', 'td', 'examen', 'resume', 'autre')
+
+@app.route('/api/documents/filtres')
+def api_documents_filtres():
+    """Valeurs existantes pour les listes de filtres."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    valeurs = {champ: [l['v'] for l in conn.execute(
+        f"SELECT DISTINCT {champ} AS v FROM documents WHERE COALESCE({champ}, '') != '' ORDER BY {champ} LIMIT 100").fetchall()]
+        for champ in ('universite', 'filiere', 'matiere')}
+    conn.close()
+    return jsonify({**valeurs, 'types': list(TYPES_DOCUMENT)})
+
+@app.route('/api/documents/<int:doc_id>/vote', methods=['POST'])
+def api_vote_document(doc_id):
+    """Marquer un document comme utile (une 2e fois : retire le vote)."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    if not conn.execute('SELECT 1 FROM documents WHERE id = ?', (doc_id,)).fetchone():
+        conn.close()
+        return jsonify({'error': 'Document introuvable'}), 404
+    deja = conn.execute('SELECT 1 FROM documents_votes WHERE document_id = ? AND user_id = ?', (doc_id, user_id)).fetchone()
+    if deja:
+        conn.execute('DELETE FROM documents_votes WHERE document_id = ? AND user_id = ?', (doc_id, user_id))
+    else:
+        conn.execute('INSERT INTO documents_votes (document_id, user_id) VALUES (?, ?)', (doc_id, user_id))
+    conn.commit()
+    nb = conn.execute('SELECT COUNT(*) AS nb FROM documents_votes WHERE document_id = ?', (doc_id,)).fetchone()['nb']
+    conn.close()
+    return jsonify({'mon_vote': not deja, 'nb_votes': nb})
 
 # Lien de telechargement temporaire pour l'app mobile : le navigateur du
 # telephone n'a pas de session, on lui donne une URL signee valable 5 minutes.
@@ -5391,6 +5542,12 @@ def api_envoyer_document():
                                           fichier.filename, fichier.read())
     if erreur:
         return jsonify({'error': erreur}), 400
+    type_doc = request.form.get('type_doc') if request.form.get('type_doc') in TYPES_DOCUMENT else 'cours'
+    conn = get_db()
+    conn.execute('UPDATE documents SET filiere = ?, type_doc = ? WHERE id = ?',
+                 (sanitize_text(request.form.get('filiere', ''), 100), type_doc, doc_id))
+    conn.commit()
+    conn.close()
     return jsonify({'id': doc_id, 'message': 'Document partage'}), 201
 
 @app.route('/api/documents/<int:doc_id>/lien')
@@ -5764,7 +5921,7 @@ def api_groupe_messages(id):
         WHERE gm.groupe_id = ? ORDER BY gm.date_envoi ASC
     ''', (id,)).fetchall()
     conn.close()
-    return jsonify([dict(m) for m in messages])
+    return jsonify(enrichir_messages_groupe(messages, user_id))
 
 @app.route('/api/groupes/<int:id>/messages', methods=['POST'])
 def api_envoyer_message_groupe(id):
@@ -5782,12 +5939,19 @@ def api_envoyer_message_groupe(id):
     if erreur:
         return jsonify({'error': erreur}), 400
     contenu = sanitize_text(str(data.get('contenu') or ''), FIELD_MAXLEN['message'])
+    # sondage : 2 a 6 choix, la question est le texte du message
+    options = [sanitize_text(str(o), 80).strip() for o in (data.get('sondage') or []) if str(o).strip()][:6]
+    if data.get('sondage') is not None and (len(options) < 2 or not contenu.strip()):
+        return jsonify({'error': 'Un sondage demande une question et au moins 2 choix'}), 400
     conn = get_db()
-    mid = conn.execute('INSERT INTO groupe_messages (groupe_id, user_id, contenu, image) VALUES (?, ?, ?, ?)',
-                       (id, user_id, contenu, image)).lastrowid
+    reponse_a = reponse_groupe_valide(conn, data.get('reponse_a'), id)
+    mid = conn.execute('INSERT INTO groupe_messages (groupe_id, user_id, contenu, image, reponse_a) VALUES (?, ?, ?, ?, ?)',
+                       (id, user_id, contenu, image, reponse_a)).lastrowid
+    for o in options:
+        conn.execute('INSERT INTO groupe_sondage_options (message_id, texte) VALUES (?, ?)', (mid, o))
     conn.commit()
     conn.close()
-    apres_message_groupe(id, user_id, contenu or 'Photo')
+    apres_message_groupe(id, user_id, ('📊 ' + contenu) if options else (contenu or 'Photo'))
     return jsonify({'message': 'Envoye', 'id': mid}), 201
 
 @app.route('/api/groupes/<int:id>/vocal', methods=['POST'])
@@ -5916,7 +6080,9 @@ def api_supprimer_message_groupe(id, mid):
     if m['user_id'] != user_id and not est_admin_groupe(id, user_id):
         return jsonify({'error': 'Non autorise'}), 403
     conn = get_db()
-    conn.execute('DELETE FROM groupe_messages WHERE id = ?', (mid,))
+    conn.execute("UPDATE groupe_messages SET supprime = 1, contenu = '', image = NULL, audio = NULL, duree = NULL WHERE id = ?", (mid,))
+    for table in ('groupe_message_reactions', 'groupe_sondage_votes', 'groupe_sondage_options'):
+        conn.execute(f'DELETE FROM {table} WHERE message_id = ?', (mid,))
     conn.commit()
     conn.close()
     for f in (m['image'], m['audio']):
@@ -5924,6 +6090,135 @@ def api_supprimer_message_groupe(id, mid):
             supprimer_fichier('static/uploads/' + f)
     diffuser_message_groupe(id, user_id)
     return jsonify({'message': 'Message supprime'})
+
+def message_de_groupe(groupe_id, mid, user_id):
+    """(message, None) si je suis membre et que le message est dans ce groupe, sinon (None, reponse d'erreur)."""
+    if not est_membre_groupe(groupe_id, user_id):
+        return None, (jsonify({'error': "Tu n'es pas membre"}), 403)
+    conn = get_db()
+    m = conn.execute('SELECT * FROM groupe_messages WHERE id = ? AND groupe_id = ?', (mid, groupe_id)).fetchone()
+    conn.close()
+    if not m or m['supprime']:
+        return None, (jsonify({'error': 'Message introuvable'}), 404)
+    return m, None
+
+def reponse_groupe_valide(conn, reponse_a, groupe_id):
+    try:
+        rid = int(reponse_a)
+    except (TypeError, ValueError):
+        return None
+    return rid if conn.execute('SELECT 1 FROM groupe_messages WHERE id = ? AND groupe_id = ?', (rid, groupe_id)).fetchone() else None
+
+def enrichir_messages_groupe(lignes, user_id):
+    """Citation, reactions, sondage et contenu efface si supprime."""
+    resultat = []
+    for m in lignes:
+        dm = dict(m)
+        dm['supprime'] = bool(dm.get('supprime'))
+        dm['modifie'] = bool(dm.get('modifie'))
+        if dm['supprime']:
+            dm.update(contenu='', image=None, audio=None, duree=None)
+        resultat.append(dm)
+    if not resultat:
+        return resultat
+    ids = [x['id'] for x in resultat]
+    marques = ','.join('?' * len(ids))
+    conn = get_db()
+    reactions = {}
+    for x in conn.execute(f'SELECT message_id, user_id, emoji FROM groupe_message_reactions WHERE message_id IN ({marques})', ids).fetchall():
+        e = reactions.setdefault(x['message_id'], {}).setdefault(x['emoji'], {'emoji': x['emoji'], 'nb': 0, 'moi': False})
+        e['nb'] += 1
+        e['moi'] = e['moi'] or x['user_id'] == user_id
+    options = {}
+    for o in conn.execute(f'''SELECT o.id, o.message_id, o.texte, (SELECT COUNT(*) FROM groupe_sondage_votes v WHERE v.option_id = o.id) AS votes
+                               FROM groupe_sondage_options o WHERE o.message_id IN ({marques}) ORDER BY o.id''', ids).fetchall():
+        options.setdefault(o['message_id'], []).append({'id': o['id'], 'texte': o['texte'], 'votes': o['votes']})
+    mes_votes = {v['message_id']: v['option_id'] for v in conn.execute(
+        f'SELECT message_id, option_id FROM groupe_sondage_votes WHERE user_id = ? AND message_id IN ({marques})', [user_id] + ids).fetchall()}
+    par_id = {x['id']: x for x in resultat}
+    cites = {x['reponse_a'] for x in resultat if x.get('reponse_a')} - set(par_id)
+    if cites:
+        for c in conn.execute(f'''SELECT gm.id, gm.user_id, gm.contenu, gm.image, gm.audio, COALESCE(gm.supprime, 0) AS supprime, users.prenom
+                                   FROM groupe_messages gm JOIN users ON users.id = gm.user_id WHERE gm.id IN ({','.join('?' * len(cites))})''',
+                               list(cites)).fetchall():
+            par_id.setdefault(c['id'], dict(c))
+    conn.close()
+    for x in resultat:
+        x['reactions'] = list(reactions.get(x['id'], {}).values())
+        x['sondage'] = options.get(x['id'], [])
+        x['mon_vote'] = mes_votes.get(x['id'])
+        c = par_id.get(x.get('reponse_a')) if x.get('reponse_a') else None
+        x['reponse'] = {'id': c['id'], 'user_id': c['user_id'], 'prenom': c['prenom'], 'extrait': extrait_message(c)} if c else None
+    return resultat
+
+@app.route('/api/groupes/<int:id>/messages/<int:mid>/reaction', methods=['POST'])
+def api_reaction_message_groupe(id, mid):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    m, erreur = message_de_groupe(id, mid, user_id)
+    if erreur:
+        return erreur
+    emoji = (request.get_json(silent=True) or {}).get('emoji') or ''
+    if emoji and emoji not in EMOJIS_MESSAGE:
+        return jsonify({'error': 'Reaction invalide'}), 400
+    conn = get_db()
+    actuelle = conn.execute('SELECT emoji FROM groupe_message_reactions WHERE message_id = ? AND user_id = ?', (mid, user_id)).fetchone()
+    conn.execute('DELETE FROM groupe_message_reactions WHERE message_id = ? AND user_id = ?', (mid, user_id))
+    if emoji and not (actuelle and actuelle['emoji'] == emoji):
+        conn.execute('INSERT INTO groupe_message_reactions (message_id, user_id, emoji) VALUES (?, ?, ?)', (mid, user_id, emoji))
+    conn.commit()
+    conn.close()
+    diffuser_message_groupe(id, user_id)
+    return jsonify(enrichir_messages_groupe([m], user_id)[0])
+
+@app.route('/api/groupes/<int:id>/messages/<int:mid>/vote', methods=['POST'])
+def api_vote_sondage_groupe(id, mid):
+    """{option_id} : voter (ou changer de vote) ; le meme choix une 2e fois retire le vote."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    m, erreur = message_de_groupe(id, mid, user_id)
+    if erreur:
+        return erreur
+    try:
+        option_id = int((request.get_json(silent=True) or {}).get('option_id'))
+    except (TypeError, ValueError):
+        return jsonify({'error': 'Choix invalide'}), 400
+    conn = get_db()
+    if not conn.execute('SELECT 1 FROM groupe_sondage_options WHERE id = ? AND message_id = ?', (option_id, mid)).fetchone():
+        conn.close()
+        return jsonify({'error': 'Choix invalide'}), 400
+    actuel = conn.execute('SELECT option_id FROM groupe_sondage_votes WHERE message_id = ? AND user_id = ?', (mid, user_id)).fetchone()
+    conn.execute('DELETE FROM groupe_sondage_votes WHERE message_id = ? AND user_id = ?', (mid, user_id))
+    if not (actuel and actuel['option_id'] == option_id):
+        conn.execute('INSERT INTO groupe_sondage_votes (message_id, user_id, option_id) VALUES (?, ?, ?)', (mid, user_id, option_id))
+    conn.commit()
+    conn.close()
+    diffuser_message_groupe(id, user_id)
+    return jsonify(enrichir_messages_groupe([m], user_id)[0])
+
+@app.route('/api/groupes/<int:id>/messages/<int:mid>', methods=['PUT'])
+def api_modifier_message_groupe(id, mid):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    m, erreur = message_de_groupe(id, mid, user_id)
+    if erreur:
+        return erreur
+    if m['user_id'] != user_id or not m['contenu']:
+        return jsonify({'error': 'Tu ne peux modifier que le texte de tes messages'}), 403
+    if str(m['date_envoi'] or '')[:19] < (datetime.now(timezone.utc) - DELAI_MODIFICATION).strftime('%Y-%m-%d %H:%M:%S'):
+        return jsonify({'error': 'Trop tard : un message ne peut etre modifie que pendant 15 minutes'}), 400
+    contenu = sanitize_text(str((request.get_json(silent=True) or {}).get('contenu') or ''), FIELD_MAXLEN['message'])
+    if not contenu.strip():
+        return jsonify({'error': 'Le message ne peut pas etre vide'}), 400
+    conn = get_db()
+    conn.execute('UPDATE groupe_messages SET contenu = ?, modifie = 1 WHERE id = ?', (contenu, mid))
+    conn.commit()
+    conn.close()
+    diffuser_message_groupe(id, user_id)
+    return jsonify({'id': mid, 'contenu': contenu, 'modifie': True})
 
 @app.route('/api/groupes/<int:id>/quitter', methods=['POST'])
 def api_quitter_groupe(id):

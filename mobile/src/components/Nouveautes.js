@@ -6,14 +6,13 @@ import { PrimaryButton } from './ui';
 import { radius, spacing, creerStyles } from '../theme';
 
 // Changer ID a chaque nouvelle serie de nouveautes a annoncer
-const ID = '2026-09-28';
+const ID = '2026-09-29';
 const CLE = 'linkci_nouveautes_vues';
 const LISTE = [
-  ['🎨', "Fond d'ecran", "Change le fond de tes discussions : couleur ou ta propre photo (menu ⋮ d'une discussion, ou Parametres)."],
-  ['🎤', 'Notes vocales', "Elles s'arretent a la fin, se lisent en x1,5 ou x2, et le micro devient bleu quand ta note a ete ecoutee."],
-  ['🟢', 'En ligne', "Vois si ton ami est en ligne ou quand il est venu pour la derniere fois. Modifie un message pendant 15 min."],
-  ['📌', 'Epingler', 'Appuie longuement sur une discussion pour la garder tout en haut (3 max).'],
-  ['🔖', 'Enregistrer et partager', 'Garde une publication pour plus tard, partage-la sur WhatsApp, et touche un #hashtag pour voir les posts du meme sujet.'],
+  ['👥', 'Groupes comme WhatsApp', 'Reagis, reponds en citant, modifie ou supprime pour tous, et cree des sondages 📊 dans tes groupes.'],
+  ['🟢', 'Statuts', 'Publie un statut texte sur fond colore, vois qui l\'a regarde, et reponds au statut d\'un ami en message prive.'],
+  ['📚', 'Documents de cours', 'Cherche un cours, un TD ou un ancien sujet par matiere ou filiere, et vote 👍 pour les plus utiles.'],
+  ['🎨', "Fond d'ecran", 'Change aussi le fond de tes groupes (icone palette en haut du groupe).'],
 ];
 
 export default function Nouveautes() {

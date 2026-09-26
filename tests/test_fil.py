@@ -44,7 +44,7 @@ def test_sondage(client):
 def test_stories_24h(client):
     tok, id_a = compte(client, 'story.a@test.ci')
     tok_b, _ = compte(client, 'story.b@test.ci')
-    assert client.post('/api/stories', json={'texte': 'sans photo'}, headers=entete(tok)).status_code == 400
+    assert client.post('/api/stories', json={'texte': ''}, headers=entete(tok)).status_code == 400  # ni photo ni texte
     sid = client.post('/api/stories', json={'image': PNG, 'texte': 'Soutenance ok'}, headers=entete(tok)).get_json()['id']
     groupes = client.get('/api/stories', headers=entete(tok_b)).get_json()
     assert any(g['user_id'] == id_a and g['stories'][0]['texte'] == 'Soutenance ok' for g in groupes)

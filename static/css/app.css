@@ -138,3 +138,6 @@ textarea.champ { resize: vertical; min-height: 70px; }
   background: var(--card-alt); color: var(--text); border-color: var(--border);
 }
 .centre .btn-primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+/* statut deja vu : anneau gris */
+.story .anneau.vu { border-color: var(--border); }

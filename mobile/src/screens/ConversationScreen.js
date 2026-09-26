@@ -265,6 +265,14 @@ export default function ConversationScreen({ route, navigation }) {
                   onLongPress={item.enAttente || item.supprime ? undefined : () => setActions(item)}
                   style={[styles.msg, recu ? styles.msgReceived : styles.msgSent, item.enAttente && { opacity: 0.6 }]}>
                   {item.transfere ? <Text style={[styles.transfere, !recu && styles.msgTimeSent]}>↪ Transfere</Text> : null}
+                  {item.story_apercu ? (
+                    <View style={[styles.citation, !recu && styles.citationEnvoyee]}>
+                      <Text style={[styles.citationNom, !recu && { color: colors.white }]}>
+                        🟢 {recu ? `A repondu a ton statut` : `Statut de ${conv.prenom}`}
+                      </Text>
+                      <Text style={[styles.citationTexte, !recu && styles.msgTimeSent]} numberOfLines={2}>{item.story_apercu}</Text>
+                    </View>
+                  ) : null}
                   {item.reponse ? (
                     <View style={[styles.citation, !recu && styles.citationEnvoyee]}>
                       <Text style={[styles.citationNom, !recu && { color: colors.white }]} numberOfLines={1}>{auteurCite(item.reponse)}</Text>

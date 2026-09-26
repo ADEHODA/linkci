@@ -223,7 +223,10 @@ export const supprimerCompte = (mot_de_passe) => request('/api/supprimer_compte'
 
 // Stories (24 h)
 export const getStories = () => request('/api/stories');
-export const creerStory = (image, texte) => request('/api/stories', { method: 'POST', body: JSON.stringify({ image, texte }) });
+export const creerStory = (image, texte, fond = '') =>
+  request('/api/stories', { method: 'POST', body: JSON.stringify({ ...(image ? { image } : {}), texte, fond }) });
+export const voirStory = (id) => request(`/api/stories/${id}/vue`, { method: 'POST' });
+export const getVuesStory = (id) => request(`/api/stories/${id}/vues`);
 export const supprimerStory = (id) => request(`/api/stories/${id}`, { method: 'DELETE' });
 
 // Adresse d'une image envoyee sur le serveur (ex. post.image)
@@ -268,10 +271,10 @@ export const getConversations = () => request('/api/conversations');
 
 export const getMessages = (avec) => request(`/api/messages?avec=${avec}`);
 
-export const sendMessage = (destinataire_id, contenu, image = null, reponse_a = null) =>
+export const sendMessage = (destinataire_id, contenu, image = null, reponse_a = null, story_id = null) =>
   request('/api/messages', {
     method: 'POST',
-    body: JSON.stringify({ destinataire_id, contenu, ...(image ? { image } : {}), ...(reponse_a ? { reponse_a } : {}) }),
+    body: JSON.stringify({ destinataire_id, contenu, ...(image ? { image } : {}), ...(reponse_a ? { reponse_a } : {}), ...(story_id ? { story_id } : {}) }),
   });
 // Reagir (le meme emoji une 2e fois retire la reaction), supprimer pour tous, transferer
 export const reagirMessage = (id, emoji) => request(`/api/messages/${id}/reaction`, { method: 'POST', body: JSON.stringify({ emoji }) });
@@ -326,27 +329,42 @@ export const rejoindreGroupe = (id) =>
   request(`/api/groupes/${id}/rejoindre`, { method: 'POST' });
 export const getGroupeMessages = (id) =>
   request(`/api/groupes/${id}/messages`);
-export const sendGroupeMessage = (id, contenu, image = null) =>
+// extra : { reponse_a, sondage: ['choix 1', 'choix 2'] }
+export const sendGroupeMessage = (id, contenu, image = null, extra = {}) =>
   request(`/api/groupes/${id}/messages`, {
     method: 'POST',
-    body: JSON.stringify(image ? { contenu, image } : { contenu }),
+    body: JSON.stringify({ contenu, ...(image ? { image } : {}), ...extra }),
   });
 export const getMembresGroupe = (id) => request(`/api/groupes/${id}/membres`);
 export const modifierGroupe = (id, nom, description) =>
   request(`/api/groupes/${id}`, { method: 'PUT', body: JSON.stringify({ nom, description }) });
 export const gererMembre = (id, uid, action) => request(`/api/groupes/${id}/membres/${uid}/${action}`, { method: 'POST' });
 export const supprimerMessageGroupe = (id, mid) => request(`/api/groupes/${id}/messages/${mid}`, { method: 'DELETE' });
+export const reagirMessageGroupe = (id, mid, emoji) =>
+  request(`/api/groupes/${id}/messages/${mid}/reaction`, { method: 'POST', body: JSON.stringify({ emoji }) });
+export const voterSondageGroupe = (id, mid, option_id) =>
+  request(`/api/groupes/${id}/messages/${mid}/vote`, { method: 'POST', body: JSON.stringify({ option_id }) });
+export const modifierMessageGroupe = (id, mid, contenu) =>
+  request(`/api/groupes/${id}/messages/${mid}`, { method: 'PUT', body: JSON.stringify({ contenu }) });
 export const quitterGroupe = (id) =>
   request(`/api/groupes/${id}/quitter`, { method: 'POST' });
 
 // Documents
-export const getDocuments = () => request('/api/documents');
+export const getDocuments = (filtres = {}) => {
+  const q = Object.entries(filtres).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+  return request(`/api/documents${q ? `?${q}` : ''}`);
+};
+export const getFiltresDocuments = () => request('/api/documents/filtres');
+export const voterDocument = (id) => request(`/api/documents/${id}/vote`, { method: 'POST' });
 // Partage d'un document : fichier = { uri, name, mimeType } (expo-document-picker)
-export async function uploadDocument({ titre, matiere, description, fichier }) {
+export async function uploadDocument({ titre, matiere, description, fichier, universite, filiere, type_doc }) {
   const form = new FormData();
   form.append('titre', titre);
   form.append('matiere', matiere || '');
   form.append('description', description || '');
+  form.append('universite', universite || '');
+  form.append('filiere', filiere || '');
+  form.append('type_doc', type_doc || 'cours');
   form.append('fichier', { uri: fichier.uri, name: fichier.name, type: fichier.mimeType || 'application/octet-stream' });
   let res;
   try {

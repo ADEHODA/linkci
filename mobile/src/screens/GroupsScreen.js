@@ -12,6 +12,11 @@ import { choisirPhoto } from '../photos';
 import { radius, spacing, creerStyles, useTheme } from '../theme';
 import { heure } from '../utils';
 import { useEvenement } from '../realtime';
+import { Fond, ChoixFondEcran, useFondEcran } from '../components/FondEcran';
+
+const EMOJIS = ['❤️', '😂', '😮', '😢', '🙏', '👍'];
+const extraitMsg = (m) => (m.supprime ? 'Message supprime' : m.contenu || (m.audio || m.audioLocal ? 'Note vocale' : m.image || m.imageLocale ? 'Photo' : ''));
+const ageMs = (m) => Date.now() - new Date(`${String(m.date_envoi).slice(0, 19).replace(' ', 'T')}Z`).getTime();
 
 export default function GroupsScreen({ navigation, route }) {
   const styles = useStyles();
@@ -151,6 +156,12 @@ function GroupChat({ groupe: groupeInitial, moi, onBack, onVoirProfil }) {
   const [text, setText] = useState('');
   const [enregistre, setEnregistre] = useState(false);
   const [gestion, setGestion] = useState(false);
+  const [reponse, setReponse] = useState(null);
+  const [actions, setActions] = useState(null);
+  const [edition, setEdition] = useState(null);
+  const [sondage, setSondage] = useState(false);
+  const [choixFond, setChoixFond] = useState(false);
+  const { fond } = useFondEcran(`g${groupe.id}`);
 
   const chargerInfos = () => api.getMembresGroupe(groupe.id).then((r) => { setInfos(r); if (r.groupe) setGroupe((g) => ({ ...g, ...r.groupe })); }).catch(() => {});
   useEffect(() => { chargerInfos(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -180,16 +191,47 @@ function GroupChat({ groupe: groupeInitial, moi, onBack, onVoirProfil }) {
     }
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     const contenu = text.trim();
     if (!contenu) return;
     setText('');
-    envoyer(() => api.sendGroupeMessage(groupe.id, contenu), { contenu }, contenu);
+    if (edition) {
+      const m = edition;
+      setEdition(null);
+      setData((liste) => liste.map((x) => (x.id === m.id ? { ...x, contenu, modifie: true } : x)));
+      try { await api.modifierMessageGroupe(groupe.id, m.id, contenu); } catch (e) { Alert.alert('Message non modifie', e.message); reload(); }
+      return;
+    }
+    const cite = reponse;
+    setReponse(null);
+    envoyer(() => api.sendGroupeMessage(groupe.id, contenu, null, cite ? { reponse_a: cite.id } : {}),
+      { contenu, reponse: cite ? { prenom: cite.prenom, extrait: extraitMsg(cite) } : null }, contenu);
   };
   const envoyerPhoto = async () => {
     let photo;
     try { photo = await choisirPhoto('galerie'); } catch (e) { return; }
-    if (photo) envoyer(() => api.sendGroupeMessage(groupe.id, '', photo.base64), { imageLocale: photo.uri });
+    const cite = reponse;
+    setReponse(null);
+    if (photo) envoyer(() => api.sendGroupeMessage(groupe.id, '', photo.base64, cite ? { reponse_a: cite.id } : {}), { imageLocale: photo.uri });
+  };
+  const envoyerSondage = (question, choix) => {
+    setSondage(false);
+    envoyer(() => api.sendGroupeMessage(groupe.id, question, null, { sondage: choix }),
+      { contenu: question, sondage: choix.map((t, k) => ({ id: `o${k}`, texte: t, votes: 0 })) });
+  };
+  const reagir = async (m, emoji) => {
+    setActions(null);
+    try {
+      const maj = await api.reagirMessageGroupe(groupe.id, m.id, emoji);
+      setData((liste) => liste.map((x) => (x.id === m.id ? { ...x, reactions: maj.reactions } : x)));
+    } catch (e) { Alert.alert('Erreur', e.message); }
+  };
+  const voter = async (m, optionId) => {
+    if (m.enAttente) return;
+    try {
+      const maj = await api.voterSondageGroupe(groupe.id, m.id, optionId);
+      setData((liste) => liste.map((x) => (x.id === m.id ? { ...x, sondage: maj.sondage, mon_vote: maj.mon_vote } : x)));
+    } catch (e) { Alert.alert('Erreur', e.message); }
   };
   const envoyerVocal = (uri, duree) => {
     setEnregistre(false);
@@ -197,10 +239,14 @@ function GroupChat({ groupe: groupeInitial, moi, onBack, onVoirProfil }) {
   };
 
   const actionsMessage = (item) => {
-    if (item.enAttente || !(item.user_id === moi?.id || infos.je_suis_admin)) return;
-    Alert.alert('Message', undefined, [
-      { text: 'Supprimer', style: 'destructive', onPress: () => api.supprimerMessageGroupe(groupe.id, item.id).then(reload).catch((e) => Alert.alert('Erreur', e.message)) },
+    if (item.enAttente || item.supprime) return;
+    setActions(item);
+  };
+  const supprimerPourTous = (item) => {
+    setActions(null);
+    Alert.alert('Supprimer pour tout le monde ?', 'Le message disparaitra pour tous les membres du groupe.', [
       { text: 'Annuler', style: 'cancel' },
+      { text: 'Supprimer', style: 'destructive', onPress: () => api.supprimerMessageGroupe(groupe.id, item.id).then(reload).catch((e) => Alert.alert('Erreur', e.message)) },
     ]);
   };
 
@@ -224,8 +270,12 @@ function GroupChat({ groupe: groupeInitial, moi, onBack, onVoirProfil }) {
             <Text style={styles.chatDesc} numberOfLines={1}>{infos.membres.length ? `${infos.membres.length} membres · toucher pour les infos` : groupe.description}</Text>
           </View>
         </TouchableOpacity>
+        <TouchableOpacity onPress={() => setChoixFond(true)} hitSlop={10} accessibilityLabel="Fond d'ecran">
+          <Ionicons name="color-palette-outline" size={22} color={colors.textMuted} />
+        </TouchableOpacity>
         <TouchableOpacity onPress={handleLeave} hitSlop={10}><Ionicons name="exit-outline" size={22} color={colors.danger} /></TouchableOpacity>
       </View>
+      <Fond fond={fond} style={{ flex: 1 }}>
       {loading ? <Loading /> : (
         <FlatList
           ref={listRef}
@@ -243,20 +293,56 @@ function GroupChat({ groupe: groupeInitial, moi, onBack, onVoirProfil }) {
                     <Avatar name={`${item.prenom} ${item.nom}`} size={30} index={item.user_id} avatar={item.avatar} />
                   </TouchableOpacity>
                 ) : null}
-                <TouchableOpacity activeOpacity={0.9} onLongPress={() => actionsMessage(item)}
-                  style={[styles.msgBubble, moiAuteur && styles.msgMoi, item.enAttente && { opacity: 0.6 }]}>
+                <View style={{ maxWidth: '82%', alignItems: moiAuteur ? 'flex-end' : 'flex-start' }}>
+                <TouchableOpacity activeOpacity={0.9} onLongPress={() => actionsMessage(item)} delayLongPress={300}
+                  style={[styles.msgBubble, { maxWidth: '100%' }, moiAuteur && styles.msgMoi, item.enAttente && { opacity: 0.6 }]}>
                   {!moiAuteur ? <Text style={styles.msgUser}>{item.prenom} {item.nom}</Text> : null}
+                  {item.reponse ? (
+                    <View style={[styles.citation, moiAuteur && styles.citationMoi]}>
+                      <Text style={[styles.citationNom, moiAuteur && { color: colors.white }]} numberOfLines={1}>
+                        {item.reponse.user_id === moi?.id ? 'Toi' : item.reponse.prenom}
+                      </Text>
+                      <Text style={[styles.citationTexte, moiAuteur && { color: 'rgba(255,255,255,0.85)' }]} numberOfLines={2}>{item.reponse.extrait}</Text>
+                    </View>
+                  ) : null}
+                  {item.supprime ? <Text style={[styles.supprime, moiAuteur && { color: 'rgba(255,255,255,0.85)' }]}>🚫 Message supprime</Text> : null}
                   {item.image || item.imageLocale ? <PostImage uri={item.imageLocale || api.imageUrl(item.image)} style={{ width: 210, marginBottom: 4 }} /> : null}
                   {item.audio || item.audioLocal ? <BulleVocale uri={item.audioLocal || api.imageUrl(item.audio)} duree={item.duree} clair={moiAuteur} /> : null}
-                  {item.contenu ? <TexteMentions texte={item.contenu} clair={moiAuteur} /> : null}
-                  <Text style={[styles.msgTime, moiAuteur && { color: 'rgba(255,255,255,0.8)' }]}>{heure(item.date_envoi)}</Text>
+                  {item.contenu ? <TexteMentions texte={item.sondage?.length ? `📊 ${item.contenu}` : item.contenu} clair={moiAuteur} /> : null}
+                  {item.sondage?.length ? (
+                    <SondageGroupe message={item} clair={moiAuteur} onVoter={(o) => voter(item, o)} />
+                  ) : null}
+                  <Text style={[styles.msgTime, moiAuteur && { color: 'rgba(255,255,255,0.8)' }]}>{item.modifie ? 'modifie · ' : ''}{heure(item.date_envoi)}</Text>
                 </TouchableOpacity>
+                {item.reactions?.length ? (
+                  <View style={styles.reactions}>
+                    {item.reactions.map((x) => (
+                      <TouchableOpacity key={x.emoji} style={[styles.reaction, x.moi && styles.reactionMoi]} onPress={() => reagir(item, x.emoji)}>
+                        <Text style={styles.reactionTexte}>{x.emoji}{x.nb > 1 ? ` ${x.nb}` : ''}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                ) : null}
+                </View>
               </View>
             );
           }}
           ListEmptyComponent={<EmptyState icon="chatbubbles-outline" title="Aucun message" hint="Lance la discussion ! Utilise @prenom pour mentionner quelqu'un." />}
         />
       )}
+      </Fond>
+      {edition || reponse ? (
+        <View style={styles.barreReponse}>
+          <View style={styles.barreTrait} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.citationNom}>{edition ? 'Modifier le message' : `Reponse a ${reponse.user_id === moi?.id ? 'toi-meme' : reponse.prenom}`}</Text>
+            <Text style={styles.citationTexte} numberOfLines={1}>{extraitMsg(edition || reponse)}</Text>
+          </View>
+          <TouchableOpacity onPress={() => { if (edition) setText(''); setEdition(null); setReponse(null); }} hitSlop={10}>
+            <Ionicons name="close" size={20} color={colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+      ) : null}
       {suggestions.length ? (
         <ScrollView horizontal keyboardShouldPersistTaps="always" contentContainerStyle={styles.suggestions}>
           {suggestions.map((m) => (
@@ -275,16 +361,124 @@ function GroupChat({ groupe: groupeInitial, moi, onBack, onVoirProfil }) {
             <TouchableOpacity style={styles.attache} onPress={envoyerPhoto} hitSlop={6}>
               <Ionicons name="image-outline" size={24} color={colors.primary} />
             </TouchableOpacity>
+            {!edition ? (
+              <TouchableOpacity style={styles.attache} onPress={() => setSondage(true)} hitSlop={6} accessibilityLabel="Creer un sondage">
+                <Ionicons name="stats-chart-outline" size={22} color={colors.primary} />
+              </TouchableOpacity>
+            ) : null}
             <TextInput style={styles.input} value={text} onChangeText={setText} placeholder="Ecris au groupe... (@ pour mentionner)" placeholderTextColor={colors.textFaint} multiline />
             <TouchableOpacity style={styles.sendBtn} onPress={text.trim() ? handleSend : () => setEnregistre(true)}>
-              <Ionicons name={text.trim() ? 'send' : 'mic'} size={text.trim() ? 18 : 20} color={colors.white} />
+              <Ionicons name={text.trim() ? (edition ? 'checkmark' : 'send') : 'mic'} size={text.trim() ? (edition ? 22 : 18) : 20} color={colors.white} />
             </TouchableOpacity>
           </>
         )}
       </View>
+      <Modal visible={!!actions} transparent animationType="fade" onRequestClose={() => setActions(null)}>
+        <TouchableOpacity style={styles.fondCentre} activeOpacity={1} onPress={() => setActions(null)}>
+          {actions ? (
+            <View style={styles.feuilleActions}>
+              <View style={styles.emojis}>
+                {EMOJIS.map((e) => (
+                  <TouchableOpacity key={e} style={[styles.emojiBtn, actions.reactions?.some((x) => x.moi && x.emoji === e) && styles.reactionMoi]}
+                    onPress={() => reagir(actions, e)}>
+                    <Text style={{ fontSize: 28 }}>{e}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.apercu} numberOfLines={2}>{extraitMsg(actions)}</Text>
+              <LigneAction icone="arrow-undo-outline" texte="Repondre" onPress={() => { setReponse(actions); setEdition(null); setActions(null); }} />
+              {actions.user_id === moi?.id && actions.contenu && !actions.sondage?.length && ageMs(actions) < 15 * 60 * 1000 ? (
+                <LigneAction icone="create-outline" texte="Modifier" onPress={() => { setEdition(actions); setReponse(null); setText(actions.contenu); setActions(null); }} />
+              ) : null}
+              {actions.user_id === moi?.id || infos.je_suis_admin ? (
+                <LigneAction icone="trash-outline" texte="Supprimer pour tout le monde" danger onPress={() => supprimerPourTous(actions)} />
+              ) : null}
+            </View>
+          ) : null}
+        </TouchableOpacity>
+      </Modal>
+      <CreerSondage visible={sondage} onFermer={() => setSondage(false)} onCreer={envoyerSondage} />
+      <ChoixFondEcran visible={choixFond} onFermer={() => setChoixFond(false)} autreId={`g${groupe.id}`} nom={groupe.nom} />
       <GestionGroupe visible={gestion} groupe={groupe} infos={infos} moi={moi} onFermer={() => setGestion(false)}
         onChange={chargerInfos} onVoirProfil={(id) => { setGestion(false); onVoirProfil(id); }} />
     </KeyboardAvoidingView>
+  );
+}
+
+function LigneAction({ icone, texte, onPress, danger }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  return (
+    <TouchableOpacity style={styles.ligneAction} onPress={onPress}>
+      <Ionicons name={icone} size={21} color={danger ? colors.danger : colors.text} />
+      <Text style={[styles.ligneActionTexte, danger && { color: colors.danger }]}>{texte}</Text>
+    </TouchableOpacity>
+  );
+}
+
+// Sondage dans un message de groupe : toucher un choix pour voter (le meme une 2e fois retire le vote)
+function SondageGroupe({ message, clair, onVoter }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const total = message.sondage.reduce((n, o) => n + o.votes, 0);
+  return (
+    <View style={{ gap: 6, marginTop: 6, minWidth: 220 }}>
+      {message.sondage.map((o) => {
+        const pct = total ? Math.round((o.votes * 100) / total) : 0;
+        const mien = message.mon_vote === o.id;
+        return (
+          <TouchableOpacity key={o.id} style={[styles.option, clair && styles.optionClair, mien && styles.optionMienne]} onPress={() => onVoter(o.id)} activeOpacity={0.8}>
+            {message.mon_vote ? <View style={[styles.optionBarre, { width: `${pct}%` }, clair && { backgroundColor: 'rgba(255,255,255,0.25)' }]} /> : null}
+            <Text style={[styles.optionTexte, clair && { color: colors.white }, mien && { fontWeight: '800' }]} numberOfLines={2}>{mien ? '✓ ' : ''}{o.texte}</Text>
+            {message.mon_vote ? <Text style={[styles.optionPct, clair && { color: colors.white }]}>{pct} %</Text> : null}
+          </TouchableOpacity>
+        );
+      })}
+      <Text style={[styles.msgTime, { alignSelf: 'flex-start' }, clair && { color: 'rgba(255,255,255,0.8)' }]}>
+        {total} vote{total > 1 ? 's' : ''}{message.mon_vote ? '' : ' · touche un choix pour voter'}
+      </Text>
+    </View>
+  );
+}
+
+function CreerSondage({ visible, onFermer, onCreer }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const [question, setQuestion] = useState('');
+  const [choix, setChoix] = useState(['', '']);
+  const fermer = () => { setQuestion(''); setChoix(['', '']); onFermer(); };
+  const creer = () => {
+    const options = choix.map((c) => c.trim()).filter(Boolean);
+    if (!question.trim() || options.length < 2) {
+      Alert.alert('Sondage', 'Ecris une question et au moins 2 choix.');
+      return;
+    }
+    onCreer(question.trim(), options);
+    setQuestion(''); setChoix(['', '']);
+  };
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={fermer}>
+      <View style={styles.modalOverlay}>
+        <View style={styles.sheet}>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <Text style={styles.sheetTitle}>📊 Nouveau sondage</Text>
+            <TextInput style={styles.field} placeholder="Question (ex. On revise quel jour ?)" placeholderTextColor={colors.textFaint}
+              value={question} onChangeText={setQuestion} maxLength={200} />
+            {choix.map((c, k) => (
+              <TextInput key={k} style={styles.field} placeholder={`Choix ${k + 1}`} placeholderTextColor={colors.textFaint} maxLength={80}
+                value={c} onChangeText={(t) => setChoix((l) => l.map((x, j) => (j === k ? t : x)))} />
+            ))}
+            {choix.length < 6 ? (
+              <TouchableOpacity onPress={() => setChoix((l) => [...l, ''])} style={{ paddingVertical: spacing.sm }}>
+                <Text style={{ color: colors.primary, fontWeight: '700' }}>+ Ajouter un choix</Text>
+              </TouchableOpacity>
+            ) : null}
+          </ScrollView>
+          <PrimaryButton title="Envoyer le sondage" onPress={creer} />
+          <TouchableOpacity style={styles.cancel} onPress={fermer}><Text style={styles.cancelText}>Annuler</Text></TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -394,5 +588,29 @@ const useStyles = creerStyles(({ colors, font }) => ({
   membresTitre: { fontSize: 13, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase', marginBottom: spacing.sm },
   membre: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 8 },
   membreNom: { flex: 1, fontSize: 15, fontWeight: '600', color: colors.text },
+  citation: { borderLeftWidth: 3, borderLeftColor: colors.primary, backgroundColor: colors.cardAlt, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, marginBottom: 5 },
+  citationMoi: { borderLeftColor: colors.white, backgroundColor: 'rgba(255,255,255,0.18)' },
+  citationNom: { fontSize: 12, fontWeight: '800', color: colors.primary },
+  citationTexte: { fontSize: 13, color: colors.textMuted },
+  supprime: { fontSize: 14, fontStyle: 'italic', color: colors.textMuted },
+  reactions: { flexDirection: 'row', gap: 4, marginTop: -4, marginHorizontal: 6 },
+  reaction: { backgroundColor: colors.card, borderRadius: radius.pill, paddingHorizontal: 7, paddingVertical: 2, borderWidth: 1, borderColor: colors.border },
+  reactionMoi: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  reactionTexte: { fontSize: 13, color: colors.text },
+  barreReponse: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, backgroundColor: colors.card, paddingHorizontal: spacing.md, paddingTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border },
+  barreTrait: { width: 3, alignSelf: 'stretch', backgroundColor: colors.primary, borderRadius: 2 },
+  fondCentre: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'center', padding: spacing.xl },
+  feuilleActions: { backgroundColor: colors.card, borderRadius: radius.xl, padding: spacing.lg },
+  emojis: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.sm },
+  emojiBtn: { borderRadius: radius.pill, padding: 4, borderWidth: 1, borderColor: 'transparent' },
+  apercu: { fontSize: 13, color: colors.textMuted, marginVertical: spacing.sm },
+  ligneAction: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingVertical: 13, borderTopWidth: 1, borderTopColor: colors.border },
+  ligneActionTexte: { fontSize: 16, fontWeight: '600', color: colors.text },
+  option: { borderRadius: 10, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 10, paddingVertical: 8, flexDirection: 'row', alignItems: 'center', overflow: 'hidden' },
+  optionClair: { borderColor: 'rgba(255,255,255,0.5)' },
+  optionMienne: { borderWidth: 2 },
+  optionBarre: { position: 'absolute', left: 0, top: 0, bottom: 0, backgroundColor: colors.primarySoft },
+  optionTexte: { flex: 1, fontSize: 14, color: colors.text },
+  optionPct: { fontSize: 12, fontWeight: '800', color: colors.textMuted, marginLeft: 6 },
   badgeAdmin: { fontSize: 11, fontWeight: '800', color: colors.accent, backgroundColor: colors.accentSoft, paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.pill, overflow: 'hidden' },
 }));
