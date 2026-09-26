@@ -2,12 +2,16 @@ import React, { useCallback, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { ouvrirMessages } from '../verrou';
-import { View, Text, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as api from '../api';
 import Avatar from '../components/Avatar';
 import useApiList from '../hooks/useApiList';
 import { Loading, EmptyState, PrimaryButton, SkeletonList, pullToRefresh } from '../components/ui';
-import { radius, spacing, creerStyles } from '../theme';
+import { radius, spacing, creerStyles, useTheme } from '../theme';
+
+const CLE_EPINGLES = 'linkci_discussions_epinglees';
+const MAX_EPINGLES = 3;
 import { dateRelative } from '../utils';
 import { useEvenement } from '../realtime';
 
@@ -32,7 +36,36 @@ export default function MessagingScreen(props) {
 
 function ListeConversations({ navigation }) {
   const styles = useStyles();
+  const { colors } = useTheme();
   const { data: conversations, loading, refreshing, refresh, reload } = useApiList(api.getConversations, [], { cache: '/api/conversations' });
+  const [epingles, setEpingles] = useState([]);
+  React.useEffect(() => {
+    AsyncStorage.getItem(CLE_EPINGLES).then((v) => setEpingles(JSON.parse(v || '[]'))).catch(() => {});
+  }, []);
+  const changerEpingles = (liste) => {
+    setEpingles(liste);
+    AsyncStorage.setItem(CLE_EPINGLES, JSON.stringify(liste)).catch(() => {});
+  };
+  const menu = (c) => {
+    const epingle = epingles.includes(c.autre_id);
+    Alert.alert(`${c.prenom} ${c.nom}`, undefined, [
+      { text: epingle ? 'Desepingler' : 'Epingler en haut', onPress: () => {
+        if (epingle) changerEpingles(epingles.filter((x) => x !== c.autre_id));
+        else if (epingles.length >= MAX_EPINGLES) Alert.alert('Epingler', `Tu peux epingler ${MAX_EPINGLES} discussions au maximum.`);
+        else changerEpingles([c.autre_id, ...epingles]);
+      } },
+      { text: 'Voir le profil', onPress: () => navigation.navigate('ProfilEtudiant', { id: c.autre_id }) },
+      { text: 'Fermer', style: 'cancel' },
+    ]);
+  };
+  // discussions epinglees d'abord (dans l'ordre d'epinglage), puis les autres par date
+  const triees = [...conversations].sort((a, b) => {
+    const ia = epingles.indexOf(a.autre_id), ib = epingles.indexOf(b.autre_id);
+    if (ia === -1 && ib === -1) return 0;
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
 
   // un nouveau message met a jour la liste des conversations
   useEvenement('message_recu', () => reload());
@@ -45,15 +78,16 @@ function ListeConversations({ navigation }) {
     <FlatList
       style={styles.container}
       contentContainerStyle={styles.listContent}
-      data={conversations}
+      data={triees}
       keyExtractor={(item) => String(item.autre_id)}
       refreshControl={pullToRefresh(refreshing, refresh)}
       renderItem={({ item }) => (
-        <TouchableOpacity style={styles.convItem} onPress={() => ouvrir(item)} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.convItem} onPress={() => ouvrir(item)} onLongPress={() => menu(item)} delayLongPress={350} activeOpacity={0.7}>
           <Avatar name={`${item.prenom} ${item.nom}`} size={52} index={item.autre_id} avatar={item.avatar} />
           <View style={styles.convInfo}>
             <View style={styles.convTop}>
               <Text style={[styles.convName, item.non_lu > 0 && styles.bold]} numberOfLines={1}>{item.prenom} {item.nom}</Text>
+              {epingles.includes(item.autre_id) ? <Ionicons name="pin" size={14} color={colors.textFaint} /> : null}
               {item.date_dernier ? <Text style={[styles.convDate, item.non_lu > 0 && styles.dateUnread]}>{dateRelative(item.date_dernier)}</Text> : null}
             </View>
             <View style={styles.convTop}>

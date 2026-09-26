@@ -276,6 +276,13 @@ export const sendMessage = (destinataire_id, contenu, image = null, reponse_a = 
 // Reagir (le meme emoji une 2e fois retire la reaction), supprimer pour tous, transferer
 export const reagirMessage = (id, emoji) => request(`/api/messages/${id}/reaction`, { method: 'POST', body: JSON.stringify({ emoji }) });
 export const supprimerMessage = (id) => request(`/api/messages/${id}`, { method: 'DELETE' });
+export const modifierMessage = (id, contenu) => request(`/api/messages/${id}`, { method: 'PUT', body: JSON.stringify({ contenu }) });
+export const vocalEcoute = (id) => request(`/api/messages/${id}/ecoute`, { method: 'POST' });
+export const getPresence = (id) => request(`/api/presence/${id}`);
+// Fil : publications enregistrees et hashtags
+export const enregistrerPost = (id, oui = true) => request(`/api/posts/${id}/enregistrer`, { method: oui ? 'POST' : 'DELETE' });
+export const getPostsEnregistres = () => request('/api/posts/enregistres');
+export const getPostsHashtag = (tag) => request(`/api/posts?tag=${encodeURIComponent(tag)}`);
 export const transfererMessage = (id, destinataires) =>
   request(`/api/messages/${id}/transferer`, { method: 'POST', body: JSON.stringify({ destinataires }) });
 

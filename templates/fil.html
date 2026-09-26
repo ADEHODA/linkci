@@ -2,6 +2,7 @@
 {% block titre %}Fil d'actualite{% endblock %}
 {% block largeur %}large{% endblock %}
 {% block contenu %}
+<div id="filtre-actif"></div>
 <div class="stories" id="stories"></div>
 
 <div class="carte">
@@ -20,6 +21,7 @@
 <div class="puces">
   <button class="puce active" data-fac="0">Pour toi</button>
   <button class="puce" data-fac="1">Ma fac</button>
+  <a class="puce" href="/fil?enregistres=1">🔖 Enregistres</a>
 </div>
 <div id="posts"></div>
 <div id="suite" class="chargement">Chargement...</div>
@@ -43,6 +45,13 @@
   const zonePosts = document.getElementById('posts');
   const suite = document.getElementById('suite');
   let page = 1, fin = false, charge = false, fac = false, photo = null, choix = null;
+  const params = new URLSearchParams(location.search);
+  const tag = (params.get('tag') || '').replace(/^#/, '');
+  const enregistres = params.get('enregistres') === '1';
+  if (tag || enregistres) {
+    document.getElementById('filtre-actif').innerHTML = `<div class="carte ligne" style="justify-content:space-between">
+      <strong>${enregistres ? '🔖 Mes publications enregistrees' : '#' + L.esc(tag)}</strong><a class="btn gris petit" href="/fil">Tout le fil</a></div>`;
+  }
 
   L.brancherPosts(zonePosts);
   L.stories(document.getElementById('stories')).catch(() => {});
@@ -52,7 +61,8 @@
     charge = true;
     if (reset) { page = 1; fin = false; zonePosts.innerHTML = ''; }
     try {
-      const liste = await L.api(`/api/posts?page=${page}${fac ? '&fac=1' : ''}`);
+      const liste = enregistres ? (page === 1 ? await L.api('/api/posts/enregistres') : [])
+        : await L.api(`/api/posts?page=${page}${fac ? '&fac=1' : ''}${tag ? '&tag=' + encodeURIComponent(tag) : ''}`);
       L.enregistrerPosts(liste);
       zonePosts.insertAdjacentHTML('beforeend', liste.map(L.htmlPost).join(''));
       fin = liste.length < 20;

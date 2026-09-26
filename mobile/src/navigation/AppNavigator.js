@@ -30,6 +30,7 @@ import ScannerScreen from '../screens/ScannerScreen';
 import EmploiDuTempsScreen from '../screens/EmploiDuTempsScreen';
 import MonActiviteScreen from '../screens/MonActiviteScreen';
 import ClassementScreen from '../screens/ClassementScreen';
+import { HashtagScreen, EnregistresScreen } from '../screens/PostsListeScreen';
 import SettingsScreen from '../screens/SettingsScreen';
 import VerifyEmailScreen from '../screens/VerifyEmailScreen';
 import OnboardingScreen from '../screens/OnboardingScreen';
@@ -131,6 +132,8 @@ export default function AppNavigator({ token, onLogin, onLogout, accueilVu }) {
             <Stack.Screen name="EmploiDuTemps" component={EmploiDuTempsScreen} options={{ title: 'Emploi du temps' }} />
             <Stack.Screen name="MonActivite" component={MonActiviteScreen} options={{ title: 'Mon activite' }} />
             <Stack.Screen name="Classement" component={ClassementScreen} options={{ title: 'Classement et defis' }} />
+            <Stack.Screen name="Hashtag" component={HashtagScreen} options={({ route }) => ({ title: `#${route.params?.tag || ''}` })} />
+            <Stack.Screen name="Enregistres" component={EnregistresScreen} options={{ title: 'Publications enregistrees' }} />
             <Stack.Screen name="Parametres" options={{ title: 'Parametres' }}>
               {(props) => <SettingsScreen {...props} onLogin={onLogin} onLogout={onLogout} />}
             </Stack.Screen>

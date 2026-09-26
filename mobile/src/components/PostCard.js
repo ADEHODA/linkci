@@ -8,6 +8,19 @@ import { Card } from './ui';
 import * as api from '../api';
 import { colors, radius, spacing, font, creerStyles, useTheme } from '../theme';
 import { dateRelative } from '../utils';
+import { partager } from '../partage';
+
+// Texte d'une publication : les #hashtags deviennent touchables
+function TexteAvecHashtags({ texte, style, styleTag, onTag }) {
+  const morceaux = texte.split(/(#[A-Za-z0-9_À-ÖØ-öø-ÿ]{2,40})/);
+  return (
+    <Text style={style}>
+      {morceaux.map((m, k) => (m.startsWith('#') && k % 2 === 1
+        ? <Text key={k} style={styleTag} onPress={() => onTag(m.slice(1))}>{m}</Text>
+        : m))}
+    </Text>
+  );
+}
 
 export default function PostCard({ post, onRefresh }) {
   const styles = useStyles();
@@ -20,6 +33,18 @@ export default function PostCard({ post, onRefresh }) {
   const [nbComments, setNbComments] = React.useState(post.nb_commentaires);
   const [extra, setExtra] = React.useState({ reactions: post.reactions || {}, ma_reaction: post.ma_reaction, sondage: post.sondage || [], mon_vote: post.mon_vote });
   const [choixReaction, setChoixReaction] = React.useState(false);
+  const [enregistre, setEnregistre] = React.useState(!!post.enregistre);
+
+  const basculerEnregistre = async () => {
+    const oui = !enregistre;
+    setEnregistre(oui);
+    try { await api.enregistrerPost(post.id, oui); }
+    catch (e) { setEnregistre(!oui); Alert.alert('Erreur', e.message); }
+  };
+  const partagerPost = () => {
+    const extrait = (post.contenu || 'Une photo').slice(0, 200);
+    partager(`${post.prenom} ${post.nom} sur LinkCI :\n\n${extrait}`, `/fil#post-${post.id}`);
+  };
   const navigation = useNavigation();
   const echelleCoeur = React.useRef(new Animated.Value(1)).current;
   const voirProfil = (id) => navigation.navigate('ProfilEtudiant', { id });
@@ -152,7 +177,10 @@ export default function PostCard({ post, onRefresh }) {
         </TouchableOpacity>
       </View>
 
-      {post.contenu ? <Text style={styles.content}>{post.contenu}</Text> : null}
+      {post.contenu ? (
+        <TexteAvecHashtags texte={post.contenu} style={styles.content} styleTag={styles.hashtag}
+          onTag={(tag) => navigation.push('Hashtag', { tag })} />
+      ) : null}
       {post.image ? <PostImage uri={api.imageUrl(post.image)} style={styles.image} /> : null}
 
       {extra.sondage.length ? (() => {
@@ -210,6 +238,15 @@ export default function PostCard({ post, onRefresh }) {
           <Ionicons name={showComments ? 'chatbubble' : 'chatbubble-outline'} size={18} color={showComments ? colors.primary : colors.textMuted} />
           <Text style={[styles.actionText, showComments && { color: colors.primary }]}>{nbComments}</Text>
         </TouchableOpacity>
+
+        <View style={{ flex: 1 }} />
+        <TouchableOpacity onPress={partagerPost} style={styles.actionBtn} accessibilityLabel="Partager">
+          <Ionicons name="share-social-outline" size={18} color={colors.textMuted} />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={basculerEnregistre} style={[styles.actionBtn, enregistre && { backgroundColor: colors.primarySoft }]}
+          accessibilityLabel={enregistre ? 'Retirer des enregistrements' : 'Enregistrer'}>
+          <Ionicons name={enregistre ? 'bookmark' : 'bookmark-outline'} size={18} color={enregistre ? colors.primary : colors.textMuted} />
+        </TouchableOpacity>
       </View>
 
       {showComments && (
@@ -264,6 +301,7 @@ const useStyles = creerStyles(({ colors, font, shadow }) => ({
   name: { fontWeight: '700', fontSize: 15, color: colors.text },
   date: { ...font.tiny, marginTop: 1 },
   content: { ...font.body, marginBottom: spacing.md },
+  hashtag: { color: colors.primary, fontWeight: '700' },
   image: { marginBottom: spacing.md },
   actions: { flexDirection: 'row', gap: spacing.sm },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12, borderRadius: radius.pill, backgroundColor: colors.bg },

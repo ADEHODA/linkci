@@ -560,7 +560,7 @@ def init_db():
 
     # Version de l'app utilisee (envoyee par l'app depuis 1.2.0) ; sans_version_depuis : premiere
     # requete sans version (ancienne app), averti_version : dernier avertissement envoye
-    for colonne in ('version_app TEXT', 'sans_version_depuis TEXT', 'averti_version TEXT'):
+    for colonne in ('version_app TEXT', 'sans_version_depuis TEXT', 'averti_version TEXT', 'vu_a TEXT'):
         try:
             conn.execute('ALTER TABLE users ADD COLUMN ' + colonne)
             conn.commit()
@@ -589,7 +589,7 @@ def init_db():
 
     # Photos et notes vocales dans les messages prives
     for colonne in ('image TEXT', 'audio TEXT', 'duree INTEGER', 'reponse_a INTEGER', 'supprime INTEGER DEFAULT 0',
-                    'transfere INTEGER DEFAULT 0'):
+                    'transfere INTEGER DEFAULT 0', 'ecoute INTEGER DEFAULT 0', 'modifie INTEGER DEFAULT 0'):
         try:
             conn.execute('ALTER TABLE messages ADD COLUMN ' + colonne)
             conn.commit()
@@ -760,6 +760,12 @@ def init_db():
             heure TEXT DEFAULT '',
             salle TEXT DEFAULT '',
             note TEXT DEFAULT '')''',
+        # Publications enregistrees pour plus tard
+        '''CREATE TABLE IF NOT EXISTS posts_enregistres (
+            user_id INTEGER NOT NULL,
+            post_id INTEGER NOT NULL,
+            date_ajout TEXT NOT NULL,
+            PRIMARY KEY (user_id, post_id))''',
         # Reactions (un emoji par personne) aux messages prives
         '''CREATE TABLE IF NOT EXISTS message_reactions (
             message_id INTEGER NOT NULL,
@@ -2990,7 +2996,24 @@ def api_require_auth():
         user_id = session['user_id']
     if user_id:
         noter_jour_actif(user_id)
+        noter_presence(user_id)
     return user_id
+
+_presence_notee = {}  # user_id -> derniere ecriture de vu_a (timestamp)
+EN_LIGNE = timedelta(minutes=2)
+
+def noter_presence(user_id):
+    maintenant = time.time()
+    if maintenant - _presence_notee.get(user_id, 0) < 60:
+        return
+    _presence_notee[user_id] = maintenant
+    try:
+        conn = get_db()
+        conn.execute('UPDATE users SET vu_a = ? WHERE id = ?', (datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), user_id))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 # ---- Anciennes versions de l'app (1.0.0 et 1.1.0 ne recoivent pas les mises a jour automatiques)
 APK_URL = os.environ.get('APK_URL', 'https://expo.dev/artifacts/eas/S59NF_cSzEQcYRFq9U39l2UxS1b1EsEhX2TLzvzMs44.apk')
@@ -3316,20 +3339,34 @@ def api_posts():
         moi = conn.execute('SELECT universite FROM users WHERE id = ?', (user_id,)).fetchone()
         if moi and (moi['universite'] or '').strip():
             filtre_fac, params_fac = ' AND lower(users.universite) = ?', (moi['universite'].strip().lower(),)
-    posts = conn.execute('''
+    # #hashtag : publications qui contiennent ce mot-diese
+    tag = (request.args.get('tag') or '').lstrip('#').strip().lower()
+    if tag:
+        if not HASHTAG_RE.fullmatch('#' + tag):
+            conn.close()
+            return jsonify([])
+        filtre_fac += ' AND lower(posts.contenu) LIKE ?'
+        params_fac += (f'%#{tag}%',)
+    posts = requete_posts(conn, user_id, filtre_fac, params_fac, limite=per_page, decalage=offset)
+    conn.close()
+    return jsonify(enrichir_posts([dict(p) for p in posts], user_id))
+
+HASHTAG_RE = re.compile(r'#(\w{2,40})', re.UNICODE)
+
+def requete_posts(conn, user_id, filtre='', params=(), ordre='posts.date_post DESC', params_ordre=(), limite=20, decalage=0):
+    """Publications visibles (sans les comptes bloques), avec compteurs, like et enregistrement."""
+    return conn.execute('''
         SELECT posts.id, posts.user_id, posts.contenu, posts.image, posts.date_post,
                users.prenom, users.nom, users.universite, users.avatar,
                (SELECT COUNT(*) FROM likes WHERE likes.post_id = posts.id) as nb_likes,
                (SELECT COUNT(*) FROM commentaires WHERE commentaires.post_id = posts.id) as nb_commentaires,
                EXISTS(SELECT 1 FROM likes WHERE likes.post_id = posts.id AND likes.user_id = ?) as a_like,
+               EXISTS(SELECT 1 FROM posts_enregistres e WHERE e.post_id = posts.id AND e.user_id = ?) as enregistre,
                (posts.user_id = ?) as est_auteur
         FROM posts JOIN users ON posts.user_id = users.id
         WHERE posts.user_id NOT IN (SELECT bloque_id FROM blocages WHERE bloqueur_id = ?) AND posts.user_id NOT IN (SELECT bloqueur_id FROM blocages WHERE bloque_id = ?)
-        ''' + filtre_fac + '''
-        ORDER BY posts.date_post DESC LIMIT ? OFFSET ?
-    ''', (user_id, user_id, user_id, user_id) + params_fac + (per_page, offset)).fetchall()
-    conn.close()
-    return jsonify(enrichir_posts([dict(p) for p in posts], user_id))
+        ''' + filtre + ' ORDER BY ' + ordre + ' LIMIT ? OFFSET ?',
+        (user_id, user_id, user_id, user_id, user_id) + tuple(params) + tuple(params_ordre) + (limite, decalage)).fetchall()
 
 @app.route('/api/posts', methods=['POST'])
 def api_create_post():
@@ -4528,7 +4565,7 @@ def supprimer_compte(user_id):
 
     # ses publications et tout ce qui s'y rattache
     for p_ in conn.execute('SELECT id, image FROM posts WHERE user_id = ?', (user_id,)).fetchall():
-        for table in ('likes', 'commentaires', 'reactions', 'post_sondage_votes', 'post_sondage_options', 'signalements_posts'):
+        for table in ('likes', 'commentaires', 'reactions', 'post_sondage_votes', 'post_sondage_options', 'signalements_posts', 'posts_enregistres'):
             conn.execute(f'DELETE FROM {table} WHERE post_id = ?', (p_['id'],))
         if p_['image']:
             fichiers.append('static/uploads/' + p_['image'])
@@ -4565,7 +4602,7 @@ def supprimer_compte(user_id):
                   'reponses', 'votes_reponses', 'documents', 'notifications', 'abonnements_alertes', 'reset_tokens',
                   'evenements', 'groupe_membres', 'groupe_messages', 'user_badges', 'codes_verification', 'opportunites',
                   'annonces', 'stories', 'expo_push_tokens', 'conversations_effacees', 'cours', 'examens',
-                  'evenement_participants', 'jours_actifs', 'message_reactions', 'defis_reussis'):
+                  'evenement_participants', 'jours_actifs', 'message_reactions', 'defis_reussis', 'posts_enregistres'):
         conn.execute(f'DELETE FROM {table} WHERE user_id = ?', (user_id,))
     conn.execute('DELETE FROM groupes WHERE createur_id = ?', (user_id,))
     conn.execute('DELETE FROM messages WHERE expediteur_id = ? OR destinataire_id = ?', (user_id, user_id))
@@ -4916,6 +4953,8 @@ def enrichir_messages(lignes, user_id):
         d = dict(m)
         d['supprime'] = bool(d.get('supprime'))
         d['transfere'] = bool(d.get('transfere'))
+        d['ecoute'] = bool(d.get('ecoute'))
+        d['modifie'] = bool(d.get('modifie'))
         if d['supprime']:
             d.update(contenu='', image=None, audio=None, duree=None)
         resultat.append(d)
@@ -5048,6 +5087,95 @@ def api_transferer_message(mid):
     for dest in envoyes:
         creer_notification(dest, 'message', f"Message transfere de {moi['prenom']} {moi['nom']}", f'/conversation/{user_id}')
     return jsonify({'envoyes': len(envoyes)})
+
+DELAI_MODIFICATION = timedelta(minutes=15)
+
+@app.route('/api/messages/<int:mid>', methods=['PUT'])
+def api_modifier_message(mid):
+    """Modifier le texte de mon message, pendant 15 minutes."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    m = message_de_la_conversation(mid, user_id)
+    if not m or m['expediteur_id'] != user_id or m['supprime'] or not m['contenu']:
+        return jsonify({'error': 'Tu ne peux modifier que le texte de tes messages'}), 403
+    if str(m['date_envoi'] or '')[:19] < (datetime.now(timezone.utc) - DELAI_MODIFICATION).strftime('%Y-%m-%d %H:%M:%S'):
+        return jsonify({'error': 'Trop tard : un message ne peut etre modifie que pendant 15 minutes'}), 400
+    contenu = sanitize_text(str((request.get_json(silent=True) or {}).get('contenu') or ''), FIELD_MAXLEN['message'])
+    if not contenu.strip():
+        return jsonify({'error': 'Le message ne peut pas etre vide'}), 400
+    conn = get_db()
+    conn.execute('UPDATE messages SET contenu = ?, modifie = 1 WHERE id = ?', (contenu, mid))
+    conn.commit()
+    conn.close()
+    signaler_maj_message(m)
+    return jsonify({'id': mid, 'contenu': contenu, 'modifie': True})
+
+@app.route('/api/messages/<int:mid>/ecoute', methods=['POST'])
+def api_vocal_ecoute(mid):
+    """Le destinataire a ecoute la note vocale : le micro passe en bleu chez l'expediteur."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    m = message_de_la_conversation(mid, user_id)
+    if not m or m['destinataire_id'] != user_id or not m['audio']:
+        return jsonify({'error': 'Note vocale introuvable'}), 404
+    if not m['ecoute']:
+        conn = get_db()
+        conn.execute('UPDATE messages SET ecoute = 1 WHERE id = ?', (mid,))
+        conn.commit()
+        conn.close()
+        signaler_maj_message(m)
+    return jsonify({'ecoute': True})
+
+@app.route('/api/presence/<int:autre_id>')
+def api_presence(autre_id):
+    """'En ligne' ou 'vu a' ; masque si l'un des deux cache son 'Vu' (reciproque) ou en cas de blocage."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if blocage_entre(user_id, autre_id):
+        return jsonify({'masque': True})
+    conn = get_db()
+    gens = {u['id']: u for u in conn.execute('SELECT id, vu_a, COALESCE(masquer_vu, 0) AS masquer_vu FROM users WHERE id IN (?, ?)',
+                                              (user_id, autre_id)).fetchall()}
+    conn.close()
+    autre = gens.get(autre_id)
+    if not autre or any(u['masquer_vu'] for u in gens.values()):
+        return jsonify({'masque': True})
+    vu_a = autre['vu_a']
+    en_ligne = bool(vu_a) and vu_a >= (datetime.now(timezone.utc) - EN_LIGNE).strftime('%Y-%m-%d %H:%M:%S')
+    return jsonify({'masque': False, 'en_ligne': en_ligne, 'vu_a': vu_a})
+
+# ---- Fil : publications enregistrees
+@app.route('/api/posts/<int:post_id>/enregistrer', methods=['POST', 'DELETE'])
+def api_enregistrer_post(post_id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    if not conn.execute('SELECT 1 FROM posts WHERE id = ?', (post_id,)).fetchone():
+        conn.close()
+        return jsonify({'error': 'Publication introuvable'}), 404
+    conn.execute('DELETE FROM posts_enregistres WHERE user_id = ? AND post_id = ?', (user_id, post_id))
+    if request.method == 'POST':
+        conn.execute('INSERT INTO posts_enregistres (user_id, post_id, date_ajout) VALUES (?, ?, ?)',
+                     (user_id, post_id, datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    conn.close()
+    return jsonify({'enregistre': request.method == 'POST'})
+
+@app.route('/api/posts/enregistres')
+def api_posts_enregistres():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    posts = requete_posts(conn, user_id, ' AND posts.id IN (SELECT post_id FROM posts_enregistres WHERE user_id = ?)', (user_id,),
+                          ordre='(SELECT date_ajout FROM posts_enregistres e WHERE e.post_id = posts.id AND e.user_id = ?) DESC',
+                          params_ordre=(user_id,), limite=100)
+    conn.close()
+    return jsonify(enrichir_posts([dict(p) for p in posts], user_id))
 
 # ---- Classement et defis de la semaine
 def debut_semaine(maintenant=None):

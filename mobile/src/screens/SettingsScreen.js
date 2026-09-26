@@ -9,6 +9,7 @@ import * as api from '../api';
 import Avatar from '../components/Avatar';
 import { PrimaryButton, Loading } from '../components/ui';
 import { verifierMaintenant } from '../misesAJour';
+import { ChoixFondEcran } from '../components/FondEcran';
 import { verrouActif, changerVerrou, verrouMessagesActif, changerVerrouMessages } from '../verrou';
 import { radius, spacing, creerStyles, useTheme } from '../theme';
 
@@ -180,6 +181,7 @@ export default function SettingsScreen({ navigation, onLogin, onLogout }) {
         </View>
         <Interrupteur icone="contrast-outline" texte="Contraste eleve" valeur={!!contraste}
           onChange={(v) => setAccessibilite({ contraste: v })} />
+        <Ligne icone="color-palette-outline" texte="Fond d'ecran des discussions" onPress={() => setFenetre('fond')} />
       </Section>
 
       <Section titre="Aide">
@@ -197,6 +199,7 @@ export default function SettingsScreen({ navigation, onLogin, onLogout }) {
       <Bloques visible={fenetre === 'bloques'} onFermer={() => setFenetre(null)} />
       <SupprimerCompte visible={fenetre === 'supprimer'} onFermer={() => setFenetre(null)} onSupprime={onLogout} />
       <Faq visible={fenetre === 'faq'} onFermer={() => setFenetre(null)} />
+      <ChoixFondEcran visible={fenetre === 'fond'} onFermer={() => setFenetre(null)} />
       <Modal visible={fenetre === 'qr'} transparent animationType="fade" onRequestClose={() => setFenetre(null)}>
         <TouchableOpacity style={styles.fond} activeOpacity={1} onPress={() => setFenetre(null)}>
           <View style={styles.qrCarte}>

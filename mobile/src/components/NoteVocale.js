@@ -9,17 +9,31 @@ const DUREE_MAX = 180; // secondes, comme la limite du serveur
 const mmss = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 
 // Une seule note lue a la fois dans toute l'app
-let lectureEnCours = null;
+let lectureEnCours = null; // { son, arreter }
+const VITESSES = [1, 1.5, 2];
 
-export function BulleVocale({ uri, duree, clair }) {
+// onEcoute : appele a la premiere lecture (note recue -> "ecoutee" chez l'expediteur)
+export function BulleVocale({ uri, duree, clair, onEcoute }) {
   const styles = useStyles();
   const { colors } = useTheme();
   const son = useRef(null);
   const [lecture, setLecture] = useState(false);
   const [position, setPosition] = useState(0);
+  const [vitesse, setVitesse] = useState(1);
+  const signale = useRef(false);
   const couleur = clair ? colors.white : colors.primary;
 
-  useEffect(() => () => { son.current?.unloadAsync().catch(() => {}); }, []);
+  // arret complet : retour au debut, plus rien ne joue (fin de la note, autre note, ecran quitte)
+  const arreter = async () => {
+    setLecture(false);
+    setPosition(0);
+    await son.current?.stopAsync().catch(() => {});
+  };
+
+  useEffect(() => () => {
+    if (lectureEnCours?.son === son.current) lectureEnCours = null;
+    son.current?.unloadAsync().catch(() => {});
+  }, []);
 
   const basculer = async () => {
     try {
@@ -28,29 +42,43 @@ export function BulleVocale({ uri, duree, clair }) {
         setLecture(false);
         return;
       }
-      if (lectureEnCours && lectureEnCours !== son.current) await lectureEnCours.pauseAsync().catch(() => {});
+      if (lectureEnCours && lectureEnCours.son !== son.current) await lectureEnCours.arreter();
       await Audio.setAudioModeAsync({ allowsRecordingIOS: false, playsInSilentModeIOS: true });
       if (!son.current) {
-        const { sound } = await Audio.Sound.createAsync({ uri }, { progressUpdateIntervalMillis: 250 }, (st) => {
+        const { sound } = await Audio.Sound.createAsync({ uri }, { progressUpdateIntervalMillis: 250, rate: vitesse, shouldCorrectPitch: true }, (st) => {
           if (!st.isLoaded) return;
+          if (st.didJustFinish) {
+            // fin de la note : on coupe (sans ca, Android peut la relancer en boucle)
+            setLecture(false);
+            setPosition(0);
+            sound.stopAsync().catch(() => {});
+            if (lectureEnCours?.son === sound) lectureEnCours = null;
+            return;
+          }
           setPosition(st.positionMillis / 1000);
-          if (st.didJustFinish) { setLecture(false); setPosition(0); sound.setPositionAsync(0).catch(() => {}); }
-          else setLecture(st.isPlaying);
+          setLecture(st.isPlaying);
         });
         son.current = sound;
       }
-      lectureEnCours = son.current;
+      lectureEnCours = { son: son.current, arreter };
       await son.current.playAsync();
       setLecture(true);
+      if (onEcoute && !signale.current) { signale.current = true; onEcoute(); }
     } catch (e) {
       Alert.alert('Lecture impossible', "La note vocale n'a pas pu etre lue.");
     }
   };
 
+  const changerVitesse = async () => {
+    const v = VITESSES[(VITESSES.indexOf(vitesse) + 1) % VITESSES.length];
+    setVitesse(v);
+    await son.current?.setRateAsync(v, true).catch(() => {});
+  };
+
   const total = Math.max(1, duree || 1);
   return (
     <View style={styles.bulle}>
-      <TouchableOpacity onPress={basculer} hitSlop={8}>
+      <TouchableOpacity onPress={basculer} hitSlop={8} accessibilityLabel={lecture ? 'Pause' : 'Ecouter la note vocale'}>
         <Ionicons name={lecture ? 'pause-circle' : 'play-circle'} size={38} color={couleur} />
       </TouchableOpacity>
       <View style={styles.piste}>
@@ -61,6 +89,11 @@ export function BulleVocale({ uri, duree, clair }) {
           {mmss(lecture || position ? position : total)}
         </Text>
       </View>
+      {lecture || vitesse !== 1 ? (
+        <TouchableOpacity onPress={changerVitesse} hitSlop={8} style={[styles.vitesse, { borderColor: couleur }]} accessibilityLabel="Vitesse de lecture">
+          <Text style={[styles.vitesseTexte, { color: couleur }]}>{String(vitesse).replace('.', ',')}x</Text>
+        </TouchableOpacity>
+      ) : null}
     </View>
   );
 }
@@ -135,6 +168,8 @@ export function Enregistreur({ onEnvoyer, onAnnuler }) {
 }
 
 const useStyles = creerStyles(({ colors }) => ({
+  vitesse: { borderWidth: 1.5, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1, marginLeft: 4 },
+  vitesseTexte: { fontSize: 11, fontWeight: '800' },
   bulle: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, minWidth: 190 },
   piste: { flex: 1, gap: 4 },
   fond: { height: 4, borderRadius: 2, overflow: 'hidden' },

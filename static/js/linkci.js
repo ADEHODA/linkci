@@ -121,6 +121,11 @@
   // ---------------------------------------------------------------- publications
   const EMOJIS = ['🔥', '😂', '👏', '😮', '😢'];
 
+  // Texte d'une publication : echappe, les #hashtags deviennent des liens (decoupe AVANT d'echapper)
+  L.texteRiche = (t) => String(t).split(/(#[A-Za-z0-9_À-ÖØ-öø-ÿ]{2,40})/).map((m, k) => (k % 2
+    ? `<a href="/fil?tag=${encodeURIComponent(m.slice(1))}" style="color:var(--primary);font-weight:700">${L.esc(m)}</a>`
+    : L.esc(m))).join('');
+
   L.htmlPost = (p) => {
     const reacs = Object.entries(p.reactions || {}).map(([e, n]) =>
       `<button class="reac ${p.ma_reaction === e ? 'moi' : ''}" data-reac="${e}">${e} ${n}</button>`).join('');
@@ -139,7 +144,7 @@
           <div class="sous">${L.esc([p.universite, L.quand(p.date_post)].filter(Boolean).join(' · '))}</div></div>
         <div class="menu-post"><button class="act" data-menu>⋯</button></div>
       </div>
-      ${p.contenu ? `<p class="post-texte">${L.esc(p.contenu)}</p>` : ''}
+      ${p.contenu ? `<p class="post-texte">${L.texteRiche(p.contenu)}</p>` : ''}
       ${p.image ? `<img class="post-img" src="${L.image(p.image)}" alt="" loading="lazy" data-zoom>` : ''}
       ${sondage}
       <div class="reactions">${reacs}</div>
@@ -147,6 +152,9 @@
         <button class="act like ${p.a_like ? 'on' : ''}" data-like>❤️ <span>${p.nb_likes || 0}</span></button>
         <button class="act" data-choix-reac>${p.ma_reaction || '😊'}</button>
         <button class="act" data-comms>💬 <span>${p.nb_commentaires || 0}</span></button>
+        <span style="flex:1"></span>
+        <button class="act" data-partager title="Partager">📤</button>
+        <button class="act ${p.enregistre ? 'on' : ''}" data-enregistrer title="${p.enregistre ? 'Retirer des enregistrements' : 'Enregistrer pour plus tard'}">${p.enregistre ? '🔖' : '📑'}</button>
       </div>
       <div class="zone-reac"></div>
       <div class="commentaires" hidden></div>
@@ -192,6 +200,15 @@
           if (!zone.hidden) { zone.hidden = true; return; }
           zone.hidden = false;
           await chargerComms(zone, id);
+        } else if (cible.hasAttribute('data-enregistrer')) {
+          const r = await L.api(`/api/posts/${id}/enregistrer`, { methode: p.enregistre ? 'DELETE' : 'POST' });
+          remplacer(article, { ...p, enregistre: r.enregistre });
+          L.toast(r.enregistre ? 'Enregistre (Fil > Enregistres)' : 'Retire des enregistrements');
+        } else if (cible.hasAttribute('data-partager')) {
+          const lien = `${location.origin}/fil#post-${id}`;
+          const texte = `${p.prenom} ${p.nom} sur LinkCI : ${(p.contenu || 'Une photo').slice(0, 200)}`;
+          if (navigator.share) await navigator.share({ title: 'LinkCI', text: texte, url: lien }).catch(() => {});
+          else window.open(`https://wa.me/?text=${encodeURIComponent(texte + '\n' + lien)}`, '_blank', 'noopener');
         } else if (cible.hasAttribute('data-menu')) {
           ouvrirMenu(article, p);
         }

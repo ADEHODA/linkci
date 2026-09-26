@@ -12,10 +12,26 @@ import { Loading, EmptyState } from '../components/ui';
 import { radius, spacing, creerStyles, useTheme } from '../theme';
 import { heure, jourLisible, memeJour } from '../utils';
 import { useEvenement, useRealtime } from '../realtime';
+import { Fond, ChoixFondEcran, useFondEcran } from '../components/FondEcran';
+import { useFocusEffect } from '@react-navigation/native';
 
 const EMOJIS = ['❤️', '😂', '😮', '😢', '🙏', '👍'];
 const extrait = (m) => (m.supprime ? 'Message supprime' : m.contenu || (m.audio || m.audioLocal ? 'Note vocale' : m.image || m.imageLocale ? 'Photo' : ''));
 // un message ne peut etre supprime pour tous que pendant 48 h
+const ageMs = (m) => Date.now() - new Date(`${String(m.date_envoi).slice(0, 19).replace(' ', 'T')}Z`).getTime();
+const modifiable = (m) => !!m.contenu && !m.supprime && ageMs(m) < 15 * 60 * 1000;
+// "en ligne", "vu aujourd'hui a 14:32", "vu hier a 09:10", "vu le 12/09"
+function textePresence(p) {
+  if (!p || p.masque) return null;
+  if (p.en_ligne) return 'en ligne';
+  if (!p.vu_a) return null;
+  const d = new Date(`${p.vu_a.replace(' ', 'T')}Z`);
+  const h = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  const jours = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(d).setHours(0, 0, 0, 0)) / 86400000);
+  if (jours <= 0) return `vu aujourd'hui a ${h}`;
+  if (jours === 1) return `vu hier a ${h}`;
+  return `vu le ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
 const supprimable = (m) => Date.now() - new Date(`${String(m.date_envoi).slice(0, 19).replace(' ', 'T')}Z`).getTime() < 48 * 3600 * 1000;
 
 export default function ConversationScreen({ route, navigation }) {
@@ -32,6 +48,19 @@ export default function ConversationScreen({ route, navigation }) {
   const [reponse, setReponse] = useState(null); // message auquel je reponds
   const [actions, setActions] = useState(null); // message touche longuement
   const [transfert, setTransfert] = useState(null); // message a transferer
+  const [edition, setEdition] = useState(null); // message en cours de modification
+  const [presence, setPresence] = useState(null);
+  const [choixFond, setChoixFond] = useState(false);
+  const { fond } = useFondEcran(conv.autre_id);
+
+  // "en ligne" / "vu a" : actualise toutes les 30 s tant que la discussion est ouverte
+  useFocusEffect(React.useCallback(() => {
+    let actif = true;
+    const lire = () => api.getPresence(conv.autre_id).then((p) => actif && setPresence(p)).catch(() => {});
+    lire();
+    const minuteur = setInterval(lire, 30000);
+    return () => { actif = false; clearInterval(minuteur); };
+  }, [conv.autre_id]));
   const dernierSignal = useRef(0);
 
   // En-tete : photo + nom, touchable pour voir le profil
@@ -42,7 +71,8 @@ export default function ConversationScreen({ route, navigation }) {
           <Avatar name={`${conv.prenom} ${conv.nom}`} size={34} index={conv.autre_id} avatar={conv.avatar} />
           <View style={{ flexShrink: 1 }}>
             <Text style={styles.headerName} numberOfLines={1}>{conv.prenom} {conv.nom}</Text>
-            {ecrit ? <Text style={styles.ecrit}>en train d'ecrire...</Text> : null}
+            {ecrit ? <Text style={styles.ecrit}>en train d'ecrire...</Text>
+              : textePresence(presence) ? <Text style={styles.presence}>{textePresence(presence)}</Text> : null}
           </View>
         </TouchableOpacity>
       ),
@@ -52,11 +82,12 @@ export default function ConversationScreen({ route, navigation }) {
         </TouchableOpacity>
       ),
     });
-  }, [navigation, conv, styles, ecrit]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [navigation, conv, styles, ecrit, presence]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Menu de la discussion : effacer l'historique (pour moi seulement)
   const menu = () => Alert.alert(`${conv.prenom} ${conv.nom}`, undefined, [
     { text: 'Voir le profil', onPress: () => navigation.navigate('ProfilEtudiant', { id: conv.autre_id }) },
+    { text: "Fond d'ecran", onPress: () => setChoixFond(true) },
     {
       text: "Effacer l'historique",
       style: 'destructive',
@@ -133,8 +164,26 @@ export default function ConversationScreen({ route, navigation }) {
     return api.surFileEnvoi((m) => { if (m.destinataire_id === conv.autre_id) { lireEnFile(); reload(); } });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const commencerEdition = (m) => {
+    setActions(null);
+    setReponse(null);
+    setEdition(m);
+    setText(m.contenu);
+  };
+  const annulerEdition = () => { setEdition(null); setText(''); };
+
   const handleSend = async () => {
     if (!text.trim()) return;
+    if (edition) {
+      const m = edition;
+      const contenu = text.trim();
+      setEdition(null);
+      setText('');
+      setData((liste) => liste.map((x) => (x.id === m.id ? { ...x, contenu, modifie: true } : x)));
+      try { await api.modifierMessage(m.id, contenu); }
+      catch (e) { Alert.alert('Message non modifie', e.message); reload(); }
+      return;
+    }
     const contenu = text.trim();
     const cite = reponse;
     setText('');
@@ -196,6 +245,7 @@ export default function ConversationScreen({ route, navigation }) {
 
   return (
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={90}>
+      <Fond fond={fond} style={{ flex: 1 }}>
       {loading ? <Loading /> : (
         <FlatList
           ref={listRef}
@@ -226,10 +276,13 @@ export default function ConversationScreen({ route, navigation }) {
                     <PostImage uri={item.imageLocale || api.imageUrl(item.image)} style={styles.photo} />
                   ) : null}
                   {item.audio || item.audioLocal ? (
-                    <BulleVocale uri={item.audioLocal || api.imageUrl(item.audio)} duree={item.duree} clair={!recu} />
+                    <BulleVocale uri={item.audioLocal || api.imageUrl(item.audio)} duree={item.duree} clair={!recu}
+                      onEcoute={recu && !item.ecoute ? () => api.vocalEcoute(item.id).catch(() => {}) : undefined} />
                   ) : null}
                   {item.contenu ? <Text style={[styles.msgText, !recu && styles.msgTextSent]}>{item.contenu}</Text> : null}
                   <View style={styles.meta}>
+                    {item.modifie ? <Text style={[styles.msgTime, !recu && styles.msgTimeSent]}>modifie</Text> : null}
+                    {!recu && item.audio ? <Ionicons name="mic" size={12} color={item.ecoute ? '#7DD3FC' : 'rgba(255,255,255,0.8)'} /> : null}
                     <Text style={[styles.msgTime, !recu && styles.msgTimeSent]}>{heure(item.date_envoi)}</Text>
                     {item.horsLigne ? <Text style={styles.horsLigne}>en attente de reseau</Text> : null}
                     {!recu ? <Ionicons name={item.enAttente ? 'time-outline' : item.lu ? 'checkmark-done' : 'checkmark'} size={13} color="rgba(255,255,255,0.8)" /> : null}
@@ -251,6 +304,17 @@ export default function ConversationScreen({ route, navigation }) {
         />
       )}
 
+      </Fond>
+      {edition ? (
+        <View style={styles.barreReponse}>
+          <View style={styles.barreReponseTrait} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.citationNom}>Modifier le message</Text>
+            <Text style={styles.citationTexte} numberOfLines={1}>{edition.contenu}</Text>
+          </View>
+          <TouchableOpacity onPress={annulerEdition} hitSlop={10}><Ionicons name="close" size={20} color={colors.textMuted} /></TouchableOpacity>
+        </View>
+      ) : null}
       {reponse ? (
         <View style={styles.barreReponse}>
           <View style={styles.barreReponseTrait} />
@@ -270,9 +334,9 @@ export default function ConversationScreen({ route, navigation }) {
               <Ionicons name="image-outline" size={24} color={colors.primary} />
             </TouchableOpacity>
             <TextInput style={styles.input} value={text} onChangeText={surSaisie} placeholder="Ecris un message..." placeholderTextColor={colors.textFaint} multiline />
-            {text.trim() ? (
+            {text.trim() || edition ? (
               <TouchableOpacity style={styles.sendBtn} onPress={handleSend}>
-                <Ionicons name="send" size={18} color={colors.white} />
+                <Ionicons name={edition ? 'checkmark' : 'send'} size={edition ? 22 : 18} color={colors.white} />
               </TouchableOpacity>
             ) : (
               <TouchableOpacity style={styles.sendBtn} onPress={() => setEnregistre(true)}>
@@ -300,6 +364,9 @@ export default function ConversationScreen({ route, navigation }) {
               <Text style={styles.apercu} numberOfLines={2}>{extrait(actions)}</Text>
               <Action icone="arrow-undo-outline" texte="Repondre" onPress={() => { setReponse(actions); setActions(null); }} />
               <Action icone="arrow-redo-outline" texte="Transferer" onPress={() => { setTransfert(actions); setActions(null); }} />
+              {actions.expediteur_id !== conv.autre_id && modifiable(actions) ? (
+                <Action icone="create-outline" texte="Modifier" onPress={() => commencerEdition(actions)} />
+              ) : null}
               {actions.expediteur_id !== conv.autre_id && supprimable(actions) ? (
                 <Action icone="trash-outline" texte="Supprimer pour tout le monde" danger onPress={() => supprimerPourTous(actions)} />
               ) : null}
@@ -308,6 +375,7 @@ export default function ConversationScreen({ route, navigation }) {
         </TouchableOpacity>
       </Modal>
       <Transfert message={transfert} onFermer={() => setTransfert(null)} />
+      <ChoixFondEcran visible={choixFond} onFermer={() => setChoixFond(false)} autreId={conv.autre_id} nom={conv.prenom} />
     </KeyboardAvoidingView>
   );
 }
@@ -378,6 +446,7 @@ const useStyles = creerStyles(({ colors }) => ({
   header: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, maxWidth: 240 },
   headerName: { fontWeight: '800', fontSize: 16, color: colors.text },
   ecrit: { fontSize: 12, color: colors.accent, fontStyle: 'italic' },
+  presence: { fontSize: 12, color: colors.textMuted },
   photo: { width: 220, marginBottom: 4, borderRadius: 14 },
   attache: { height: 44, justifyContent: 'center', paddingHorizontal: 4 },
   messageList: { flex: 1 },

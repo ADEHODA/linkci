@@ -6,14 +6,14 @@ import { PrimaryButton } from './ui';
 import { radius, spacing, creerStyles } from '../theme';
 
 // Changer ID a chaque nouvelle serie de nouveautes a annoncer
-const ID = '2026-09-27';
+const ID = '2026-09-28';
 const CLE = 'linkci_nouveautes_vues';
 const LISTE = [
-  ['💬', 'Messages', 'Appuie longuement sur un message : reagis avec un emoji, reponds en citant, transfere-le ou supprime-le pour tout le monde.'],
-  ['🏆', 'Classement et defis', '3 defis chaque semaine et le classement des etudiants les plus actifs, de ta fac ou de ta filiere (Explorer > Classement).'],
-  ['📅', 'Evenements du campus', 'Conferences, matchs, soirees : touche "Je participe" et recois un rappel la veille.'],
-  ['🔥', 'Mon activite', 'Ta serie de jours, tes abonnes et tes statistiques (Profil > Mon activite).'],
-  ['🔠', 'Texte plus grand', 'Agrandis le texte ou active le contraste eleve dans Parametres > Apparence.'],
+  ['🎨', "Fond d'ecran", "Change le fond de tes discussions : couleur ou ta propre photo (menu ⋮ d'une discussion, ou Parametres)."],
+  ['🎤', 'Notes vocales', "Elles s'arretent a la fin, se lisent en x1,5 ou x2, et le micro devient bleu quand ta note a ete ecoutee."],
+  ['🟢', 'En ligne', "Vois si ton ami est en ligne ou quand il est venu pour la derniere fois. Modifie un message pendant 15 min."],
+  ['📌', 'Epingler', 'Appuie longuement sur une discussion pour la garder tout en haut (3 max).'],
+  ['🔖', 'Enregistrer et partager', 'Garde une publication pour plus tard, partage-la sur WhatsApp, et touche un #hashtag pour voir les posts du meme sujet.'],
 ];
 
 export default function Nouveautes() {

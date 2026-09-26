@@ -91,6 +91,14 @@ export default function ProfileScreen({ navigation, onLogout }) {
             </TouchableOpacity>
           ) : null}
           <DetailsProfil user={user} />
+          <TouchableOpacity style={styles.parametres} onPress={() => navigation.navigate('Enregistres')} activeOpacity={0.85}>
+            <Ionicons name="bookmark-outline" size={22} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.parametresTitre}>Publications enregistrees</Text>
+              <Text style={styles.parametresTexte}>Les posts que tu as gardes pour plus tard</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.textFaint} />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.parametres} onPress={() => navigation.navigate('MonActivite')} activeOpacity={0.85}>
             <Ionicons name="stats-chart-outline" size={22} color={colors.primary} />
             <View style={{ flex: 1 }}>
