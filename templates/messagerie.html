@@ -270,6 +270,9 @@ window.discussion = LinkCI.discussion({
     modifier: function (id, contenu) { return LinkCI.api('/api/messages/' + id, { methode: 'PUT', corps: { contenu: contenu } }); },
     supprimer: function (id) { return LinkCI.api('/api/messages/' + id, { methode: 'DELETE' }); },
     voter: function () { return Promise.resolve(); },
+    envoyerFichier: function (f, reponse_a) {
+        return LinkCI.envoyerFichierDiscussion('/api/messages/fichier', f, { destinataire_id: {{ conversation_avec.id }}, reponse_a: reponse_a });
+    },
     peutSupprimer: function (m) {
         return m.expediteur_id == {{ session.user_id }} && Date.now() - new Date(String(m.date_envoi).slice(0, 19).replace(' ', 'T') + 'Z') < 48 * 3600 * 1000;
     },

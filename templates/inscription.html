@@ -5,6 +5,7 @@
     <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inscription — LINK CI</title>
+  {% include '_partage.html' %}
     <link rel="stylesheet" href="/static/css/style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script src="/static/js/main.js" defer></script>
@@ -30,7 +31,8 @@
             {% endif %}
 
             <form method="POST" class="auth-form">
-                <input type="hidden" name="invitation" value="{{ invitation or '' }}">{% if invitation %}<p style="background:var(--green-light);color:var(--green);padding:0.5rem 0.75rem;border-radius:8px;font-size:0.85rem;font-weight:600;">🎟️ Tu as ete invite par un camarade : bienvenue !</p>{% endif %}
+                <input type="hidden" name="invitation" value="{{ invitation or '' }}">
+                <input type="hidden" name="suivant" value="{{ request.args.get('suivant', '') or request.form.get('suivant', '') }}">{% if invitation %}<p style="background:var(--green-light);color:var(--green);padding:0.5rem 0.75rem;border-radius:8px;font-size:0.85rem;font-weight:600;">🎟️ {{ (parrain.prenom ~ ' t\'invite') if parrain else 'Tu as ete invite par un camarade' }} : bienvenue sur LinkCI !</p>{% endif %}
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <div class="form-row">
                     <div class="form-group">

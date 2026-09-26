@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+  <title>{{ g.nom }} — LinkCI</title>
+  {% include '_partage.html' %}
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root { --primary: #FF6B35; --bg: #F4F4F6; --card: #fff; --text: #16161D; --muted: #6B6F7B; --border: #E9E9EE; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0E1014; --card: #191C22; --text: #F2F3F5; --muted: #A7ACB7; --border: #2A2F38; } }
+    body { margin: 0; font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); }
+    main { max-width: 460px; margin: 0 auto; padding: 32px 16px; text-align: center; }
+    .carte { background: var(--card); border: 1px solid var(--border); border-radius: 22px; padding: 28px 22px; margin: 18px 0; }
+    .rond { width: 84px; height: 84px; border-radius: 50%; background: var(--primary); color: #fff; font-size: 34px; font-weight: 900; display: inline-flex; align-items: center; justify-content: center; }
+    h1 { font-size: 24px; margin: 14px 0 4px; }
+    .sous { color: var(--muted); }
+    .btn { display: block; background: var(--primary); color: #fff; text-decoration: none; font-weight: 800; font-size: 17px; padding: 15px; border-radius: 999px; margin-top: 18px; border: 0; width: 100%; cursor: pointer; }
+    .btn.gris { background: transparent; color: var(--text); border: 2px solid var(--border); margin-top: 10px; }
+  </style>
+</head>
+<body>
+<main>
+  <a href="/"><img src="/static/images/logo.svg" alt="LinkCI" height="40"></a>
+  <div class="carte">
+    <div class="rond">{{ g.nom[:1] | upper }}</div>
+    <h1>{{ g.nom }}</h1>
+    <div class="sous">👥 {{ g.nb_membres }} membre{{ 's' if g.nb_membres > 1 }}</div>
+    {% if g.description %}<p class="sous">{{ g.description }}</p>{% endif %}
+    {% if connecte %}
+      <button class="btn" id="rejoindre">Rejoindre le groupe</button>
+    {% else %}
+      <p>On t'a invite dans ce groupe de discussion sur LinkCI, le reseau des etudiants de Cote d'Ivoire.</p>
+      <a class="btn" href="/inscription?suivant=/g/{{ g.id }}">Creer mon compte gratuit</a>
+      <a class="btn gris" href="/connexion?suivant=/g/{{ g.id }}">J'ai deja un compte</a>
+    {% endif %}
+  </div>
+  <p class="sous">📲 Aussi sur Android : <a href="/app" style="color:var(--primary);font-weight:700">telecharger l'application</a></p>
+</main>
+{% if connecte %}
+<script>
+document.getElementById('rejoindre').addEventListener('click', async (e) => {
+  e.target.disabled = true;
+  const r = await fetch('/api/groupes/{{ g.id }}/rejoindre', { method: 'POST', credentials: 'same-origin', headers: { 'X-LinkCI': 'web' } });
+  if (r.ok) location.href = '/groupes/{{ g.id }}';
+  else { e.target.disabled = false; alert('Impossible de rejoindre ce groupe pour le moment.'); }
+});
+</script>
+{% endif %}
+</body>
+</html>

@@ -7,7 +7,7 @@ from datetime import datetime, date, timedelta, timezone
 
 load_dotenv()
 import db  # apres load_dotenv : lit DATABASE_URL
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_file
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_file, send_from_directory
 try:
     from flask_socketio import SocketIO, emit, join_room, leave_room
     SOCKETIO_AVAILABLE = True
@@ -191,6 +191,11 @@ def normaliser_email(email):
 def trop_rapide(action, qui, max_reqs, fenetre):
     """Anti-spam : True si `qui` a depasse `max_reqs` `action` sur `fenetre` secondes."""
     return not check_rate_limit(f'{action}:{qui}', max_reqs=max_reqs, window=fenetre)
+
+def chemin_suivant(suivant):
+    """Chemin interne strict (pas de '//' ni de caracteres invisibles, que les navigateurs suppriment), sinon None."""
+    suivant = suivant or ''
+    return suivant if re.fullmatch(r'/[A-Za-z0-9_\-./?=&%#]*', suivant) and '//' not in suivant else None
 
 def redirection_sure(url, defaut):
     """N'accepte qu'un chemin interne ('/...') : bloque les redirections vers d'autres sites."""
@@ -829,7 +834,9 @@ def init_db():
     for table, colonne in (('groupe_messages', 'reponse_a INTEGER'), ('groupe_messages', 'supprime INTEGER DEFAULT 0'),
                            ('groupe_messages', 'modifie INTEGER DEFAULT 0'), ('stories', "fond TEXT DEFAULT ''"),
                            ('messages', 'story_id INTEGER'), ('messages', "story_apercu TEXT DEFAULT ''"),
-                           ('documents', "filiere TEXT DEFAULT ''"), ('documents', "type_doc TEXT DEFAULT 'cours'")):
+                           ('documents', "filiere TEXT DEFAULT ''"), ('documents', "type_doc TEXT DEFAULT 'cours'"),
+                           ('messages', 'fichier TEXT'), ('messages', 'fichier_nom TEXT'), ('messages', 'fichier_taille INTEGER'),
+                           ('groupe_messages', 'fichier TEXT'), ('groupe_messages', 'fichier_nom TEXT'), ('groupe_messages', 'fichier_taille INTEGER')):
         try:
             conn.execute(f'ALTER TABLE {table} ADD COLUMN {colonne}')
             conn.commit()
@@ -1070,11 +1077,19 @@ def index():
     if 'user_id' in session:
         return redirect(url_for('feed'))
     conn = get_db()
-    nb_users = conn.execute('SELECT COUNT(*) as nb FROM users').fetchone()['nb']
-    nb_posts = conn.execute('SELECT COUNT(*) as nb FROM posts').fetchone()['nb']
-    nb_formations = conn.execute('SELECT COUNT(*) as nb FROM formations WHERE COALESCE(valide, 1) = 1').fetchone()['nb']
+    un = lambda requete: conn.execute(requete).fetchone()['nb']
+    # (valeur, libelle, seuil) : un chiffre n'est montre que s'il donne envie (pas "3 etudiants")
+    candidats = [
+        (un('SELECT COUNT(*) as nb FROM users WHERE COALESCE(banni, 0) = 0'), 'etudiants', 50),
+        (un('SELECT COUNT(*) as nb FROM documents'), 'cours et sujets', 5),
+        (un('SELECT COUNT(*) as nb FROM bourses WHERE COALESCE(valide, 1) = 1')
+         + un('SELECT COUNT(*) as nb FROM opportunites WHERE COALESCE(valide, 1) = 1'), 'bourses et offres', 5),
+        (un('SELECT COUNT(*) as nb FROM formations WHERE COALESCE(valide, 1) = 1'), 'formations', 5),
+        (un('SELECT COUNT(*) as nb FROM groupes'), 'groupes de promo', 5),
+    ]
     conn.close()
-    return render_template('index.html', nb_users=nb_users, nb_posts=nb_posts, nb_formations=nb_formations)
+    chiffres = [(v, libelle) for v, libelle, seuil in candidats if v >= seuil][:4]
+    return render_template('index.html', chiffres=chiffres if len(chiffres) >= 2 else [])
 
 # ---- Parrainage
 def code_invitation(user_id):
@@ -1273,12 +1288,15 @@ def inscription():
                                    (nom, prenom, email, mot_de_passe, universite, filiere, annee, 0 if verification_active() else 1)).lastrowid
             conn.commit()
             noter_parrain(user_id, request.form.get('invitation'))
+            suivant = chemin_suivant(request.form.get('suivant'))
             if not verification_active():
                 accueillir_filleul(user_id)
                 flash('Compte cree ! Connecte-toi.', 'success')
-                return redirect(url_for('connexion'))
+                return redirect(url_for('connexion', suivant=suivant) if suivant else url_for('connexion'))
             envoyer_code_verification(user_id, email, prenom)
             session['a_verifier'] = email
+            if suivant:
+                session['suivant'] = suivant  # ex. rejoindre un groupe apres la verification
             flash(f'Compte cree ! Entre le code envoye a {email}.', 'success')
             return redirect(url_for('verifier_email'))
         except db.IntegrityError:
@@ -1286,7 +1304,15 @@ def inscription():
             return render_template('inscription.html', invitation=request.form.get('invitation', ''))
         finally:
             conn.close()
-    return render_template('inscription.html', invitation=request.args.get('invite', ''))
+    invitation = request.args.get('invite', '')[:20]
+    parrain = None
+    if invitation:
+        conn = get_db()
+        parrain = conn.execute('SELECT prenom FROM users WHERE code_invitation = ?', (invitation,)).fetchone()
+        conn.close()
+    og_titre = f"{parrain['prenom']} t'invite sur LinkCI" if parrain else None
+    return render_template('inscription.html', invitation=invitation, parrain=parrain, og_titre=og_titre,
+                           og_description="Rejoins les etudiants de Cote d'Ivoire : groupes de promo, cours et sujets, bourses, entraide. Gratuit." if parrain else None)
 
 @app.route('/connexion', methods=['GET', 'POST'])
 def connexion():
@@ -1323,11 +1349,8 @@ def connexion():
         if user:
             ouvrir_session(user)
             flash('Connecte !', 'success')
-            suivant = request.form.get('suivant') or request.args.get('suivant') or ''
-            # chemin interne strict : pas de '//' ni de caracteres invisibles (que les navigateurs suppriment)
-            if re.fullmatch(r'/[A-Za-z0-9_\-./?=&%#]*', suivant) and '//' not in suivant:
-                return redirect(suivant)
-            return redirect(url_for('feed'))
+            suivant = chemin_suivant(request.form.get('suivant') or request.args.get('suivant'))
+            return redirect(suivant or url_for('feed'))
         else:
             flash('Email ou mot de passe incorrect.', 'error')
             return render_template('connexion.html')
@@ -1356,9 +1379,10 @@ def verifier_email():
         if erreur:
             flash(erreur, 'error')
             return redirect(url_for('verifier_email'))
+        suivant = chemin_suivant(session.pop('suivant', None))
         ouvrir_session(user)
         flash('Adresse verifiee, bienvenue sur LINK CI !', 'success')
-        return redirect(url_for('feed'))
+        return redirect(suivant or url_for('feed'))
     return render_template('verifier_email.html', email=email)
 
 @app.route('/signaler_post/<int:post_id>', methods=['POST'])
@@ -1699,7 +1723,7 @@ def messagerie():
         SELECT DISTINCT 
             CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END as autre_id,
             users.prenom, users.nom,
-            (SELECT CASE WHEN COALESCE(supprime, 0) = 1 THEN 'Message supprime' WHEN contenu = '' AND audio IS NOT NULL THEN 'Note vocale' WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
+            (SELECT CASE WHEN COALESCE(supprime, 0) = 1 THEN 'Message supprime' WHEN contenu = '' AND fichier IS NOT NULL THEN '📎 ' || COALESCE(fichier_nom, 'Fichier') WHEN contenu = '' AND audio IS NOT NULL THEN 'Note vocale' WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
             (SELECT date_envoi FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as date_dernier,
             (SELECT COUNT(*) FROM messages WHERE destinataire_id = ? AND expediteur_id = users.id AND lu = 0) as non_lu
         FROM messages
@@ -1761,7 +1785,7 @@ def conversation(autre_id):
         SELECT DISTINCT 
             CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END as autre_id,
             users.prenom, users.nom,
-            (SELECT CASE WHEN COALESCE(supprime, 0) = 1 THEN 'Message supprime' WHEN contenu = '' AND audio IS NOT NULL THEN 'Note vocale' WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
+            (SELECT CASE WHEN COALESCE(supprime, 0) = 1 THEN 'Message supprime' WHEN contenu = '' AND fichier IS NOT NULL THEN '📎 ' || COALESCE(fichier_nom, 'Fichier') WHEN contenu = '' AND audio IS NOT NULL THEN 'Note vocale' WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
             (SELECT date_envoi FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as date_dernier,
             (SELECT COUNT(*) FROM messages WHERE destinataire_id = ? AND expediteur_id = users.id AND lu = 0) as non_lu
         FROM messages
@@ -3098,6 +3122,25 @@ def suivre_version_app(user_id, version):
         conn.close()
     except Exception:
         pass  # jamais bloquant
+
+@app.route('/g/<int:gid>')
+def invitation_groupe(gid):
+    """Lien a partager (WhatsApp...) pour rejoindre un groupe : apercu, puis rejoindre en un clic."""
+    conn = get_db()
+    g = conn.execute('''SELECT groupes.id, groupes.nom, groupes.description,
+                               (SELECT COUNT(*) FROM groupe_membres m WHERE m.groupe_id = groupes.id) AS nb_membres
+                        FROM groupes WHERE id = ?''', (gid,)).fetchone()
+    membre = None
+    if g and session.get('user_id'):
+        membre = conn.execute('SELECT 1 FROM groupe_membres WHERE groupe_id = ? AND user_id = ?', (gid, session['user_id'])).fetchone()
+    conn.close()
+    if not g:
+        return redirect(url_for('index'))
+    if membre:
+        return redirect(f'/groupes/{gid}')
+    return render_template('invitation_groupe.html', g=g, connecte=bool(session.get('user_id')),
+                           og_titre=f"Rejoins le groupe « {g['nom']} » sur LinkCI",
+                           og_description=f"{g['nb_membres']} membre{'s' if g['nb_membres'] > 1 else ''} · " + (g['description'] or "Le reseau des etudiants de Cote d'Ivoire"))
 
 @app.route('/app')
 @app.route('/telecharger')
@@ -4674,8 +4717,8 @@ def supprimer_compte(user_id):
         conn.execute('DELETE FROM groupe_messages WHERE groupe_id = ?', (g['id'],))
         conn.execute('DELETE FROM groupe_membres WHERE groupe_id = ?', (g['id'],))
     # photos et fichiers de ses messages, annonces, stories, documents
-    for m in conn.execute('SELECT image, audio FROM messages WHERE expediteur_id = ?', (user_id,)).fetchall():
-        fichiers += ['static/uploads/' + f for f in (m['image'], m['audio']) if f]
+    for m in conn.execute('SELECT image, audio, fichier FROM messages WHERE expediteur_id = ?', (user_id,)).fetchall():
+        fichiers += ['static/uploads/' + f for f in (m['image'], m['audio'], m['fichier']) if f]
     for table in ('annonces', 'stories'):
         fichiers += ['static/uploads/' + r['image'] for r in conn.execute(f'SELECT image FROM {table} WHERE user_id = ?', (user_id,)).fetchall() if r['image']]
     fichiers += ['uploads/' + d['fichier'] for d in conn.execute('SELECT fichier FROM documents WHERE user_id = ?', (user_id,)).fetchall() if d['fichier']]
@@ -5042,6 +5085,8 @@ def extrait_message(m):
         return 'Message supprime'
     if m['contenu']:
         return m['contenu'][:120]
+    if 'fichier' in m.keys() and m['fichier']:
+        return '📎 ' + (m['fichier_nom'] or 'Fichier')
     return 'Note vocale' if m['audio'] else 'Photo' if m['image'] else ''
 
 def enrichir_messages(lignes, user_id):
@@ -5054,7 +5099,7 @@ def enrichir_messages(lignes, user_id):
         d['ecoute'] = bool(d.get('ecoute'))
         d['modifie'] = bool(d.get('modifie'))
         if d['supprime']:
-            d.update(contenu='', image=None, audio=None, duree=None)
+            d.update(contenu='', image=None, audio=None, duree=None, fichier=None, fichier_nom=None, fichier_taille=None)
         resultat.append(d)
     if not resultat:
         return resultat
@@ -5070,7 +5115,7 @@ def enrichir_messages(lignes, user_id):
         e['moi'] = e['moi'] or x['user_id'] == user_id
     citations = {}
     if cites:
-        for c in conn.execute(f"""SELECT messages.id, messages.expediteur_id, messages.contenu, messages.image, messages.audio,
+        for c in conn.execute(f"""SELECT messages.id, messages.expediteur_id, messages.contenu, messages.image, messages.audio, messages.fichier, messages.fichier_nom,
                                          COALESCE(messages.supprime, 0) AS supprime, users.prenom
                                   FROM messages JOIN users ON users.id = messages.expediteur_id
                                   WHERE messages.id IN ({','.join('?' * len(cites))})""", list(cites)).fetchall():
@@ -5143,12 +5188,12 @@ def api_supprimer_message(mid):
     if envoi and envoi < (datetime.now(timezone.utc) - DELAI_SUPPRESSION).strftime('%Y-%m-%d %H:%M:%S'):
         return jsonify({'error': 'Trop tard : un message ne peut etre supprime pour tous que pendant 48 h'}), 400
     conn = get_db()
-    conn.execute("UPDATE messages SET supprime = 1, contenu = '', image = NULL, audio = NULL, duree = NULL WHERE id = ?", (mid,))
+    conn.execute("UPDATE messages SET supprime = 1, contenu = '', image = NULL, audio = NULL, duree = NULL, fichier = NULL, fichier_nom = NULL WHERE id = ?", (mid,))
     conn.execute('DELETE FROM message_reactions WHERE message_id = ?', (mid,))
     conn.commit()
     # fichier efface s'il n'est pas utilise ailleurs (message transfere)
-    for fichier in (m['image'], m['audio']):
-        if fichier and not conn.execute('SELECT 1 FROM messages WHERE image = ? OR audio = ?', (fichier, fichier)).fetchone():
+    for fichier in (m['image'], m['audio'], m['fichier']):
+        if fichier and not conn.execute('SELECT 1 FROM messages WHERE image = ? OR audio = ? OR fichier = ?', (fichier, fichier, fichier)).fetchone():
             supprimer_fichier('static/uploads/' + fichier)
     conn.close()
     signaler_maj_message(m)
@@ -5176,8 +5221,9 @@ def api_transferer_message(mid):
             continue
         if not conn.execute('SELECT 1 FROM users WHERE id = ?', (dest,)).fetchone():
             continue
-        nid = conn.execute("""INSERT INTO messages (expediteur_id, destinataire_id, contenu, image, audio, duree, transfere)
-                              VALUES (?, ?, ?, ?, ?, ?, 1)""", (user_id, dest, m['contenu'], m['image'], m['audio'], m['duree'])).lastrowid
+        nid = conn.execute("""INSERT INTO messages (expediteur_id, destinataire_id, contenu, image, audio, duree, fichier, fichier_nom, fichier_taille, transfere)
+                              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)""", (user_id, dest, m['contenu'], m['image'], m['audio'], m['duree'],
+                                                                   m['fichier'], m['fichier_nom'], m['fichier_taille'])).lastrowid
         conn.commit()
         diffuser_message(user_id, dest, nid, m['contenu'], m['image'], m['audio'], m['duree'])
         envoyes.append(dest)
@@ -5274,6 +5320,94 @@ def api_posts_enregistres():
                           params_ordre=(user_id,), limite=100)
     conn.close()
     return jsonify(enrichir_posts([dict(p) for p in posts], user_id))
+
+# ---- Fichiers dans les discussions (PDF, Word, PowerPoint, TXT, ZIP, RAR)
+FICHIER_MESSAGE_MAX = 10 * 1024 * 1024
+EXTENSIONS_FICHIER_MESSAGE = tuple(e for e in EXTENSIONS_DOCUMENTS if e not in ('.png', '.jpg', '.jpeg'))  # photos : envoi photo
+
+def lire_fichier_message():
+    """((nom stocke, nom d'origine, taille), None) ou (None, message d'erreur)."""
+    f = request.files.get('fichier')
+    if not f or not f.filename:
+        return None, 'Fichier requis'
+    data = f.read(FICHIER_MESSAGE_MAX + 1)
+    if len(data) > FICHIER_MESSAGE_MAX:
+        return None, 'Fichier trop lourd (10 Mo maximum)'
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in EXTENSIONS_FICHIER_MESSAGE:
+        return None, 'Format non accepte (PDF, Word, PowerPoint, TXT, ZIP, RAR)'
+    if not document_valide(ext, data):
+        return None, 'Le contenu du fichier ne correspond pas a son format'
+    nom = f'{uuid.uuid4().hex}{ext}'
+    stocker_fichier('static/uploads/' + nom, data)
+    origine = sanitize_text(os.path.basename(f.filename).replace('\\', '_'), 120) or f'fichier{ext}'
+    return (nom, origine, len(data)), None
+
+@app.route('/api/messages/fichier', methods=['POST'])
+def api_message_fichier():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if trop_rapide('message', user_id, 30, 60) or trop_rapide('fichier_message', user_id, 20, 3600):
+        return jsonify({'error': 'Tu vas trop vite. Patiente un peu.'}), 429
+    try:
+        destinataire_id = int(request.form.get('destinataire_id', ''))
+    except ValueError:
+        return jsonify({'error': 'destinataire_id requis'}), 400
+    if destinataire_id == user_id or not peut_ecrire(user_id, destinataire_id):
+        return jsonify({'error': 'Tu ne peux pas ecrire a cette personne.'}), 409
+    conn = get_db()
+    if not conn.execute('SELECT 1 FROM users WHERE id = ?', (destinataire_id,)).fetchone():
+        conn.close()
+        return jsonify({'error': 'Destinataire introuvable'}), 404
+    conn.close()
+    infos, erreur = lire_fichier_message()
+    if erreur:
+        return jsonify({'error': erreur}), 400
+    conn = get_db()
+    reponse_a = reponse_valide(conn, request.form.get('reponse_a'), user_id, destinataire_id)
+    mid = conn.execute("""INSERT INTO messages (expediteur_id, destinataire_id, contenu, fichier, fichier_nom, fichier_taille, reponse_a)
+                          VALUES (?, ?, '', ?, ?, ?, ?)""", (user_id, destinataire_id) + infos + (reponse_a,)).lastrowid
+    conn.commit()
+    auteur = conn.execute('SELECT prenom, nom FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    diffuser_message(user_id, destinataire_id, mid, '')
+    creer_notification(destinataire_id, 'message', f"📎 {infos[1]} de {auteur['prenom']} {auteur['nom']}", f'/conversation/{user_id}')
+    return jsonify({'id': mid, 'message': 'Envoye'}), 201
+
+@app.route('/api/groupes/<int:id>/fichier', methods=['POST'])
+def api_groupe_fichier(id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if trop_rapide('message', user_id, 30, 60) or trop_rapide('fichier_message', user_id, 20, 3600):
+        return jsonify({'error': 'Tu vas trop vite. Patiente un peu.'}), 429
+    if not est_membre_groupe(id, user_id):
+        return jsonify({'error': "Tu n'es pas membre"}), 403
+    infos, erreur = lire_fichier_message()
+    if erreur:
+        return jsonify({'error': erreur}), 400
+    conn = get_db()
+    reponse_a = reponse_groupe_valide(conn, request.form.get('reponse_a'), id)
+    mid = conn.execute("""INSERT INTO groupe_messages (groupe_id, user_id, contenu, fichier, fichier_nom, fichier_taille, reponse_a)
+                          VALUES (?, ?, '', ?, ?, ?, ?)""", (id, user_id) + infos + (reponse_a,)).lastrowid
+    conn.commit()
+    conn.close()
+    apres_message_groupe(id, user_id, '📎 ' + infos[1])
+    return jsonify({'id': mid, 'message': 'Envoye'}), 201
+
+@app.route('/f/<nom>')
+def telecharger_fichier_message(nom):
+    """Telecharge un fichier de discussion sous son vrai nom (?n=cours.pdf)."""
+    if not re.fullmatch(r'[0-9a-f]{32}\.[a-z]{2,4}', nom):
+        return 'Fichier introuvable', 404
+    if not restaurer_fichier('static/uploads/' + nom):
+        return 'Fichier introuvable', 404
+    ext = os.path.splitext(nom)[1]
+    nom_propre = re.sub(r'[^\w .()-]', '_', request.args.get('n', ''))[:120].strip() or 'fichier'
+    if not nom_propre.lower().endswith(ext):
+        nom_propre += ext
+    return send_from_directory(os.path.join(app.root_path, 'static', 'uploads'), nom, as_attachment=True, download_name=nom_propre)
 
 # ---- Recherche dans les messages et medias partages
 def motif_recherche(q):
@@ -5447,7 +5581,7 @@ def api_conversations():
         SELECT DISTINCT
             CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END as autre_id,
             users.prenom, users.nom, users.universite, users.avatar,
-            (SELECT CASE WHEN COALESCE(supprime, 0) = 1 THEN 'Message supprime' WHEN contenu = '' AND audio IS NOT NULL THEN 'Note vocale' WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
+            (SELECT CASE WHEN COALESCE(supprime, 0) = 1 THEN 'Message supprime' WHEN contenu = '' AND fichier IS NOT NULL THEN '📎 ' || COALESCE(fichier_nom, 'Fichier') WHEN contenu = '' AND audio IS NOT NULL THEN 'Note vocale' WHEN contenu = '' AND image IS NOT NULL THEN 'Photo' ELSE contenu END FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as dernier_message,
             (SELECT date_envoi FROM messages WHERE (expediteur_id = ? AND destinataire_id = users.id) OR (expediteur_id = users.id AND destinataire_id = ?) ORDER BY date_envoi DESC LIMIT 1) as date_dernier,
             (SELECT COUNT(*) FROM messages WHERE destinataire_id = ? AND expediteur_id = users.id AND lu = 0) as non_lu
         FROM messages JOIN users ON users.id = CASE WHEN expediteur_id = ? THEN destinataire_id ELSE expediteur_id END
@@ -6139,19 +6273,19 @@ def api_supprimer_message_groupe(id, mid):
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
     conn = get_db()
-    m = conn.execute('SELECT user_id, image, audio FROM groupe_messages WHERE id = ? AND groupe_id = ?', (mid, id)).fetchone()
+    m = conn.execute('SELECT user_id, image, audio, fichier FROM groupe_messages WHERE id = ? AND groupe_id = ?', (mid, id)).fetchone()
     conn.close()
     if not m:
         return jsonify({'error': 'Message introuvable'}), 404
     if m['user_id'] != user_id and not est_admin_groupe(id, user_id):
         return jsonify({'error': 'Non autorise'}), 403
     conn = get_db()
-    conn.execute("UPDATE groupe_messages SET supprime = 1, contenu = '', image = NULL, audio = NULL, duree = NULL WHERE id = ?", (mid,))
+    conn.execute("UPDATE groupe_messages SET supprime = 1, contenu = '', image = NULL, audio = NULL, duree = NULL, fichier = NULL, fichier_nom = NULL WHERE id = ?", (mid,))
     for table in ('groupe_message_reactions', 'groupe_sondage_votes', 'groupe_sondage_options'):
         conn.execute(f'DELETE FROM {table} WHERE message_id = ?', (mid,))
     conn.commit()
     conn.close()
-    for f in (m['image'], m['audio']):
+    for f in (m['image'], m['audio'], m['fichier']):
         if f:
             supprimer_fichier('static/uploads/' + f)
     diffuser_message_groupe(id, user_id)
@@ -6183,7 +6317,7 @@ def enrichir_messages_groupe(lignes, user_id):
         dm['supprime'] = bool(dm.get('supprime'))
         dm['modifie'] = bool(dm.get('modifie'))
         if dm['supprime']:
-            dm.update(contenu='', image=None, audio=None, duree=None)
+            dm.update(contenu='', image=None, audio=None, duree=None, fichier=None, fichier_nom=None, fichier_taille=None)
         resultat.append(dm)
     if not resultat:
         return resultat
@@ -6204,7 +6338,7 @@ def enrichir_messages_groupe(lignes, user_id):
     par_id = {x['id']: x for x in resultat}
     cites = {x['reponse_a'] for x in resultat if x.get('reponse_a')} - set(par_id)
     if cites:
-        for c in conn.execute(f'''SELECT gm.id, gm.user_id, gm.contenu, gm.image, gm.audio, COALESCE(gm.supprime, 0) AS supprime, users.prenom
+        for c in conn.execute(f'''SELECT gm.id, gm.user_id, gm.contenu, gm.image, gm.audio, gm.fichier, gm.fichier_nom, COALESCE(gm.supprime, 0) AS supprime, users.prenom
                                    FROM groupe_messages gm JOIN users ON users.id = gm.user_id WHERE gm.id IN ({','.join('?' * len(cites))})''',
                                list(cites)).fetchall():
             par_id.setdefault(c['id'], dict(c))

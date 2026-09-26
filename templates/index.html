@@ -1,105 +1,133 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LINK CI — Le réseau social des étudiants ivoiriens</title>
-    <link rel="stylesheet" href="/static/css/style.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <script src="/static/js/main.js" defer></script>
-    <style>
-        .landing-features { max-width: 1100px; margin: 0 auto; padding: 4rem 1.5rem; display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.5rem; }
-        .feature-card { background: white; border-radius: 20px; padding: 2rem 1.5rem; box-shadow: 0 4px 24px rgba(0,0,0,0.06); text-align: center; transition: transform 0.3s, box-shadow 0.3s; }
-        .feature-card:hover { transform: translateY(-4px); box-shadow: 0 12px 40px rgba(0,0,0,0.1); }
-        .feature-card .icon { font-size: 2.5rem; margin-bottom: 1rem; }
-        .feature-card h3 { font-size: 1.1rem; margin-bottom: 0.5rem; }
-        .feature-card p { font-size: 0.875rem; color: var(--text-secondary); line-height: 1.6; }
-        .landing-cta { text-align: center; padding: 3rem 1.5rem 5rem; }
-        .landing-cta h2 { font-size: 1.75rem; margin-bottom: 0.5rem; }
-        .landing-cta p { color: var(--text-secondary); margin-bottom: 1.5rem; }
-        .sondage-promo { text-align: center; padding: 2rem 1.5rem; background: var(--orange-light); margin: 0 auto 2rem; max-width: 600px; border-radius: 20px; }
-        .sondage-promo p { font-size: 0.9rem; color: var(--text-secondary); }
-        .typewriter-cursor { animation: blink 0.8s step-end infinite; }
-        @keyframes blink { 50% { opacity: 0; } }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+  <title>LinkCI — Le réseau des étudiants de Côte d'Ivoire</title>
+  <meta name="description" content="Groupes de promo, cours et anciens sujets, bourses et stages, entraide, événements du campus : rejoins les étudiants de Côte d'Ivoire sur LinkCI. Gratuit.">
+  {% include '_partage.html' %}
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    :root { --primary: #FF6B35; --primary-dark: #E8551F; --accent: #009E60; --bg: #FFF8F4; --card: #FFFFFF; --text: #16161D; --muted: #5F636E; --border: #F0E4DC; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0E1014; --card: #191C22; --text: #F2F3F5; --muted: #A7ACB7; --border: #2A2F38; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Inter, system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.55; }
+    a { color: inherit; }
+    .page { max-width: 1100px; margin: 0 auto; padding: 0 16px; }
+    header { display: flex; align-items: center; justify-content: space-between; padding: 18px 0; }
+    header nav a { margin-left: 18px; font-weight: 700; text-decoration: none; }
+    .hero { display: grid; grid-template-columns: 1.2fr 1fr; gap: 40px; align-items: center; padding: 30px 0 50px; }
+    .hero h1 { font-size: clamp(34px, 5.5vw, 56px); line-height: 1.08; margin: 0 0 16px; font-weight: 900; letter-spacing: -1px; }
+    .hero h1 span { color: var(--primary); }
+    .hero p { font-size: 18px; color: var(--muted); margin: 0 0 26px; }
+    .boutons { display: flex; flex-wrap: wrap; gap: 12px; }
+    .btn { display: inline-flex; align-items: center; gap: 8px; padding: 14px 24px; border-radius: 999px; font-weight: 800; text-decoration: none; font-size: 16px; }
+    .btn.plein { background: var(--primary); color: #fff; box-shadow: 0 8px 24px rgba(255,107,53,.35); }
+    .btn.plein:hover { background: var(--primary-dark); }
+    .btn.vert { background: var(--accent); color: #fff; }
+    .btn.contour { border: 2px solid var(--border); background: var(--card); }
+    .petit { font-size: 13px; color: var(--muted); margin-top: 12px; }
+    .telephone { background: linear-gradient(160deg, #FF6B35, #E8551F); border-radius: 36px; padding: 22px; color: #fff; box-shadow: 0 30px 60px rgba(232,85,31,.3); max-width: 360px; justify-self: center; width: 100%; }
+    .telephone .bulle { background: rgba(255,255,255,.95); color: #16161D; border-radius: 16px 16px 16px 4px; padding: 10px 14px; margin: 10px 0; font-size: 14px; }
+    .telephone .bulle.moi { background: #16161D; color: #fff; border-radius: 16px 16px 4px 16px; margin-left: 40px; }
+    .telephone .nom { font-size: 12px; font-weight: 800; color: #FF6B35; }
+    .telephone .reac { display: inline-block; background: #fff; color: #000; border-radius: 999px; padding: 0 8px; font-size: 13px; margin-top: -4px; }
+    .chiffres { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 10px 0 50px; }
+    .chiffre { background: var(--card); border: 1px solid var(--border); border-radius: 18px; padding: 18px; text-align: center; }
+    .chiffre b { display: block; font-size: 30px; font-weight: 900; color: var(--primary); }
+    .chiffre span { font-size: 13px; color: var(--muted); font-weight: 600; }
+    h2 { font-size: clamp(26px, 3.6vw, 36px); font-weight: 900; margin: 0 0 8px; text-align: center; }
+    .intro { text-align: center; color: var(--muted); margin: 0 0 28px; }
+    .grille { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 60px; }
+    .carte { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 22px; }
+    .carte .ico { font-size: 32px; }
+    .carte h3 { margin: 8px 0 6px; font-size: 18px; }
+    .carte p { margin: 0; color: var(--muted); font-size: 15px; }
+    .etapes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 60px; counter-reset: e; }
+    .etape { background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 22px; }
+    .etape::before { counter-increment: e; content: counter(e); display: inline-flex; width: 36px; height: 36px; border-radius: 50%; background: var(--primary); color: #fff; font-weight: 900; align-items: center; justify-content: center; margin-bottom: 8px; }
+    .final { background: linear-gradient(135deg, #FF6B35, #E8551F); color: #fff; border-radius: 28px; padding: 40px 24px; text-align: center; margin-bottom: 40px; }
+    .final h2 { color: #fff; } .final p { opacity: .92; margin: 0 0 22px; }
+    .final .btn.contour { background: transparent; border-color: rgba(255,255,255,.7); color: #fff; }
+    .final .btn.blanc { background: #fff; color: #E8551F; }
+    footer { text-align: center; color: var(--muted); font-size: 13px; padding: 10px 0 40px; }
+    footer a { margin: 0 8px; }
+    .drapeau { display: flex; gap: 4px; justify-content: center; margin: 14px 0; } .drapeau i { width: 40px; height: 6px; border-radius: 3px; }
+    @media (max-width: 800px) {
+      .hero { grid-template-columns: 1fr; padding-top: 10px; }
+      .chiffres { grid-template-columns: repeat(2, 1fr) !important; }
+      .etapes { grid-template-columns: 1fr; }
+      header nav a.cache-mobile { display: none; }
+    }
+  </style>
 </head>
 <body>
-    <div class="landing">
-        <div class="landing-particles"></div>
-        <div class="landing-glow"></div>
-        <div class="landing-content">
-            <div class="logo-badge"><img src="/static/images/logo.svg" alt="LINK CI" height="80"></div>
-            <h1>Le réseau social<br>des <span class="highlight">étudiants ivoiriens</span></h1>
-            <p class="subtitle">Connecte-toi avec les étudiants de toutes les universités de Côte d'Ivoire. Partage cours, soirées, débats et opportunités.</p>
-            <div class="landing-buttons">
-                <a href="/inscription" class="btn-primary">Créer un compte</a>
-                <a href="/connexion" class="btn-secondary">Se connecter</a>
-            </div>
-            <div class="landing-stats">
-                <div class="stat">
-                    <span class="stat-number">{{ nb_users }}</span>
-                    <span class="stat-label">Étudiants</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-number">{{ nb_formations }}</span>
-                    <span class="stat-label">Formations</span>
-                </div>
-                <div class="stat">
-                    <span class="stat-number">{{ nb_posts }}</span>
-                    <span class="stat-label">Partages</span>
-                </div>
-            </div>
-            <div class="flag-bar">
-                <span></span><span></span><span></span>
-            </div>
-        </div>
-    </div>
+<div class="page">
+  <header>
+    <a href="/" aria-label="Accueil LinkCI"><img src="/static/images/logo.svg" alt="LinkCI" height="44"></a>
+    <nav><a href="/app" class="cache-mobile">📲 Application</a><a href="/connexion">Se connecter</a></nav>
+  </header>
 
-    <div class="landing-features">
-        <div class="feature-card">
-            <div class="icon">📝</div>
-            <h3>Fil d'actualité</h3>
-            <p>Publie et découvre les actualités, débats et événements de la communauté étudiante ivoirienne.</p>
-        </div>
-        <div class="feature-card">
-            <div class="icon">🎓</div>
-            <h3>Bourses & Formations</h3>
-            <p>Reste informé des meilleures opportunités de bourses et formations disponibles en CI et à l'étranger.</p>
-        </div>
-        <div class="feature-card">
-            <div class="icon">📚</div>
-            <h3>Bibliothèque de cours</h3>
-            <p>Partage et accède aux cours, examens et fiches de révision entre étudiants de toutes les universités.</p>
-        </div>
-        <div class="feature-card">
-            <div class="icon">💬</div>
-            <h3>Messagerie</h3>
-            <p>Discute en privé avec les autres étudiants, pose des questions et collabore sur tes projets.</p>
-        </div>
-        <div class="feature-card">
-            <div class="icon">🔔</div>
-            <h3>Alertes personnalisées</h3>
-            <p>Reçois des notifications pour les nouvelles bourses, formations et documents qui t'intéressent.</p>
-        </div>
-        <div class="feature-card">
-            <div class="icon">📱</div>
-            <h3>Application mobile</h3>
-            <p>Accède à LINK CI partout depuis ton téléphone avec notre app React Native (Expo).</p>
-        </div>
+  <section class="hero">
+    <div>
+      <h1>Le réseau des <span>étudiants de Côte d'Ivoire</span></h1>
+      <p>Retrouve ta promo, partage tes cours et anciens sujets, trouve une bourse ou un stage, et fais-toi aider par des étudiants de toutes les universités. Gratuit.</p>
+      <div class="boutons">
+        <a class="btn plein" href="/inscription">Créer mon compte</a>
+        <a class="btn vert" href="/app">📲 Télécharger l'app</a>
+      </div>
+      <div class="petit">Gratuit · 2 minutes · Android et navigateur</div>
     </div>
+    <div class="telephone" aria-hidden="true">
+      <div style="font-weight:900;font-size:18px">👥 Promo Info L3 · UFHB</div>
+      <div class="bulle"><div class="nom">Awa</div>Quelqu'un a le sujet d'algo de l'an dernier ?</div>
+      <div class="bulle moi">Oui ! Je viens de le mettre dans Documents 📚</div>
+      <span class="reac">🙏 3</span>
+      <div class="bulle"><div class="nom">Yao</div>📊 On révise quand ?<br><b>Samedi 62 %</b> · Dimanche 38 %</div>
+      <div class="bulle"><div class="nom">Koffi</div>Regardez dans Bourses, il y a une nouvelle offre pour le Master 🎓</div>
+    </div>
+  </section>
 
-    <div class="sondage-promo">
-        <p style="font-size:1.1rem;font-weight:600;margin-bottom:0.25rem;">📊 Tu as déjà répondu au sondage ?</p>
-        <p>{{ nb_users }} étudiants ont déjà donné leur avis sur LINK CI. Aide-nous à améliorer la plateforme !</p>
-        <a href="/sondage" class="btn-primary" style="display:inline-block;margin-top:0.75rem;padding:0.6rem 1.5rem;font-size:0.85rem;">Répondre au sondage</a>
-    </div>
+  {% if chiffres %}
+  <section class="chiffres" style="grid-template-columns: repeat({{ chiffres|length }}, 1fr)">
+    {% for valeur, libelle in chiffres %}<div class="chiffre"><b>{{ valeur }}</b><span>{{ libelle }}</span></div>{% endfor %}
+  </section>
+  {% endif %}
 
-    <div class="landing-cta">
-        <h2>Prêt à rejoindre la communauté ?</h2>
-        <p>Des milliers d'étudiants ivoiriens t'attendent.</p>
-        <a href="/inscription" class="btn-primary" style="font-size:1.1rem;padding:0.9rem 2.5rem;">Créer mon compte gratuitement</a>
-        <div style="margin-top:0.75rem;font-size:0.8rem;color:var(--text-muted);">Gratuit · 100% CI · 2 minutes suffisent</div>
+  <h2>Tout ce qu'il te faut pour tes études</h2>
+  <p class="intro">Une seule application, pensée pour les étudiants ivoiriens.</p>
+  <section class="grille">
+    <div class="carte"><div class="ico">👥</div><h3>Groupes de promo</h3><p>Discute avec ta classe comme sur WhatsApp : réactions, réponses, sondages, notes vocales.</p></div>
+    <div class="carte"><div class="ico">📚</div><h3>Cours et anciens sujets</h3><p>Trouve un cours, un TD ou un sujet d'examen par matière et filière. Les plus utiles remontent.</p></div>
+    <div class="carte"><div class="ico">🎓</div><h3>Bourses et stages</h3><p>Bourses d'études, stages, jobs étudiants et alternances, avec des alertes pour ne rien rater.</p></div>
+    <div class="carte"><div class="ico">🤝</div><h3>Entraide</h3><p>Pose ta question, reçois des réponses d'autres étudiants et gagne des points en aidant.</p></div>
+    <div class="carte"><div class="ico">⏰</div><h3>Emploi du temps</h3><p>Tes cours de la semaine et tes examens, avec un rappel sur ton téléphone avant chaque cours.</p></div>
+    <div class="carte"><div class="ico">📅</div><h3>Vie du campus</h3><p>Conférences, matchs, soirées : les événements de ta fac, et « Je participe » en un geste.</p></div>
+  </section>
+
+  <h2>Comment ça marche ?</h2>
+  <p class="intro">Trois étapes, et tu es dans la communauté.</p>
+  <section class="etapes">
+    <div class="etape"><h3>Crée ton compte</h3><p>Ton nom, ton université et ta filière : c'est tout.</p></div>
+    <div class="etape"><h3>Rejoins ta promo</h3><p>LinkCI te propose les groupes de ta fac et de ta filière.</p></div>
+    <div class="etape"><h3>Partage et progresse</h3><p>Cours, questions, bons plans : tout le monde y gagne.</p></div>
+  </section>
+
+  <section class="final">
+    <h2>Rejoins les étudiants de Côte d'Ivoire</h2>
+    <p>Et invite ta promo : 3 camarades inscrits = badge Ambassadeur 🎟️</p>
+    <div class="boutons" style="justify-content:center">
+      <a class="btn blanc" href="/inscription">Créer mon compte gratuitement</a>
+      <a class="btn contour" href="/app">📲 Application Android</a>
     </div>
+  </section>
+
+  <footer>
+    <div class="drapeau"><i style="background:#FF8200"></i><i style="background:#fff;border:1px solid var(--border)"></i><i style="background:#009E60"></i></div>
+    LinkCI · fait en Côte d'Ivoire pour les étudiants
+    <div style="margin-top:6px"><a href="/confidentialite">Confidentialité</a><a href="/conditions">Conditions</a><a href="/connexion">Connexion</a></div>
+  </footer>
+</div>
 </body>
 </html>

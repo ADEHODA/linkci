@@ -14,9 +14,12 @@ import { heure } from '../utils';
 import { useEvenement } from '../realtime';
 import { Fond, ChoixFondEcran, useFondEcran } from '../components/FondEcran';
 import Medias from '../components/Medias';
+import BulleFichier, { choisirFichier } from '../components/BulleFichier';
+import { partager } from '../partage';
 
 const EMOJIS = ['❤️', '😂', '😮', '😢', '🙏', '👍'];
-const extraitMsg = (m) => (m.supprime ? 'Message supprime' : m.contenu || (m.audio || m.audioLocal ? 'Note vocale' : m.image || m.imageLocale ? 'Photo' : ''));
+const extraitMsg = (m) => (m.supprime ? 'Message supprime' : m.contenu || (m.fichier_nom || m.fichierLocal ? `📎 ${m.fichier_nom || m.fichierLocal.name}`
+  : m.audio || m.audioLocal ? 'Note vocale' : m.image || m.imageLocale ? 'Photo' : ''));
 const ageMs = (m) => Date.now() - new Date(`${String(m.date_envoi).slice(0, 19).replace(' ', 'T')}Z`).getTime();
 
 export default function GroupsScreen({ navigation, route }) {
@@ -216,6 +219,20 @@ function GroupChat({ groupe: groupeInitial, moi, onBack, onVoirProfil }) {
     setReponse(null);
     if (photo) envoyer(() => api.sendGroupeMessage(groupe.id, '', photo.base64, cite ? { reponse_a: cite.id } : {}), { imageLocale: photo.uri });
   };
+  const joindre = () => Alert.alert('Envoyer', undefined, [
+    { text: '🖼️ Photo', onPress: envoyerPhoto },
+    { text: '📄 Document (PDF, Word...)', onPress: envoyerDocument },
+    { text: 'Annuler', style: 'cancel' },
+  ]);
+  const envoyerDocument = async () => {
+    let f;
+    try { f = await choisirFichier(); } catch (e) { return; }
+    if (!f) return;
+    const cite = reponse;
+    setReponse(null);
+    envoyer(() => api.envoyerFichierGroupe(groupe.id, f, cite?.id), { fichierLocal: f });
+  };
+  const inviter = () => partager(`Rejoins le groupe « ${groupe.nom} » sur LinkCI`, `/g/${groupe.id}`);
   const envoyerSondage = (question, choix) => {
     setSondage(false);
     envoyer(() => api.sendGroupeMessage(groupe.id, question, null, { sondage: choix }),
@@ -272,6 +289,9 @@ function GroupChat({ groupe: groupeInitial, moi, onBack, onVoirProfil }) {
             <Text style={styles.chatDesc} numberOfLines={1}>{infos.membres.length ? `${infos.membres.length} membres · toucher pour les infos` : groupe.description}</Text>
           </View>
         </TouchableOpacity>
+        <TouchableOpacity onPress={inviter} hitSlop={10} accessibilityLabel="Inviter dans le groupe">
+          <Ionicons name="person-add-outline" size={22} color={colors.textMuted} />
+        </TouchableOpacity>
         <TouchableOpacity onPress={() => setMedias(true)} hitSlop={10} accessibilityLabel="Photos partagees">
           <Ionicons name="images-outline" size={22} color={colors.textMuted} />
         </TouchableOpacity>
@@ -312,6 +332,7 @@ function GroupChat({ groupe: groupeInitial, moi, onBack, onVoirProfil }) {
                   ) : null}
                   {item.supprime ? <Text style={[styles.supprime, moiAuteur && { color: 'rgba(255,255,255,0.85)' }]}>🚫 Message supprime</Text> : null}
                   {item.image || item.imageLocale ? <PostImage uri={item.imageLocale || api.imageUrl(item.image)} style={{ width: 210, marginBottom: 4 }} /> : null}
+                  {item.fichier || item.fichierLocal ? <BulleFichier message={item} clair={moiAuteur} /> : null}
                   {item.audio || item.audioLocal ? <BulleVocale uri={item.audioLocal || api.imageUrl(item.audio)} duree={item.duree} clair={moiAuteur} /> : null}
                   {item.contenu ? <TexteMentions texte={item.sondage?.length ? `📊 ${item.contenu}` : item.contenu} clair={moiAuteur} /> : null}
                   {item.sondage?.length ? (
@@ -363,8 +384,8 @@ function GroupChat({ groupe: groupeInitial, moi, onBack, onVoirProfil }) {
           <Enregistreur onEnvoyer={envoyerVocal} onAnnuler={() => setEnregistre(false)} />
         ) : (
           <>
-            <TouchableOpacity style={styles.attache} onPress={envoyerPhoto} hitSlop={6}>
-              <Ionicons name="image-outline" size={24} color={colors.primary} />
+            <TouchableOpacity style={styles.attache} onPress={joindre} hitSlop={6} accessibilityLabel="Joindre une photo ou un document">
+              <Ionicons name="attach" size={26} color={colors.primary} />
             </TouchableOpacity>
             {!edition ? (
               <TouchableOpacity style={styles.attache} onPress={() => setSondage(true)} hitSlop={6} accessibilityLabel="Creer un sondage">

@@ -71,6 +71,7 @@
     supprimer: (id) => L.api(`/api/groupes/${gid}/messages/${id}`, { methode: 'DELETE' }),
     voter: (id, option_id) => L.api(`/api/groupes/${gid}/messages/${id}/vote`, { methode: 'POST', corps: { option_id } }),
     peutSupprimer: (m) => m.user_id === moiId || admin,
+    envoyerFichier: (f, reponse_a) => L.envoyerFichierDiscussion(`/api/groupes/${gid}/fichier`, f, { reponse_a }),
   });
   // nouveau message, reaction, vote... : mise a jour en direct
   const socket = io('', { transports: ['polling', 'websocket'] });

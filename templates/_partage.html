@@ -1,0 +1,11 @@
+{# Apercu du lien quand on le partage sur WhatsApp, Facebook, Telegram... (variables facultatives : og_titre, og_description) #}
+<meta property="og:site_name" content="LinkCI">
+<meta property="og:type" content="website">
+<meta property="og:title" content="{{ og_titre or 'LinkCI — Le réseau des étudiants de Côte d\'Ivoire' }}">
+<meta property="og:description" content="{{ og_description or 'Groupes de promo, cours et anciens sujets, bourses et stages, entraide, événements du campus. Gratuit.' }}">
+<meta property="og:image" content="{{ request.url_root.replace('http://', 'https://') }}static/images/partage.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:url" content="{{ request.url.replace('http://', 'https://') }}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#FF6B35">

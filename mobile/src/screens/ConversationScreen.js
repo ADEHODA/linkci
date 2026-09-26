@@ -15,9 +15,11 @@ import { useEvenement, useRealtime } from '../realtime';
 import { Fond, ChoixFondEcran, useFondEcran } from '../components/FondEcran';
 import { useFocusEffect } from '@react-navigation/native';
 import Medias from '../components/Medias';
+import BulleFichier, { choisirFichier } from '../components/BulleFichier';
 
 const EMOJIS = ['❤️', '😂', '😮', '😢', '🙏', '👍'];
-const extrait = (m) => (m.supprime ? 'Message supprime' : m.contenu || (m.audio || m.audioLocal ? 'Note vocale' : m.image || m.imageLocale ? 'Photo' : ''));
+const extrait = (m) => (m.supprime ? 'Message supprime' : m.contenu || (m.fichier_nom || m.fichierLocal ? `📎 ${m.fichier_nom || m.fichierLocal.name}`
+  : m.audio || m.audioLocal ? 'Note vocale' : m.image || m.imageLocale ? 'Photo' : ''));
 // un message ne peut etre supprime pour tous que pendant 48 h
 const ageMs = (m) => Date.now() - new Date(`${String(m.date_envoi).slice(0, 19).replace(' ', 'T')}Z`).getTime();
 const modifiable = (m) => !!m.contenu && !m.supprime && ageMs(m) < 15 * 60 * 1000;
@@ -262,6 +264,30 @@ export default function ConversationScreen({ route, navigation }) {
     }
   };
 
+  // 📎 : photo ou document
+  const joindre = () => Alert.alert('Envoyer', undefined, [
+    { text: '🖼️ Photo', onPress: envoyerPhoto },
+    { text: '📄 Document (PDF, Word...)', onPress: envoyerDocument },
+    { text: 'Annuler', style: 'cancel' },
+  ]);
+  const envoyerDocument = async () => {
+    let f;
+    try { f = await choisirFichier(); } catch (e) { return; }
+    if (!f) return;
+    const cite = reponse;
+    setReponse(null);
+    suivreFin.current = true;
+    const provisoire = { id: `tmp-${Date.now()}`, contenu: '', fichierLocal: f, expediteur_id: -1, date_envoi: new Date().toISOString().slice(0, 19).replace('T', ' '), enAttente: true };
+    setData((m) => [...m, provisoire]);
+    try {
+      await api.envoyerFichierMessage(conv.autre_id, f, cite?.id);
+      await reload();
+    } catch (e) {
+      setData((m) => m.filter((x) => x.id !== provisoire.id));
+      Alert.alert('Fichier non envoye', e.message);
+    }
+  };
+
   const envoyerPhoto = async () => {
     let photo;
     try {
@@ -340,6 +366,7 @@ export default function ConversationScreen({ route, navigation }) {
                   {item.image || item.imageLocale ? (
                     <PostImage uri={item.imageLocale || api.imageUrl(item.image)} style={styles.photo} />
                   ) : null}
+                  {item.fichier || item.fichierLocal ? <BulleFichier message={item} clair={!recu} /> : null}
                   {item.audio || item.audioLocal ? (
                     <BulleVocale uri={item.audioLocal || api.imageUrl(item.audio)} duree={item.duree} clair={!recu}
                       onEcoute={recu && !item.ecoute ? () => api.vocalEcoute(item.id).catch(() => {}) : undefined} />
@@ -395,8 +422,8 @@ export default function ConversationScreen({ route, navigation }) {
           <Enregistreur onEnvoyer={envoyerVocal} onAnnuler={() => setEnregistre(false)} />
         ) : (
           <>
-            <TouchableOpacity style={styles.attache} onPress={envoyerPhoto} hitSlop={6}>
-              <Ionicons name="image-outline" size={24} color={colors.primary} />
+            <TouchableOpacity style={styles.attache} onPress={joindre} hitSlop={6} accessibilityLabel="Joindre une photo ou un document">
+              <Ionicons name="attach" size={26} color={colors.primary} />
             </TouchableOpacity>
             <TextInput style={styles.input} value={text} onChangeText={surSaisie} placeholder="Ecris un message..." placeholderTextColor={colors.textFaint} multiline />
             {text.trim() || edition ? (

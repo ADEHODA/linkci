@@ -282,6 +282,24 @@ export const supprimerMessage = (id) => request(`/api/messages/${id}`, { method:
 export const modifierMessage = (id, contenu) => request(`/api/messages/${id}`, { method: 'PUT', body: JSON.stringify({ contenu }) });
 export const vocalEcoute = (id) => request(`/api/messages/${id}/ecoute`, { method: 'POST' });
 export const getPresence = (id) => request(`/api/presence/${id}`);
+// Fichier (PDF, Word...) dans une discussion : fichier = { uri, name, mimeType } (expo-document-picker)
+async function envoyerFichier(chemin, fichier, champs = {}) {
+  const form = new FormData();
+  Object.entries(champs).forEach(([k, v]) => { if (v !== null && v !== undefined) form.append(k, String(v)); });
+  form.append('fichier', { uri: fichier.uri, name: fichier.name, type: fichier.mimeType || 'application/octet-stream' });
+  let res;
+  try {
+    res = await fetch(API_BASE + chemin, { method: 'POST', headers: { Authorization: `Bearer ${_token}`, 'X-LinkCI-Version': VERSION_APP }, body: form });
+  } catch (e) {
+    throw new Error('Pas de connexion internet');
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || "Echec de l'envoi");
+  return data;
+}
+export const envoyerFichierMessage = (destinataire_id, fichier, reponse_a = null) =>
+  envoyerFichier('/api/messages/fichier', fichier, { destinataire_id, reponse_a });
+export const envoyerFichierGroupe = (id, fichier, reponse_a = null) => envoyerFichier(`/api/groupes/${id}/fichier`, fichier, { reponse_a });
 export const rechercherMessages = (q) => request(`/api/messages/recherche?q=${encodeURIComponent(q)}`);
 export const getMediasConversation = (id) => request(`/api/messages/medias?avec=${id}`);
 export const getMediasGroupe = (id) => request(`/api/groupes/${id}/medias`);

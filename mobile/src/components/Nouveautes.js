@@ -6,13 +6,12 @@ import { PrimaryButton } from './ui';
 import { radius, spacing, creerStyles } from '../theme';
 
 // Changer ID a chaque nouvelle serie de nouveautes a annoncer
-const ID = '2026-09-30';
+const ID = '2026-10-01';
 const CLE = 'linkci_nouveautes_vues';
 const LISTE = [
-  ['🔍', 'Recherche dans les messages', 'Tape un mot en haut de Messages : retrouve-le dans toutes tes discussions et tes groupes.'],
-  ['🔎', 'Chercher dans une discussion', "Menu ⋮ > Rechercher dans la discussion, puis navigue d'un resultat a l'autre avec les fleches."],
-  ['🖼️', 'Photos partagees', 'Menu ⋮ > Photos partagees (ou icone photos dans un groupe) pour revoir toutes les images echangees.'],
-  ['💻', 'Sur le site aussi', 'Reactions, reponses, sondages de groupe, documents 2.0 et statuts texte arrivent sur linkci.onrender.com.'],
+  ['📎', 'Envoie des documents', 'Touche le trombone dans une discussion ou un groupe : envoie un PDF, un Word ou un PowerPoint (10 Mo max).'],
+  ['👥', 'Invite ta promo', "Dans un groupe, touche l'icone ➕👤 pour partager le lien du groupe sur WhatsApp."],
+  ['🎟️', 'Invite tes camarades', "Ton lien personnel (Profil) affiche maintenant ton prenom : « Awa t'invite sur LinkCI »."],
 ];
 
 export default function Nouveautes() {

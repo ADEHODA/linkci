@@ -8,7 +8,19 @@
   const EMOJIS = ['❤️', '😂', '😮', '😢', '🙏', '👍'];
   const date = (t) => new Date(`${String(t).slice(0, 19).replace(' ', 'T')}Z`);
   const age = (m) => Date.now() - date(m.date_envoi).getTime();
-  const extrait = (m) => (m.supprime ? 'Message supprime' : m.contenu || (m.audio ? 'Note vocale' : m.image ? 'Photo' : ''));
+  const extrait = (m) => (m.supprime ? 'Message supprime' : m.contenu || (m.fichier ? '📎 ' + (m.fichier_nom || 'Fichier') : m.audio ? 'Note vocale' : m.image ? 'Photo' : ''));
+  const taille = (o) => (!o ? '' : o > 1048576 ? (o / 1048576).toFixed(1) + ' Mo' : Math.max(1, Math.round(o / 1024)) + ' Ko');
+  const ICONES = { pdf: '📕', doc: '📘', docx: '📘', ppt: '📙', pptx: '📙', zip: '🗜️', rar: '🗜️', txt: '📄' };
+  // envoi d'un fichier (formulaire multipart ; la session du site suffit)
+  L.envoyerFichierDiscussion = async (chemin, fichier, champs = {}) => {
+    const form = new FormData();
+    Object.entries(champs).forEach(([k, v]) => { if (v !== null && v !== undefined) form.append(k, v); });
+    form.append('fichier', fichier);
+    const res = await fetch(chemin, { method: 'POST', body: form, credentials: 'same-origin', headers: { 'X-LinkCI': 'web' } });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Echec de l'envoi");
+    return data;
+  };
   const jour = (t) => date(t).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   const heure = (t) => date(t).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 
@@ -38,6 +50,9 @@
           ${m.supprime ? '<em class="disc-petit">🚫 Message supprime</em>' : ''}
           ${m.image ? `<a href="${L.image(m.image)}" target="_blank" rel="noopener"><img src="${L.image(m.image)}" alt="Photo" loading="lazy"></a>` : ''}
           ${m.audio ? `<audio controls preload="none" src="${L.image(m.audio)}"></audio>` : ''}
+          ${m.fichier ? `<a class="disc-fichier" href="/f/${encodeURIComponent(m.fichier)}?n=${encodeURIComponent(m.fichier_nom || 'fichier')}">
+            <span>${ICONES[(m.fichier_nom || '').split('.').pop().toLowerCase()] || '📎'}</span>
+            <div><b>${L.esc(m.fichier_nom || 'Fichier')}</b><small>${taille(m.fichier_taille)} · telecharger</small></div></a>` : ''}
           ${m.contenu ? `<div class="disc-texte">${(m.sondage || []).length ? '📊 ' : ''}${L.esc(m.contenu)}</div>` : ''}
           ${sondage}
           <div class="disc-meta">${m.modifie ? 'modifie · ' : ''}${heure(m.date_envoi)}${!o.groupe && moi ? (m.lu ? ' ✓✓' : ' ✓') : ''}</div>
@@ -131,6 +146,36 @@
       o.zone.dataset.vu = '';
       await recharger();
     });
+
+    // 📎 : envoyer un document (PDF, Word, PowerPoint, TXT, ZIP, RAR ; 10 Mo max)
+    if (o.envoyerFichier) {
+      const entree = document.createElement('input');
+      entree.type = 'file';
+      entree.accept = '.pdf,.doc,.docx,.ppt,.pptx,.txt,.zip,.rar';
+      entree.hidden = true;
+      const bouton = document.createElement('button');
+      bouton.type = 'button';
+      bouton.className = 'disc-joindre';
+      bouton.title = 'Envoyer un document (PDF, Word, PowerPoint...)';
+      bouton.textContent = '📎';
+      o.formulaire.prepend(bouton, entree);
+      bouton.addEventListener('click', () => entree.click());
+      entree.addEventListener('change', async () => {
+        const f = entree.files[0];
+        entree.value = '';
+        if (!f) return;
+        if (f.size > 10 * 1024 * 1024) return L.toast('Fichier trop lourd (10 Mo maximum)');
+        bouton.disabled = true;
+        L.toast('Envoi de ' + f.name + '...');
+        try {
+          await o.envoyerFichier(f, reponse ? reponse.id : null);
+          reponse = null; barre();
+          o.zone.dataset.vu = '';
+          await recharger();
+        } catch (err) { L.erreur(err); }
+        bouton.disabled = false;
+      });
+    }
 
     recharger();
     return { recharger };
