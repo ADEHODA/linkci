@@ -595,6 +595,14 @@ def init_db():
         except Exception:
             pass
 
+    # Parrainage : qui m'a invite, et mon code d'invitation
+    for colonne in ('parrain_id INTEGER', 'code_invitation TEXT'):
+        try:
+            conn.execute('ALTER TABLE users ADD COLUMN ' + colonne)
+            conn.commit()
+        except Exception:
+            pass
+
     # Profil riche : couverture, competences et parcours (JSON), liens, visites masquees
     for colonne in ('couverture TEXT', "competences TEXT DEFAULT ''", "parcours TEXT DEFAULT ''",
                     "lien_linkedin TEXT DEFAULT ''", "lien_github TEXT DEFAULT ''", "lien_site TEXT DEFAULT ''",
@@ -822,18 +830,18 @@ BADGES = [
     ('Solidaire', 'A commenté 20 fois', '🤝', 'commentaires', 20),
     ('Bibliotheque', 'A partagé 5 documents', '📚', 'documents', 5),
     ('Networker', 'A envoyé 50 messages', '🌐', 'messages', 50),
+    ('Ambassadeur', 'A invite 3 camarades sur LinkCI', '🎟️', 'filleuls', 3),
 ]
 
 def seed_badges():
     conn = get_db()
-    existing = conn.execute('SELECT COUNT(*) FROM badges').fetchone()[0]
-    if existing == 0:
-        for b in BADGES:
+    for b in BADGES:  # ajoute les badges manquants (nouveaux badges compris)
+        if not conn.execute('SELECT 1 FROM badges WHERE nom = ?', (b[0],)).fetchone():
             try:
                 conn.execute('INSERT INTO badges (nom, description, icone, critere_type, critere_seuil) VALUES (?, ?, ?, ?, ?)', b)
-            except:
+            except Exception:
                 pass
-        conn.commit()
+    conn.commit()
     conn.close()
 
 def check_and_award_badges(user_id):
@@ -862,6 +870,8 @@ def check_and_award_badges(user_id):
     stats['commentaires'] = conn.execute('SELECT COUNT(*) as nb FROM commentaires WHERE user_id = ?', (user_id,)).fetchone()['nb']
     stats['documents'] = conn.execute('SELECT COUNT(*) as nb FROM documents WHERE user_id = ?', (user_id,)).fetchone()['nb']
     stats['messages'] = conn.execute('SELECT COUNT(*) as nb FROM messages WHERE expediteur_id = ?', (user_id,)).fetchone()['nb']
+    stats['filleuls'] = conn.execute('SELECT COUNT(*) as nb FROM users WHERE parrain_id = ? AND COALESCE(email_verifie, 1) = 1',
+                                     (user_id,)).fetchone()['nb']
 
     awarded = []
     for badge in badges:
@@ -941,6 +951,49 @@ def index():
     conn.close()
     return render_template('index.html', nb_users=nb_users, nb_posts=nb_posts, nb_formations=nb_formations)
 
+# ---- Parrainage
+def code_invitation(user_id):
+    """Code personnel (7 caracteres), cree a la premiere demande."""
+    conn = get_db()
+    u = conn.execute('SELECT code_invitation FROM users WHERE id = ?', (user_id,)).fetchone()
+    code = u['code_invitation'] if u else None
+    while not code:
+        essai = ''.join(secrets.choice('ABCDEFGHJKLMNPQRSTUVWXYZ23456789') for _ in range(7))
+        if not conn.execute('SELECT 1 FROM users WHERE code_invitation = ?', (essai,)).fetchone():
+            conn.execute('UPDATE users SET code_invitation = ? WHERE id = ?', (essai, user_id))
+            conn.commit()
+            code = essai
+    conn.close()
+    return code
+
+def noter_parrain(user_id, code):
+    """A l'inscription : retient le parrain si le code est valide."""
+    code = re.sub(r'[^A-Za-z0-9]', '', str(code or ''))[:12].upper()
+    if not code:
+        return
+    conn = get_db()
+    p = conn.execute('SELECT id FROM users WHERE code_invitation = ? AND id != ?', (code, user_id)).fetchone()
+    if p:
+        conn.execute('UPDATE users SET parrain_id = ? WHERE id = ?', (p['id'], user_id))
+        conn.commit()
+    conn.close()
+
+def accueillir_filleul(user_id):
+    """Compte actif (e-mail verifie) : parrain et filleul se suivent, le parrain est prevenu."""
+    conn = get_db()
+    u = conn.execute('SELECT prenom, nom, parrain_id FROM users WHERE id = ?', (user_id,)).fetchone()
+    if not u or not u['parrain_id']:
+        conn.close()
+        return
+    p = u['parrain_id']
+    for a, b in ((user_id, p), (p, user_id)):
+        if not conn.execute('SELECT 1 FROM follows WHERE follower_id = ? AND followed_id = ?', (a, b)).fetchone():
+            conn.execute('INSERT INTO follows (follower_id, followed_id) VALUES (?, ?)', (a, b))
+    conn.commit()
+    conn.close()
+    creer_notification(p, 'suivi', f"{u['prenom']} {u['nom']} a rejoint LinkCI grace a toi 🎉", f'/profil/{user_id}')
+    check_and_award_badges(p)
+
 # ---- Verification de l'adresse e-mail (code a 6 chiffres)
 CODE_VALIDITE_MIN = 15
 CODE_ESSAIS_MAX = 5
@@ -990,6 +1043,7 @@ def verifier_code_email(email, code):
     conn.execute('DELETE FROM codes_verification WHERE user_id = ?', (user['id'],))
     conn.commit()
     conn.close()
+    accueillir_filleul(user['id'])
     return user, None
 
 def ouvrir_session(user):
@@ -1093,7 +1147,9 @@ def inscription():
             user_id = conn.execute('INSERT INTO users (nom, prenom, email, mot_de_passe, universite, filiere, annee, email_verifie) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                                    (nom, prenom, email, mot_de_passe, universite, filiere, annee, 0 if verification_active() else 1)).lastrowid
             conn.commit()
+            noter_parrain(user_id, request.form.get('invitation'))
             if not verification_active():
+                accueillir_filleul(user_id)
                 flash('Compte cree ! Connecte-toi.', 'success')
                 return redirect(url_for('connexion'))
             envoyer_code_verification(user_id, email, prenom)
@@ -1102,10 +1158,10 @@ def inscription():
             return redirect(url_for('verifier_email'))
         except db.IntegrityError:
             flash('Cet email est deja utilise.', 'error')
-            return render_template('inscription.html')
+            return render_template('inscription.html', invitation=request.form.get('invitation', ''))
         finally:
             conn.close()
-    return render_template('inscription.html')
+    return render_template('inscription.html', invitation=request.args.get('invite', ''))
 
 @app.route('/connexion', methods=['GET', 'POST'])
 def connexion():
@@ -1142,6 +1198,9 @@ def connexion():
         if user:
             ouvrir_session(user)
             flash('Connecte !', 'success')
+            suivant = request.form.get('suivant') or request.args.get('suivant') or ''
+            if suivant.startswith('/') and not suivant.startswith('//') and '\\' not in suivant:
+                return redirect(suivant)
             return redirect(url_for('feed'))
         else:
             flash('Email ou mot de passe incorrect.', 'error')
@@ -2917,7 +2976,9 @@ def api_register():
                                 sanitize_text(str(data.get('universite') or ''), 100), sanitize_text(str(data.get('filiere') or ''), 100),
                                 sanitize_text(str(data.get('annee') or ''), 20), 0 if verification_active() else 1)).lastrowid
         conn.commit()
+        noter_parrain(user_id, data.get('invitation'))
         if not verification_active():
+            accueillir_filleul(user_id)
             user = conn.execute('SELECT id, nom, prenom, email, universite, filiere FROM users WHERE id = ?', (user_id,)).fetchone()
             conn.close()
             return jsonify({'token': api_token(user['id']), 'user': dict(user)}), 201
@@ -4400,6 +4461,21 @@ def api_vues_profil():
                            ORDER BY v.date_vue DESC LIMIT 50''', (user_id, il_y_a_30j, user_id, user_id)).fetchall()
     conn.close()
     return jsonify({'masque': False, 'total': len(vues), 'vues': [dict(v) for v in vues]})
+
+@app.route('/api/invitations')
+def api_invitations():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    code = code_invitation(user_id)
+    conn = get_db()
+    filleuls = conn.execute('''SELECT id, prenom, nom, avatar, date_inscription FROM users
+                               WHERE parrain_id = ? AND COALESCE(email_verifie, 1) = 1 ORDER BY date_inscription DESC''', (user_id,)).fetchall()
+    conn.close()
+    lien = f'https://linkci.onrender.com/inscription?invite={code}'
+    return jsonify({'code': code, 'lien': lien, 'nb_filleuls': len(filleuls), 'objectif_badge': 3,
+                    'filleuls': [dict(f) for f in filleuls],
+                    'message': f"Rejoins-moi sur LinkCI, le reseau des etudiants de Cote d'Ivoire : bourses, stages, entraide, groupes de promo. Inscris-toi ici : {lien}"})
 
 @app.route('/api/formations')
 def api_formations():

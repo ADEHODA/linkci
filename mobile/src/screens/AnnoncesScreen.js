@@ -8,6 +8,7 @@ import { EmptyState, Fab, PrimaryButton, pullToRefresh, SkeletonList } from '../
 import { choisirPhoto } from '../photos';
 import { radius, spacing, creerStyles, useTheme } from '../theme';
 import { dateRelative } from '../utils';
+import { partager } from '../partage';
 
 const CATEGORIES = [
   { cle: 'livres', label: 'Livres', icone: 'book' },
@@ -127,6 +128,9 @@ function DetailAnnonce({ annonce, navigation, onFermer, onChange }) {
               <TouchableOpacity style={styles.annuler} onPress={signaler}><Text style={styles.annulerTexte}>Signaler l'annonce</Text></TouchableOpacity>
             </>
           )}
+          <TouchableOpacity style={styles.annuler} onPress={() => partager(`A vendre : ${a.titre} (${prixLisible(a)})`, '/annonces')}>
+            <Text style={[styles.annulerTexte, { color: colors.primary }]}>Partager l'annonce</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.annuler} onPress={onFermer}><Text style={styles.annulerTexte}>Fermer</Text></TouchableOpacity>
         </View>
       </View>

@@ -345,6 +345,8 @@ export const updateProfile = (data) =>
 export const searchAll = (q) => request(`/api/recherche?q=${encodeURIComponent(q)}`);
 export const getDecouverte = () => request('/api/decouverte');
 export const getVuesProfil = () => request('/api/profil/vues');
+export const getInvitations = () => request('/api/invitations');
+export const SITE = 'https://linkci.onrender.com';
 export const suivre = (id) => request(`/api/utilisateurs/${id}/suivre`, { method: 'POST' });
 export const nePlusSuivre = (id) => request(`/api/utilisateurs/${id}/suivre`, { method: 'DELETE' });
 

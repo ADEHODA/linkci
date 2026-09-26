@@ -27,6 +27,9 @@
 
 {% block cote %}
 <aside class="cote">
+  <div class="carte" style="background:var(--accent);color:#fff"><strong>🎟️ Invite tes camarades</strong>
+    <div id="invitation" style="font-size:13px;margin:6px 0 10px;opacity:.95">...</div>
+    <button class="btn gris petit" id="copier-invitation">Copier mon lien</button></div>
   <div class="carte"><strong>Etudiants a decouvrir</strong><div id="suggestions" style="margin-top:10px"></div></div>
   <div class="carte"><strong>Tendances du campus</strong><div id="tendances" class="puces" style="margin:10px 0 0"></div></div>
   <div class="sous" style="padding:0 6px"><a href="/confidentialite">Confidentialite</a> · <a href="/conditions">Conditions</a> · LinkCI</div>
@@ -109,6 +112,15 @@
     } catch (err) { L.erreur(err); }
     e.target.disabled = false;
   };
+
+  // invitation : lien personnel a copier
+  L.api('/api/invitations').then((inv) => {
+    document.getElementById('invitation').textContent = `${inv.nb_filleuls}/${inv.objectif_badge} camarades pour le badge Ambassadeur · code ${inv.code}`;
+    document.getElementById('copier-invitation').onclick = async () => {
+      try { await navigator.clipboard.writeText(inv.message); L.toast('Lien copie : colle-le dans WhatsApp !'); }
+      catch (e) { window.prompt('Copie ce message :', inv.message); }
+    };
+  }).catch(() => {});
 
   // colonne de droite : decouverte
   try {

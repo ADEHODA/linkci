@@ -12,6 +12,7 @@ export default function RegisterScreen({ navigation, onLogin }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [universite, setUniversite] = useState('');
+  const [invitation, setInvitation] = useState('');
   const [loading, setLoading] = useState(false);
 
   const handleRegister = async () => {
@@ -25,7 +26,7 @@ export default function RegisterScreen({ navigation, onLogin }) {
     }
     setLoading(true);
     try {
-      const data = await api.register({ nom: nom.trim(), prenom: prenom.trim(), email: email.trim(), mot_de_passe: password, universite: universite.trim() });
+      const data = await api.register({ nom: nom.trim(), prenom: prenom.trim(), email: email.trim(), mot_de_passe: password, universite: universite.trim(), invitation: invitation.trim() });
       if (data.a_verifier) {
         navigation.navigate('VerifierEmail', { email: data.email });
       } else {
@@ -47,6 +48,7 @@ export default function RegisterScreen({ navigation, onLogin }) {
       <Field icon="mail-outline" placeholder="Email" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" />
       <Field icon="lock-closed-outline" placeholder="Mot de passe (8 caracteres min.)" value={password} onChangeText={setPassword} secureTextEntry />
       <Field icon="school-outline" placeholder="Universite (optionnel)" value={universite} onChangeText={setUniversite} />
+      <Field icon="ticket-outline" placeholder="Code d'invitation (optionnel)" value={invitation} onChangeText={setInvitation} autoCapitalize="characters" maxLength={12} />
       <PrimaryButton title="Creer mon compte" onPress={handleRegister} loading={loading} style={{ marginTop: spacing.sm }} />
       <Text style={styles.legal}>
         En creant un compte, tu acceptes les{' '}

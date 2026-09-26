@@ -7,6 +7,7 @@ import useApiList from '../hooks/useApiList';
 import { Card, Chip, EmptyState, pullToRefresh, SkeletonList } from '../components/ui';
 import { radius, spacing, creerStyles, useTheme } from '../theme';
 import { lireFavoris, basculerFavori } from '../favoris';
+import { partager } from '../partage';
 
 function informer(texte) {
   if (Platform.OS === 'android') ToastAndroid.show(texte, ToastAndroid.SHORT);
@@ -54,6 +55,9 @@ export default function BoursesScreen() {
               : joursRestants !== null && joursRestants >= 0 && joursRestants <= 30 ? <Chip label={`J-${joursRestants}`} tone="danger" icon="time" />
               : null}
           </View>
+          <TouchableOpacity onPress={() => partager(`Bourse : ${item.titre}${item.deadline ? ` (date limite ${item.deadline})` : ''}`, '/bourses')} hitSlop={12} style={{ marginRight: 14 }}>
+            <Ionicons name="share-social-outline" size={21} color={colors.textFaint} />
+          </TouchableOpacity>
           <TouchableOpacity onPress={() => etoile(item)} hitSlop={12}>
             <Ionicons name={favori ? 'star' : 'star-outline'} size={22} color={favori ? '#F59E0B' : colors.textFaint} />
           </TouchableOpacity>

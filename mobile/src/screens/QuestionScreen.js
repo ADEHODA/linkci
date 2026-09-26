@@ -9,6 +9,7 @@ import useApiList from '../hooks/useApiList';
 import { Card, Chip, Loading, pullToRefresh } from '../components/ui';
 import { radius, spacing, creerStyles, useTheme } from '../theme';
 import { dateRelative } from '../utils';
+import { partager } from '../partage';
 
 export default function QuestionScreen({ route, navigation }) {
   const { id } = route.params;
@@ -67,7 +68,10 @@ export default function QuestionScreen({ route, navigation }) {
               <Chip label={q.matiere} />
               {q.resolue ? <Chip label="Resolue" tone="accent" icon="checkmark-circle" /> : null}
               <View style={{ flex: 1 }} />
-              {q.est_auteur ? <TouchableOpacity onPress={supprimerQuestion} hitSlop={10}><Ionicons name="trash-outline" size={19} color={colors.textFaint} /></TouchableOpacity> : null}
+              <TouchableOpacity onPress={() => partager(`Qui peut aider ? ${q.titre} (${q.matiere})`, `/entraide/${q.id}`)} hitSlop={10}>
+                <Ionicons name="share-social-outline" size={19} color={colors.primary} />
+              </TouchableOpacity>
+              {q.est_auteur ? <TouchableOpacity onPress={supprimerQuestion} hitSlop={10} style={{ marginLeft: 12 }}><Ionicons name="trash-outline" size={19} color={colors.textFaint} /></TouchableOpacity> : null}
             </View>
             <Text style={styles.titre}>{q.titre}</Text>
             {q.contenu ? <Text style={styles.contenu}>{q.contenu}</Text> : null}

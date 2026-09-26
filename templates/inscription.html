@@ -30,6 +30,7 @@
             {% endif %}
 
             <form method="POST" class="auth-form">
+                <input type="hidden" name="invitation" value="{{ invitation or '' }}">{% if invitation %}<p style="background:var(--green-light);color:var(--green);padding:0.5rem 0.75rem;border-radius:8px;font-size:0.85rem;font-weight:600;">🎟️ Tu as ete invite par un camarade : bienvenue !</p>{% endif %}
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
                 <div class="form-row">
                     <div class="form-group">

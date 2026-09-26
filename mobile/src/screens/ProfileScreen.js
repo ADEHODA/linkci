@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, FlatList, TouchableOpacity, Alert, StyleSheet } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, Alert, StyleSheet, Share } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as api from '../api';
 import Avatar from '../components/Avatar';
@@ -92,6 +92,7 @@ export default function ProfileScreen({ navigation, onLogout }) {
           ) : null}
           <DetailsProfil user={user} />
           <VuesProfil navigation={navigation} />
+          <Invitations />
           <TouchableOpacity style={styles.parametres} onPress={() => navigation.navigate('Parametres')} activeOpacity={0.85}>
             <Ionicons name="settings-outline" size={22} color={colors.primary} />
             <View style={{ flex: 1 }}>
@@ -209,5 +210,32 @@ function VuesProfil({ navigation }) {
         </View>
       </TouchableOpacity>
     </View>
+  );
+}
+
+// Parrainage : lien personnel a partager, filleuls, progression vers le badge Ambassadeur
+function Invitations() {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const [inv, setInv] = React.useState(null);
+  React.useEffect(() => { api.getInvitations().then(setInv).catch(() => {}); }, []);
+  if (!inv) return null;
+  const pct = Math.min(100, (inv.nb_filleuls / inv.objectif_badge) * 100);
+  return (
+    <TouchableOpacity style={[styles.parametres, { backgroundColor: colors.accent }]} activeOpacity={0.85}
+      onPress={() => Share.share({ message: inv.message, url: inv.lien }).catch(() => {})}>
+      <Text style={{ fontSize: 26 }}>🎟️</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.parametresTitre, { color: colors.white }]}>Invite tes camarades</Text>
+        <Text style={[styles.parametresTexte, { color: 'rgba(255,255,255,0.9)' }]}>
+          {inv.nb_filleuls >= inv.objectif_badge ? `${inv.nb_filleuls} camarades invites · badge Ambassadeur obtenu !`
+            : `${inv.nb_filleuls}/${inv.objectif_badge} pour le badge Ambassadeur · code ${inv.code}`}
+        </Text>
+        <View style={{ height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.3)', marginTop: 6, overflow: 'hidden' }}>
+          <View style={{ height: 5, width: `${pct}%`, backgroundColor: colors.white }} />
+        </View>
+      </View>
+      <Ionicons name="share-social" size={22} color={colors.white} />
+    </TouchableOpacity>
   );
 }

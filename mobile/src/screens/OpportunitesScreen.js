@@ -7,6 +7,7 @@ import useApiList from '../hooks/useApiList';
 import { Card, Chip, EmptyState, Fab, PrimaryButton, pullToRefresh, SkeletonList } from '../components/ui';
 import { radius, spacing, creerStyles, useTheme } from '../theme';
 import { dateRelative } from '../utils';
+import { partager } from '../partage';
 
 const TYPES = [
   { cle: 'stage', label: 'Stage', icone: 'briefcase' },
@@ -128,6 +129,9 @@ function DetailOffre({ offre, onFermer }) {
             <Text style={styles.prudence}>Ne paie jamais pour obtenir un stage ou un emploi. Signale toute offre suspecte a un administrateur.</Text>
           </ScrollView>
           {lien ? <PrimaryButton title="Postuler" icon="send" onPress={() => Linking.openURL(lien).catch(() => Alert.alert('Impossible', "Aucune application pour ouvrir ce lien."))} /> : null}
+          <TouchableOpacity style={styles.annuler} onPress={() => partager(`${LIBELLE[offre.type] || 'Offre'} : ${offre.titre} chez ${offre.entreprise}`, '/opportunites')}>
+            <Text style={[styles.annulerTexte, { color: colors.primary }]}>Partager l'offre</Text>
+          </TouchableOpacity>
           <TouchableOpacity style={styles.annuler} onPress={onFermer}><Text style={styles.annulerTexte}>Fermer</Text></TouchableOpacity>
         </View>
       </View>
