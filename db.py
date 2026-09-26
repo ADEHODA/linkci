@@ -7,8 +7,9 @@ placeholders '?', row['col'] / row[0] / dict(row), cur.lastrowid,
 conn.executescript(), conn.total_changes et IntegrityError.
 
 Hypotheses (vraies pour le schema de LinkCI) :
-- chaque table a une colonne `id` auto-incrementee (lastrowid s'appuie
-  sur `RETURNING id`) ;
+- lastrowid s'appuie sur `RETURNING id`, ajoute aux INSERT, sauf pour les
+  tables sans colonne `id` (cle primaire composee : TABLES_SANS_ID ; une
+  table oubliee y est ajoutee automatiquement a la premiere erreur) ;
 - les dates sont stockees en TEXT 'YYYY-MM-DD HH:MM:SS' comme dans SQLite,
   pour que les comparaisons et les [:10] du code restent valables.
 """
@@ -76,6 +77,16 @@ _DDL_RULES = [
 _INSERT_OR_IGNORE = re.compile(r'^\s*INSERT\s+OR\s+IGNORE\s+INTO\b', re.I)
 _INSERT = re.compile(r'^\s*INSERT\b', re.I)
 _LIKE = re.compile(r'\bLIKE\b', re.I)
+_TABLE_INSERT = re.compile(r'^\s*INSERT\s+(?:OR\s+IGNORE\s+)?INTO\s+(\w+)', re.I)
+# Tables sans colonne `id` (cle primaire composee) : jamais de RETURNING id
+TABLES_SANS_ID = {'reactions', 'post_sondage_votes', 'votes_reponses', 'conversations_effacees', 'vues_profil',
+                  'posts_enregistres', 'message_reactions', 'defis_reussis', 'evenement_participants',
+                  'jours_actifs', 'blocages'}
+
+
+def table_insert(sql):
+    m = _TABLE_INSERT.match(sql)
+    return m.group(1).lower() if m else None
 
 
 def translate(sql):
@@ -89,7 +100,7 @@ def translate(sql):
     sql = sql.rstrip().rstrip(';')
     if _INSERT_OR_IGNORE.match(sql):
         sql = _INSERT_OR_IGNORE.sub('INSERT INTO', sql) + ' ON CONFLICT DO NOTHING'
-    if _INSERT.match(sql) and not re.search(r'\bRETURNING\b', sql, re.I):
+    if _INSERT.match(sql) and not re.search(r'\bRETURNING\b', sql, re.I) and table_insert(sql) not in TABLES_SANS_ID:
         sql += ' RETURNING id'
     return sql
 
@@ -166,6 +177,14 @@ class PgConnection:
         pg_sql = translate(sql)
         is_insert = bool(_INSERT.match(pg_sql))
         try:
+            cur = self._conn.execute(pg_sql, tuple(params))
+        except psycopg.errors.UndefinedColumn:
+            # table sans colonne `id` pas encore connue : on la retient et on reessaie sans RETURNING
+            table = table_insert(sql)
+            if not is_insert or not table or table in TABLES_SANS_ID or re.search(r'\bRETURNING\b', sql, re.I):
+                raise
+            TABLES_SANS_ID.add(table)
+            pg_sql = translate(sql)
             cur = self._conn.execute(pg_sql, tuple(params))
         except psycopg.OperationalError:
             # connexion coupee (Neon endormi, reseau) : une nouvelle, un seul essai
