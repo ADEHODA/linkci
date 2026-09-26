@@ -613,6 +613,14 @@ def init_db():
         except Exception:
             pass
 
+    # Evenements : heure, categorie, universite (pour filtrer)
+    for colonne in ("heure TEXT DEFAULT ''", "categorie TEXT DEFAULT 'autre'", "universite TEXT DEFAULT ''"):
+        try:
+            conn.execute('ALTER TABLE evenements ADD COLUMN ' + colonne)
+            conn.commit()
+        except Exception:
+            pass
+
     # Verification de l'e-mail : DEFAULT 1 pour que les comptes existants restent
     # actifs ; les nouvelles inscriptions sont creees avec email_verifie = 0.
     try:
@@ -742,6 +750,17 @@ def init_db():
             heure TEXT DEFAULT '',
             salle TEXT DEFAULT '',
             note TEXT DEFAULT '')''',
+        # Participants aux evenements du campus
+        '''CREATE TABLE IF NOT EXISTS evenement_participants (
+            evenement_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            date_inscription TEXT NOT NULL,
+            PRIMARY KEY (evenement_id, user_id))''',
+        # Un jour ou l'etudiant a utilise LinkCI (serie de jours actifs)
+        '''CREATE TABLE IF NOT EXISTS jours_actifs (
+            user_id INTEGER NOT NULL,
+            jour TEXT NOT NULL,
+            PRIMARY KEY (user_id, jour))''',
         # Blocages : bloqueur ne voit plus les publications de bloque, et plus
         # aucun message ne passe entre eux
         '''CREATE TABLE IF NOT EXISTS blocages (
@@ -2483,14 +2502,11 @@ def sondage_resultats():
 # ===================== CALENDRIER CAMPUS =====================
 @app.route('/calendrier')
 def calendrier():
-    if 'user_id' not in session:
-        return redirect(url_for('connexion'))
-    from datetime import date
-    aujourdhui = date.today().isoformat()
-    conn = get_db()
-    events = conn.execute('SELECT * FROM evenements ORDER BY date_event ASC').fetchall()
-    conn.close()
-    return render_template('calendrier.html', events=events, aujourdhui=aujourdhui)
+    return page_app('evenements.html')
+
+@app.route('/mon-activite')
+def mon_activite_web():
+    return page_app('mon_activite.html')
 
 @app.route('/calendrier/ajouter', methods=['POST'])
 def ajouter_evenement():
@@ -2517,6 +2533,7 @@ def supprimer_evenement(id):
     conn = get_db()
     ev = conn.execute('SELECT user_id FROM evenements WHERE id = ?', (id,)).fetchone()
     if ev and (ev['user_id'] == session['user_id'] or admin_required()):
+        conn.execute('DELETE FROM evenement_participants WHERE evenement_id = ?', (id,))
         conn.execute('DELETE FROM evenements WHERE id = ?', (id,))
         conn.commit()
     else:
@@ -2927,14 +2944,33 @@ API_SECRET = app.secret_key
 
 def api_require_auth():
     auth = request.headers.get('Authorization', '')
+    user_id = None
     if auth.startswith('Bearer '):
-        return verifier_jeton_api(auth[7:])
+        user_id = verifier_jeton_api(auth[7:])
     # Site web : la session du navigateur, seulement pour les appels fetch du
     # site lui-meme. Un autre site ne peut ni envoyer cet en-tete sans CORS
     # (non active), ni joindre le cookie SameSite=Lax a une requete POST.
-    if request.headers.get('X-LinkCI') == 'web' and session.get('user_id'):
-        return session['user_id']
-    return None
+    elif request.headers.get('X-LinkCI') == 'web' and session.get('user_id'):
+        user_id = session['user_id']
+    if user_id:
+        noter_jour_actif(user_id)
+    return user_id
+
+_jour_actif_note = {}  # user_id -> dernier jour deja enregistre (evite une ecriture par requete)
+
+def noter_jour_actif(user_id):
+    jour = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    if _jour_actif_note.get(user_id) == jour:
+        return
+    try:
+        conn = get_db()
+        if not conn.execute('SELECT 1 FROM jours_actifs WHERE user_id = ? AND jour = ?', (user_id, jour)).fetchone():
+            conn.execute('INSERT INTO jours_actifs (user_id, jour) VALUES (?, ?)', (user_id, jour))
+            conn.commit()
+        conn.close()
+        _jour_actif_note[user_id] = jour
+    except Exception:
+        pass  # jamais bloquant (deux requetes simultanees, base occupee...)
 
 # Jetons de l'app : signes (itsdangerous), valables 60 jours, et revocables
 # (users.jeton_version est incremente au changement de mot de passe).
@@ -4429,11 +4465,13 @@ def supprimer_compte(user_id):
     if couv and couv['couverture']:
         fichiers.append('static/uploads/' + couv['couverture'])
     conn.execute('DELETE FROM vues_profil WHERE profil_id = ? OR visiteur_id = ?', (user_id, user_id))
+    conn.execute('DELETE FROM evenement_participants WHERE evenement_id IN (SELECT id FROM evenements WHERE user_id = ?)', (user_id,))
 
     for table in ('posts', 'likes', 'commentaires', 'reactions', 'post_sondage_votes', 'signalements_posts', 'questions',
                   'reponses', 'votes_reponses', 'documents', 'notifications', 'abonnements_alertes', 'reset_tokens',
                   'evenements', 'groupe_membres', 'groupe_messages', 'user_badges', 'codes_verification', 'opportunites',
-                  'annonces', 'stories', 'expo_push_tokens', 'conversations_effacees', 'cours', 'examens'):
+                  'annonces', 'stories', 'expo_push_tokens', 'conversations_effacees', 'cours', 'examens',
+                  'evenement_participants', 'jours_actifs'):
         conn.execute(f'DELETE FROM {table} WHERE user_id = ?', (user_id,))
     conn.execute('DELETE FROM groupes WHERE createur_id = ?', (user_id,))
     conn.execute('DELETE FROM messages WHERE expediteur_id = ? OR destinataire_id = ?', (user_id, user_id))
@@ -4974,32 +5012,123 @@ def api_modifier_profil():
     conn.close()
     return jsonify(profil_public(user))
 
+CATEGORIES_EVENEMENT = ('conference', 'soiree', 'sport', 'culture', 'atelier', 'autre')
+
+def date_valide(texte):
+    try:
+        return datetime.strptime(texte, '%Y-%m-%d').strftime('%Y-%m-%d') == texte
+    except (TypeError, ValueError):
+        return False
+
+def evenements_json(conn, user_id, condition='1 = 1', params=()):
+    lignes = conn.execute(f'''SELECT e.*, users.prenom AS auteur_prenom, users.nom AS auteur_nom,
+            (SELECT COUNT(*) FROM evenement_participants p WHERE p.evenement_id = e.id) AS nb_participants,
+            (SELECT COUNT(*) FROM evenement_participants p WHERE p.evenement_id = e.id AND p.user_id = ?) AS je_participe
+        FROM evenements e JOIN users ON users.id = e.user_id
+        WHERE {condition} ORDER BY e.date_event ASC, e.heure ASC LIMIT 200''', (user_id,) + tuple(params)).fetchall()
+    return [dict(e, je_participe=bool(e['je_participe']), est_auteur=e['user_id'] == user_id) for e in lignes]
+
 @app.route('/api/evenements')
 def api_evenements():
+    """Evenements a venir (ou passes avec ?passes=1), filtres par categorie ou universite."""
     user_id = api_require_auth()
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
-    from datetime import date
-    aujourdhui = date.today().isoformat()
+    aujourdhui = datetime.now(timezone.utc).strftime('%Y-%m-%d')
+    conditions = ['e.date_event < ?' if request.args.get('passes') == '1' else 'e.date_event >= ?']
+    params = [aujourdhui]
+    if request.args.get('categorie') in CATEGORIES_EVENEMENT:
+        conditions.append('e.categorie = ?')
+        params.append(request.args['categorie'])
+    if request.args.get('universite'):
+        conditions.append('e.universite = ?')
+        params.append(request.args['universite'][:120])
+    if request.args.get('mes') == '1':  # ceux ou je participe
+        conditions.append('e.id IN (SELECT evenement_id FROM evenement_participants WHERE user_id = ?)')
+        params.append(user_id)
     conn = get_db()
-    events = conn.execute('SELECT * FROM evenements ORDER BY date_event ASC').fetchall()
+    events = evenements_json(conn, user_id, ' AND '.join(conditions), params)
     conn.close()
-    return jsonify([dict(e) for e in events])
+    if request.args.get('passes') == '1':
+        events.reverse()  # les plus recents d'abord
+    return jsonify(events)
 
 @app.route('/api/evenements', methods=['POST'])
 def api_ajouter_evenement():
     user_id = api_require_auth()
     if not user_id:
         return jsonify({'error': 'Non authentifie'}), 401
-    data = request.json
-    if not data or not data.get('titre') or not data.get('date_event'):
-        return jsonify({'error': 'titre et date_event requis'}), 400
+    data = request.get_json(silent=True) or {}
+    titre = str(data.get('titre') or '').strip()[:120]
+    description = str(data.get('description') or '').strip()[:1000]
+    date_event = str(data.get('date_event') or '').strip()
+    heure = str(data.get('heure') or '').strip()
+    lieu = str(data.get('lieu') or '').strip()[:120]
+    categorie = data.get('categorie') if data.get('categorie') in CATEGORIES_EVENEMENT else 'autre'
+    if not titre or not date_valide(date_event):
+        return jsonify({'error': 'Titre et date (AAAA-MM-JJ) requis'}), 400
+    if date_event < datetime.now(timezone.utc).strftime('%Y-%m-%d'):
+        return jsonify({'error': "La date est deja passee"}), 400
+    if heure and not HEURE_RE.match(heure):
+        return jsonify({'error': 'Heure au format HH:MM'}), 400
+    if trop_rapide('evenement', user_id, 10, 86400):
+        return jsonify({'error': "Trop d'evenements crees aujourd'hui"}), 429
     conn = get_db()
-    conn.execute('INSERT INTO evenements (user_id, titre, description, date_event, lieu) VALUES (?, ?, ?, ?, ?)',
-                 (user_id, data['titre'], data.get('description', ''), data['date_event'], data.get('lieu', '')))
+    moi = conn.execute('SELECT universite FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.execute('''INSERT INTO evenements (user_id, titre, description, date_event, lieu, heure, categorie, universite)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)''',
+                 (user_id, titre, description, date_event, lieu, heure, categorie, (moi['universite'] or '') if moi else ''))
     conn.commit()
+    ev = conn.execute('SELECT id FROM evenements WHERE user_id = ? ORDER BY id DESC LIMIT 1', (user_id,)).fetchone()
+    # l'organisateur participe d'office
+    conn.execute('INSERT INTO evenement_participants (evenement_id, user_id, date_inscription) VALUES (?, ?, ?)',
+                 (ev['id'], user_id, datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    cree = evenements_json(conn, user_id, 'e.id = ?', (ev['id'],))[0]
     conn.close()
-    return jsonify({'message': 'Cree'}), 201
+    return jsonify(dict(cree, message='Cree')), 201
+
+@app.route('/api/evenements/<int:id>/participer', methods=['POST', 'DELETE'])
+def api_participer_evenement(id):
+    """POST : je participe ; DELETE : je ne participe plus."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    ev = conn.execute('SELECT id, user_id, titre FROM evenements WHERE id = ?', (id,)).fetchone()
+    if not ev:
+        conn.close()
+        return jsonify({'error': 'Evenement introuvable'}), 404
+    deja = conn.execute('SELECT 1 FROM evenement_participants WHERE evenement_id = ? AND user_id = ?', (id, user_id)).fetchone()
+    nouveau = False
+    if request.method == 'POST' and not deja:
+        conn.execute('INSERT INTO evenement_participants (evenement_id, user_id, date_inscription) VALUES (?, ?, ?)',
+                     (id, user_id, datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')))
+        conn.commit()
+        nouveau = True
+    elif request.method == 'DELETE' and deja:
+        conn.execute('DELETE FROM evenement_participants WHERE evenement_id = ? AND user_id = ?', (id, user_id))
+        conn.commit()
+    nb = conn.execute('SELECT COUNT(*) AS nb FROM evenement_participants WHERE evenement_id = ?', (id,)).fetchone()['nb']
+    moi = conn.execute('SELECT prenom FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    if nouveau and ev['user_id'] != user_id and not trop_rapide('participe_notif', ev['user_id'], 30, 3600):
+        creer_notification(ev['user_id'], 'evenement', f"{moi['prenom']} participe a ton evenement : {ev['titre']}", '/calendrier')
+    return jsonify({'je_participe': request.method == 'POST', 'nb_participants': nb})
+
+@app.route('/api/evenements/<int:id>/participants')
+def api_participants_evenement(id):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    gens = conn.execute('''SELECT users.id, users.prenom, users.nom, users.avatar, users.filiere, users.universite
+                            FROM evenement_participants p JOIN users ON users.id = p.user_id
+                            WHERE p.evenement_id = ? AND COALESCE(users.banni, 0) = 0 AND '''
+                         + SQL_PAS_BLOQUE.format(col='users.id') + ' ORDER BY p.date_inscription LIMIT 200',
+                         (id, user_id, user_id)).fetchall()
+    conn.close()
+    return jsonify([dict(g) for g in gens])
 
 @app.route('/api/evenements/<int:id>', methods=['DELETE'])
 def api_supprimer_evenement(id):
@@ -5015,10 +5144,66 @@ def api_supprimer_evenement(id):
     if ev['user_id'] != user_id and not est_admin(moi):
         conn.close()
         return jsonify({'error': 'Tu ne peux supprimer que tes propres evenements'}), 403
+    conn.execute('DELETE FROM evenement_participants WHERE evenement_id = ?', (id,))
     conn.execute('DELETE FROM evenements WHERE id = ?', (id,))
     conn.commit()
     conn.close()
     return jsonify({'message': 'Supprime'})
+
+# ===================== MON ACTIVITE =====================
+def serie_jours(jours, aujourdhui):
+    """(serie en cours, record) a partir des jours actifs 'AAAA-MM-JJ'. La serie tient encore si hier etait actif."""
+    from datetime import date
+    dates = sorted({date.fromisoformat(j) for j in jours})
+    record, courant, precedent = 0, 0, None
+    for d in dates:
+        courant = courant + 1 if precedent and (d - precedent).days == 1 else 1
+        record = max(record, courant)
+        precedent = d
+    en_cours = courant if precedent and (aujourdhui - precedent).days <= 1 else 0
+    return en_cours, record
+
+@app.route('/api/mon_activite')
+def api_mon_activite():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    maintenant = datetime.now(timezone.utc)
+    il_y_a_30j = (maintenant - timedelta(days=30)).strftime('%Y-%m-%d %H:%M:%S')
+    conn = get_db()
+    un = lambda requete, *p: conn.execute(requete, p).fetchone()['nb']
+    posts = un('SELECT COUNT(*) AS nb FROM posts WHERE user_id = ?', user_id)
+    likes = un('SELECT COUNT(*) AS nb FROM likes l JOIN posts p ON p.id = l.post_id WHERE p.user_id = ? AND l.user_id != ?', user_id, user_id)
+    reactions = un('SELECT COUNT(*) AS nb FROM reactions r JOIN posts p ON p.id = r.post_id WHERE p.user_id = ? AND r.user_id != ?', user_id, user_id)
+    commentaires = un('''SELECT COUNT(*) AS nb FROM commentaires c JOIN posts p ON p.id = c.post_id
+                         WHERE p.user_id = ? AND c.user_id != ?''', user_id, user_id)
+    abonnes = un('SELECT COUNT(*) AS nb FROM follows WHERE followed_id = ?', user_id)
+    abonnes_30j = un('SELECT COUNT(*) AS nb FROM follows WHERE followed_id = ? AND date_follow >= ?', user_id, il_y_a_30j)
+    abonnements = un('SELECT COUNT(*) AS nb FROM follows WHERE follower_id = ?', user_id)
+    vues_30j = un('SELECT COUNT(*) AS nb FROM vues_profil WHERE profil_id = ? AND date_vue >= ?', user_id, il_y_a_30j)
+    reponses = un('SELECT COUNT(*) AS nb FROM reponses WHERE user_id = ?', user_id)
+    meilleures = un('''SELECT COUNT(*) AS nb FROM questions q JOIN reponses r ON r.id = q.meilleure_reponse_id
+                       WHERE r.user_id = ?''', user_id)
+    points = conn.execute('SELECT ' + SQL_POINTS + ' AS nb FROM users WHERE users.id = ?', (user_id,)).fetchone()['nb']
+    filleuls = un('SELECT COUNT(*) AS nb FROM users WHERE parrain_id = ? AND COALESCE(email_verifie, 1) = 1', user_id)
+    evenements = un('SELECT COUNT(*) AS nb FROM evenement_participants WHERE user_id = ?', user_id)
+    top = conn.execute('''SELECT p.id, p.contenu, p.date_post, (SELECT COUNT(*) FROM likes l WHERE l.post_id = p.id) AS nb_likes
+                          FROM posts p WHERE p.user_id = ? ORDER BY nb_likes DESC, p.id DESC LIMIT 1''', (user_id,)).fetchone()
+    jours = [j['jour'] for j in conn.execute('SELECT jour FROM jours_actifs WHERE user_id = ? ORDER BY jour DESC LIMIT 400',
+                                             (user_id,)).fetchall()]
+    conn.close()
+    serie, record = serie_jours(jours, maintenant.date())
+    derniers_28 = [(maintenant - timedelta(days=k)).strftime('%Y-%m-%d') for k in range(27, -1, -1)]
+    actifs = set(jours)
+    return jsonify({
+        'publications': posts, 'likes_recus': likes, 'reactions_recues': reactions, 'commentaires_recus': commentaires,
+        'abonnes': abonnes, 'abonnes_30j': abonnes_30j, 'abonnements': abonnements, 'vues_profil_30j': vues_30j,
+        'reponses': reponses, 'meilleures_reponses': meilleures, 'points': points, 'filleuls': filleuls,
+        'evenements': evenements, 'serie': serie, 'record': record,
+        'jours_actifs_30j': sum(1 for j in jours if j >= derniers_28[0]),
+        'calendrier': [{'jour': j, 'actif': j in actifs} for j in derniers_28],
+        'meilleure_publication': dict(top, contenu=(top['contenu'] or '')[:160]) if top and top['nb_likes'] else None,
+    })
 
 @app.route('/api/groupes')
 def api_groupes():

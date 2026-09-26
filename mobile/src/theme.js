@@ -56,7 +56,26 @@ export const colors = clair;
 export const radius = { sm: 8, md: 12, lg: 16, xl: 22, pill: 999 };
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 };
 
-function construire(c, estSombre) {
+// Accessibilite : taille du texte et contraste eleve (reglages dans Parametres > Apparence)
+export const TAILLES = { petit: 0.9, normal: 1, grand: 1.15, tres_grand: 1.3 };
+const CONTRASTE = {
+  clair: { textMuted: '#3F424B', textFaint: '#5F636E', border: '#B9BCC6' },
+  sombre: { textMuted: '#D5D8DF', textFaint: '#AEB3BD', border: '#4A505C' },
+};
+
+// Agrandit fontSize et lineHeight d'une feuille de styles
+function agrandir(feuille, echelle) {
+  if (echelle === 1) return feuille;
+  const r = {};
+  for (const [cle, style] of Object.entries(feuille)) {
+    r[cle] = style && typeof style === 'object' ? { ...style } : style;
+    if (r[cle]?.fontSize) r[cle].fontSize = Math.round(r[cle].fontSize * echelle);
+    if (r[cle]?.lineHeight) r[cle].lineHeight = Math.round(r[cle].lineHeight * echelle);
+  }
+  return r;
+}
+
+function construire(c, estSombre, echelle = 1) {
   const font = {
     title: { fontSize: 22, fontWeight: '800', color: c.text },
     heading: { fontSize: 17, fontWeight: '700', color: c.text },
@@ -64,6 +83,8 @@ function construire(c, estSombre) {
     small: { fontSize: 13, color: c.textMuted },
     tiny: { fontSize: 11, color: c.textFaint },
   };
+  // font : deja agrandi (usage direct) ; fontBase : pour creerStyles, qui agrandit toute la feuille
+  const fontBase = font;
   const shadow = estSombre
     ? { borderWidth: StyleSheet.hairlineWidth, borderColor: c.border } // en sombre, un fin contour remplace l'ombre
     : Platform.select({
@@ -76,7 +97,7 @@ function construire(c, estSombre) {
     headerTintColor: c.primary,
     headerTitleStyle: { fontWeight: '800', fontSize: 18, color: c.text },
   };
-  return { colors: c, sombre: estSombre, font, shadow, headerOptions, radius, spacing };
+  return { colors: c, sombre: estSombre, font: agrandir(fontBase, echelle), fontBase, shadow, headerOptions, radius, spacing, echelle };
 }
 
 const themes = { clair: construire(clair, false), sombre: construire(sombre, true) };
@@ -85,16 +106,27 @@ let actuel = themes.clair;
 export const themeActuel = () => actuel;
 
 const CLE = 'linkci_theme';
+const CLE_ACCES = 'linkci_accessibilite';
 const ThemeContext = createContext({ ...themes.clair, preference: 'auto', setPreference: () => {} });
 
 // preference : 'auto' (suit le telephone), 'clair' ou 'sombre' ; memorisee
 export function ThemeProvider({ children }) {
   const systeme = useColorScheme();
   const [preference, setPref] = useState('auto');
+  const [acces, setAcces] = useState({ taille: 'normal', contraste: false });
 
   useEffect(() => {
     SecureStore.getItemAsync(CLE).then((p) => { if (p) setPref(p); }).catch(() => {});
+    SecureStore.getItemAsync(CLE_ACCES).then((a) => { if (a) setAcces((x) => ({ ...x, ...JSON.parse(a) })); }).catch(() => {});
   }, []);
+
+  const setAccessibilite = (changement) => {
+    setAcces((x) => {
+      const n = { ...x, ...changement };
+      SecureStore.setItemAsync(CLE_ACCES, JSON.stringify(n)).catch(() => {});
+      return n;
+    });
+  };
 
   const setPreference = (p) => {
     setPref(p);
@@ -102,8 +134,13 @@ export function ThemeProvider({ children }) {
   };
 
   const mode = preference === 'auto' ? (systeme === 'dark' ? 'sombre' : 'clair') : preference;
-  const valeur = useMemo(() => ({ ...themes[mode], preference, setPreference }), [mode, preference]);
-  actuel = themes[mode];
+  const echelle = TAILLES[acces.taille] || 1;
+  const base = useMemo(() => (echelle === 1 && !acces.contraste ? themes[mode]
+    : construire(acces.contraste ? { ...palettes[mode], ...CONTRASTE[mode] } : palettes[mode], mode === 'sombre', echelle)),
+  [mode, echelle, acces.contraste]);
+  const valeur = useMemo(() => ({ ...base, preference, setPreference, taille: acces.taille, contraste: acces.contraste,
+    setAccessibilite, cleStyles: `${mode}-${acces.taille}-${acces.contraste ? 1 : 0}` }), [base, preference, acces]);
+  actuel = base;
   return <ThemeContext.Provider value={valeur}>{children}</ThemeContext.Provider>;
 }
 
@@ -114,8 +151,8 @@ export function creerStyles(fabrique) {
   const cache = {};
   return function useStyles() {
     const theme = useTheme();
-    const cle = theme.sombre ? 'sombre' : 'clair';
-    if (!cache[cle]) cache[cle] = StyleSheet.create(fabrique(theme));
+    const cle = theme.cleStyles || (theme.sombre ? 'sombre' : 'clair');
+    if (!cache[cle]) cache[cle] = StyleSheet.create(agrandir(fabrique({ ...theme, font: theme.fontBase || theme.font }), theme.echelle || 1));
     return cache[cle];
   };
 }

@@ -286,7 +286,14 @@ export const deletePushToken = (token) =>
 export const getProfile = (userId) => request(`/api/profil/${userId}`);
 
 // Calendrier
-export const getEvenements = () => request('/api/evenements');
+export const getEvenements = (filtres = {}) => {
+  const q = Object.entries(filtres).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join('&');
+  return request(`/api/evenements${q ? `?${q}` : ''}`);
+};
+export const participerEvenement = (id, oui = true) =>
+  request(`/api/evenements/${id}/participer`, { method: oui ? 'POST' : 'DELETE' });
+export const getParticipantsEvenement = (id) => request(`/api/evenements/${id}/participants`);
+export const getMonActivite = () => request('/api/mon_activite');
 export const createEvenement = (data) =>
   request('/api/evenements', { method: 'POST', body: JSON.stringify(data) });
 export const deleteEvenement = (id) =>

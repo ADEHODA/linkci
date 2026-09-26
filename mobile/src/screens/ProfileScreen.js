@@ -91,6 +91,14 @@ export default function ProfileScreen({ navigation, onLogout }) {
             </TouchableOpacity>
           ) : null}
           <DetailsProfil user={user} />
+          <TouchableOpacity style={styles.parametres} onPress={() => navigation.navigate('MonActivite')} activeOpacity={0.85}>
+            <Ionicons name="stats-chart-outline" size={22} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.parametresTitre}>Mon activite</Text>
+              <Text style={styles.parametresTexte}>Ta serie de jours, tes abonnes, tes statistiques</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.textFaint} />
+          </TouchableOpacity>
           <VuesProfil navigation={navigation} />
           <Invitations />
           <TouchableOpacity style={styles.parametres} onPress={() => navigation.navigate('Parametres')} activeOpacity={0.85}>

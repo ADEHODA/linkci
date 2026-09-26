@@ -33,7 +33,7 @@ const FAQ = [
 
 export default function SettingsScreen({ navigation, onLogin, onLogout }) {
   const styles = useStyles();
-  const { colors, preference, setPreference } = useTheme();
+  const { colors, preference, setPreference, taille, contraste, setAccessibilite } = useTheme();
   const [moi, setMoi] = useState(null);
   const [p, setP] = useState(null);
   const [verrou, setVerrou] = useState(false);
@@ -154,6 +154,17 @@ export default function SettingsScreen({ navigation, onLogin, onLogout }) {
             </TouchableOpacity>
           ))}
         </View>
+        <Text style={styles.sousTitre}>Taille du texte</Text>
+        <View style={styles.segment}>
+          {[['petit', 'A-'], ['normal', 'A'], ['grand', 'A+'], ['tres_grand', 'A++']].map(([cle, label]) => (
+            <TouchableOpacity key={cle} style={[styles.segBtn, taille === cle && styles.segActif]} onPress={() => setAccessibilite({ taille: cle })}
+              accessibilityLabel={`Taille du texte ${cle.replace('_', ' ')}`}>
+              <Text style={[styles.segTexte, taille === cle && { color: colors.white }]}>{label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <Interrupteur icone="contrast-outline" texte="Contraste eleve" valeur={!!contraste}
+          onChange={(v) => setAccessibilite({ contraste: v })} />
       </Section>
 
       <Section titre="Aide">
@@ -376,6 +387,7 @@ const useStyles = creerStyles(({ colors, font }) => ({
   segBtn: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: radius.md, backgroundColor: colors.cardAlt },
   segActif: { backgroundColor: colors.primary },
   segTexte: { fontSize: 13, fontWeight: '700', color: colors.textMuted },
+  sousTitre: { fontSize: 13, fontWeight: '700', color: colors.textMuted, marginTop: spacing.sm },
   version: { fontSize: 12, color: colors.textFaint, textAlign: 'center', paddingVertical: spacing.md },
   fond: { flex: 1, backgroundColor: colors.overlay, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
   fondBas: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'flex-end' },

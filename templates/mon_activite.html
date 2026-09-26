@@ -1,0 +1,41 @@
+{% extends 'base_app.html' %}
+{% block titre %}Mon activite{% endblock %}
+{% block contenu %}
+<h1 class="titre-page">📊 Mon activite</h1>
+<div id="zone"><div class="chargement">Chargement...</div></div>
+<p class="sous" style="text-align:center">Ces statistiques ne sont visibles que par toi.</p>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const L = LinkCI;
+  try {
+    const a = await L.api('/api/mon_activite');
+    const texte = a.serie >= 7 ? `Incroyable, ${a.serie} jours d'affilee !` : a.serie >= 2 ? `Bravo, ${a.serie} jours de suite. Reviens demain !`
+      : a.serie === 1 ? "Tu es la aujourd'hui. Reviens demain pour commencer une serie !" : 'Utilise LinkCI chaque jour pour construire ta serie.';
+    const tuiles = [['📝', a.publications, 'publications'], ['❤️', a.likes_recus + a.reactions_recues, 'likes et reactions'],
+      ['💬', a.commentaires_recus, 'commentaires recus'], ['👥', a.abonnes, `abonnes (+${a.abonnes_30j} en 30 j)`],
+      ['👀', a.vues_profil_30j, 'vues du profil (30 j)'], ['🤝', a.points, "points d'entraide"],
+      ['✅', a.meilleures_reponses, 'meilleures reponses'], ['🎟️', a.filleuls, 'camarades invites'], ['📅', a.evenements, 'evenements']];
+    document.getElementById('zone').innerHTML = `
+      <div class="carte" style="text-align:center">
+        <div style="font-size:46px">${a.serie > 0 ? '🔥' : '🌱'}</div>
+        <div style="font-size:30px;font-weight:900;color:var(--primary)">${a.serie} jour${a.serie > 1 ? 's' : ''}</div>
+        <div>${texte}</div>
+        <div class="sous">Record : ${a.record} jour${a.record > 1 ? 's' : ''} · ${a.jours_actifs_30j} jours actifs sur 4 semaines</div>
+        <div style="display:grid;grid-template-columns:repeat(7,26px);gap:6px;justify-content:center;margin-top:14px">
+          ${a.calendrier.map((j) => `<span title="${j.jour}" style="width:26px;height:26px;border-radius:7px;border:1px solid ${j.actif ? 'var(--accent)' : 'var(--border)'};background:${j.actif ? 'var(--accent)' : 'var(--card-alt)'}"></span>`).join('')}
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:12px">
+        ${tuiles.map(([i, v, l]) => `<div class="carte" style="text-align:center;margin:0"><div style="font-size:22px">${i}</div>
+          <div style="font-size:22px;font-weight:900">${v}</div><div class="sous">${l}</div></div>`).join('')}
+      </div>
+      ${a.meilleure_publication ? `<div class="carte"><strong>🏆 Ta publication la plus aimee</strong>
+        <div style="margin-top:6px;white-space:pre-wrap">${L.esc(a.meilleure_publication.contenu || '(photo)')}</div>
+        <div class="sous">❤️ ${a.meilleure_publication.nb_likes} like${a.meilleure_publication.nb_likes > 1 ? 's' : ''}</div></div>`
+        : `<a class="carte" href="/fil" style="display:block;color:var(--text)"><strong>✍️ Publie ton premier post</strong><div class="sous">Partage une astuce ou une question avec ta promo.</div></a>`}`;
+  } catch (err) { L.erreur(err); }
+})();
+</script>
+{% endblock %}

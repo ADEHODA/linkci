@@ -1,0 +1,106 @@
+{% extends 'base_app.html' %}
+{% block titre %}Evenements{% endblock %}
+{% block contenu %}
+<h1 class="titre-page">📅 Evenements du campus</h1>
+<div class="puces" id="onglets">
+  <button class="puce active" data-o="">A venir</button><button class="puce" data-o="mes">J'y vais</button><button class="puce" data-o="passes">Passes</button>
+</div>
+<div class="puces" id="categories"></div>
+<div id="zone"><div class="chargement">Chargement...</div></div>
+<form class="carte" id="ajout">
+  <strong>Creer un evenement</strong>
+  <div class="ligne" style="flex-wrap:wrap;margin-top:10px">
+    <input class="champ" name="titre" placeholder="Titre (ex. Tournoi de foot inter-promo)" maxlength="120" required style="flex:1;min-width:220px">
+    <select class="champ" name="categorie" id="choixCategorie" style="width:auto"></select>
+  </div>
+  <div class="ligne" style="flex-wrap:wrap;margin-top:8px">
+    <input class="champ" name="date_event" type="date" required style="width:auto"> <input class="champ" name="heure" type="time" style="width:auto">
+    <input class="champ" name="lieu" placeholder="Lieu" maxlength="120" style="flex:1;min-width:160px">
+  </div>
+  <textarea class="champ" name="description" rows="2" maxlength="1000" placeholder="Description (programme, prix d'entree...)" style="margin-top:8px"></textarea>
+  <button class="btn" style="margin-top:8px">Publier</button>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+(async () => {
+  const L = LinkCI;
+  const CATS = { conference: '🎤 Conference', soiree: '🎉 Soiree', sport: '⚽ Sport', culture: '🎭 Culture', atelier: '🛠️ Atelier', autre: '📌 Autre' };
+  const MOIS = ['janv.', 'fevr.', 'mars', 'avr.', 'mai', 'juin', 'juil.', 'aout', 'sept.', 'oct.', 'nov.', 'dec.'];
+  let onglet = '', categorie = '', liste = [];
+  document.getElementById('choixCategorie').innerHTML = Object.entries(CATS).map(([c, l]) => `<option value="${c}">${l}</option>`).join('');
+  const zoneCat = document.getElementById('categories');
+  zoneCat.innerHTML = [['', '✨ Tout'], ...Object.entries(CATS)].map(([c, l]) => `<button class="puce${c === '' ? ' active' : ''}" data-c="${c}">${l}</button>`).join('');
+  const aujourdhui = new Date().toISOString().slice(0, 10);
+  document.querySelector('[name=date_event]').min = aujourdhui;
+
+  const carte = (e) => {
+    const d = new Date(e.date_event + 'T00:00:00');
+    return `<div class="carte ligne" style="align-items:flex-start;${onglet === 'passes' ? 'opacity:.6' : ''}">
+      <div style="width:58px;text-align:center;background:var(--primary-soft);color:var(--primary);border-radius:12px;padding:8px 0">
+        <div style="font-size:22px;font-weight:900">${d.getDate()}</div><div style="font-size:11px;font-weight:800;text-transform:uppercase">${MOIS[d.getMonth()]}</div></div>
+      <div style="flex:1;min-width:0">
+        <div class="sous">${CATS[e.categorie] || CATS.autre}</div>
+        <div style="font-weight:800;font-size:16px">${L.esc(e.titre)}</div>
+        <div class="sous">${L.esc([e.heure ? '🕒 ' + e.heure : '', e.lieu ? '📍 ' + e.lieu : '', 'par ' + e.auteur_prenom + ' ' + e.auteur_nom].filter(Boolean).join(' · '))}</div>
+        ${e.description ? `<div style="margin-top:6px;white-space:pre-wrap">${L.esc(e.description)}</div>` : ''}
+        <div class="ligne" style="margin-top:8px;justify-content:space-between;flex-wrap:wrap">
+          <button class="act" data-participants="${e.id}">👥 ${e.nb_participants} participant${e.nb_participants > 1 ? 's' : ''}</button>
+          <span>${onglet !== 'passes' ? `<button class="btn petit${e.je_participe ? ' vert' : ''}" data-participer="${e.id}">${e.je_participe ? "✓ J'y vais" : 'Je participe'}</button>` : ''}
+          ${e.est_auteur ? `<button class="act" data-supprimer="${e.id}" title="Supprimer">🗑️</button>` : ''}</span>
+        </div>
+        <div id="gens-${e.id}"></div>
+      </div></div>`;
+  };
+  const dessiner = () => {
+    document.getElementById('zone').innerHTML = liste.map(carte).join('')
+      || `<div class="vide">${onglet === 'mes' ? "Tu ne participes a aucun evenement pour l'instant." : 'Aucun evenement. Cree le premier ci-dessous !'}</div>`;
+  };
+  const charger = async () => {
+    const p = new URLSearchParams();
+    if (categorie) p.set('categorie', categorie);
+    if (onglet === 'mes') p.set('mes', '1');
+    if (onglet === 'passes') p.set('passes', '1');
+    liste = await L.api('/api/evenements?' + p);
+    dessiner();
+  };
+  const choisir = (conteneur, attr, rappel) => conteneur.addEventListener('click', (e) => {
+    const b = e.target.closest(`[data-${attr}]`); if (!b) return;
+    conteneur.querySelectorAll('.puce').forEach((x) => x.classList.toggle('active', x === b));
+    rappel(b.dataset[attr]);
+  });
+  choisir(document.getElementById('onglets'), 'o', (v) => { onglet = v; charger().catch(L.erreur); });
+  choisir(zoneCat, 'c', (v) => { categorie = v; charger().catch(L.erreur); });
+
+  document.getElementById('zone').addEventListener('click', async (e) => {
+    const p = e.target.closest('[data-participer]'), s = e.target.closest('[data-supprimer]'), g = e.target.closest('[data-participants]');
+    try {
+      if (p) {
+        const ev = liste.find((x) => x.id === Number(p.dataset.participer));
+        Object.assign(ev, await L.api(`/api/evenements/${ev.id}/participer`, { methode: ev.je_participe ? 'DELETE' : 'POST' }));
+        dessiner();
+      } else if (s && L.confirmer('Supprimer cet evenement ?')) {
+        await L.api(`/api/evenements/${s.dataset.supprimer}`, { methode: 'DELETE' });
+        await charger();
+      } else if (g) {
+        const zone = document.getElementById('gens-' + g.dataset.participants);
+        if (zone.innerHTML) { zone.innerHTML = ''; return; }
+        const gens = await L.api(`/api/evenements/${g.dataset.participants}/participants`);
+        zone.innerHTML = `<div class="ligne" style="flex-wrap:wrap;margin-top:8px">${gens.map((u) =>
+          `<a href="/profil/${u.id}" title="${L.esc(u.prenom + ' ' + u.nom)}">${L.avatar(`${u.prenom} ${u.nom}`, u.id, u.avatar, 34)}</a>`).join('')}</div>`;
+      }
+    } catch (err) { L.erreur(err); }
+  });
+  document.getElementById('ajout').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    try {
+      await L.api('/api/evenements', { methode: 'POST', corps: Object.fromEntries(new FormData(e.target)) });
+      e.target.reset();
+      L.toast('Evenement publie');
+      await charger();
+    } catch (err) { L.erreur(err); }
+  });
+  charger().catch(L.erreur);
+})();
+</script>
+{% endblock %}

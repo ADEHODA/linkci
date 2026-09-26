@@ -12,7 +12,8 @@ const TUILES = [
   { route: 'Formations', icon: 'school', titre: 'Formations', texte: 'Filieres et universites', couleur: '#009E60' },
   { route: 'Documents', icon: 'folder-open', titre: 'Documents', texte: 'Cours et sujets partages', couleur: '#2563EB' },
   { route: 'Groupes', icon: 'people', titre: 'Groupes', texte: "Discute avec ta promo", couleur: '#7C3AED' },
-  { route: 'Calendrier', icon: 'calendar', titre: 'Calendrier', texte: 'Examens et evenements', couleur: '#D97706' },
+  { route: 'Calendrier', icon: 'calendar', titre: 'Evenements', texte: 'Conferences, sport, soirees', couleur: '#D97706' },
+  { route: 'MonActivite', icon: 'stats-chart', titre: 'Mon activite', texte: 'Serie, abonnes, statistiques', couleur: '#0891B2' },
 ];
 
 export default function ExploreScreen({ navigation }) {
