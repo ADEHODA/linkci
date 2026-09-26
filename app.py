@@ -752,6 +752,21 @@ def init_db():
     ):
         conn.execute(requete)
     conn.commit()
+    # Index : recherches rapides sur les colonnes les plus consultees (fil, messages, notifications...)
+    for index in ('posts(date_post)', 'posts(user_id)', 'likes(post_id)', 'likes(user_id, post_id)', 'commentaires(post_id)',
+                  'messages(expediteur_id, destinataire_id)', 'messages(destinataire_id, lu)', 'notifications(user_id, lu)',
+                  'follows(follower_id, followed_id)', 'follows(followed_id)', 'groupe_membres(groupe_id, user_id)',
+                  'groupe_messages(groupe_id)', 'reactions(post_id)', 'post_sondage_options(post_id)', 'post_sondage_votes(option_id)',
+                  'stories(date_creation)', 'reponses(question_id)', 'votes_reponses(reponse_id)', 'annonces(date_publication)',
+                  'opportunites(valide, date_publication)', 'blocages(bloque_id)', 'expo_push_tokens(user_id)', 'vues_profil(profil_id, date_vue)',
+                  'signalements_posts(post_id)', 'cours(user_id)', 'examens(user_id)', 'users(parrain_id)', 'users(code_invitation)'):
+        nom = 'idx_' + index.replace('(', '_').replace(', ', '_').replace(')', '')
+        try:
+            conn.execute(f'CREATE INDEX IF NOT EXISTS {nom} ON {index}')
+            conn.commit()
+        except Exception:
+            pass  # table absente (ancienne base) : sans consequence
+
 
     # FTS5 full-text search tables (SQLite uniquement ; sous PostgreSQL la
     # recherche utilise le repli ILIKE)
