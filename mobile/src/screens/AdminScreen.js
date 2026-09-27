@@ -153,7 +153,13 @@ function Moderation() {
       { text: 'Annuler', style: 'cancel' }, { text: 'Supprimer', style: 'destructive', onPress: faire },
     ]);
   };
-  const vide = !data.propositions.length && !data.signalements.length;
+  const profils = data.profils_signales || [];
+  const vide = !data.propositions.length && !data.signalements.length && !profils.length;
+  const classer = (u) => api.adminClasserProfil(u.id).then(charger).catch((e) => Alert.alert('Erreur', e.message));
+  const bannirProfil = (u) => Alert.alert(`Bannir ${u.prenom} ?`, "Il ne pourra plus se connecter.", [
+    { text: 'Annuler', style: 'cancel' },
+    { text: 'Bannir', style: 'destructive', onPress: () => api.bannirUtilisateur(u.id).then(() => classer(u)).catch((e) => Alert.alert('Erreur', e.message)) },
+  ]);
 
   return (
     <ScrollView contentContainerStyle={styles.content} refreshControl={controle}>
@@ -171,6 +177,23 @@ function Moderation() {
             </TouchableOpacity>
             <TouchableOpacity style={[styles.action, { backgroundColor: colors.dangerSoft }]} onPress={() => decider(p, 'refuser')}>
               <Ionicons name="close" size={16} color={colors.danger} /><Text style={[styles.actionTexte, { color: colors.danger }]}>Refuser</Text>
+            </TouchableOpacity>
+          </View>
+        </Card>
+      ))}
+      {profils.length ? <Text style={styles.section}>Profils signales ({profils.length})</Text> : null}
+      {profils.map((u) => (
+        <Card key={`p${u.id}`}>
+          <Text style={styles.titre}>{u.prenom} {u.nom}{u.banni ? ' (banni)' : ''}</Text>
+          <Text style={styles.aide}>Signale {u.nb} fois · {u.motif}</Text>
+          <View style={styles.actions}>
+            {!u.banni ? (
+              <TouchableOpacity style={[styles.action, { backgroundColor: colors.dangerSoft }]} onPress={() => bannirProfil(u)}>
+                <Ionicons name="ban" size={16} color={colors.danger} /><Text style={[styles.actionTexte, { color: colors.danger }]}>Bannir</Text>
+              </TouchableOpacity>
+            ) : null}
+            <TouchableOpacity style={styles.action} onPress={() => classer(u)}>
+              <Text style={styles.actionTexte}>Classer sans suite</Text>
             </TouchableOpacity>
           </View>
         </Card>
@@ -271,10 +294,15 @@ function Utilisateurs() {
             <View style={styles.puces}>
               {u.role === 'admin' ? <Chip label="Admin" tone="accent" /> : null}
               {u.banni ? <Chip label="Banni" tone="danger" /> : null}
-              {!u.email_verifie ? <Chip label="Non verifie" tone="muted" /> : null}
+              {!u.email_verifie ? <Chip label="E-mail non confirme" tone="muted" /> : null}
+              {u.verifie ? <Chip label="✓ Etudiant verifie" tone="accent" /> : null}
               {u.universite ? <Text style={styles.aide}>{u.universite}</Text> : null}
             </View>
           </View>
+          <TouchableOpacity style={[styles.action, { marginRight: 6 }]}
+            onPress={() => api.adminVerifier(u.id, !u.verifie).then(() => chercher(q)).catch((e) => Alert.alert('Erreur', e.message))}>
+            <Text style={styles.actionTexte}>{u.verifie ? 'Retirer ✓' : 'Verifier ✓'}</Text>
+          </TouchableOpacity>
           {u.role !== 'admin' ? (
             <TouchableOpacity style={[styles.action, { backgroundColor: u.banni ? colors.accentSoft : colors.dangerSoft }]} onPress={() => bannir(u)}>
               <Text style={[styles.actionTexte, { color: u.banni ? colors.accent : colors.danger }]}>{u.banni ? 'Reactiver' : 'Bannir'}</Text>

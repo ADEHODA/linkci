@@ -22,6 +22,13 @@ export default function StudentProfileScreen({ route, navigation }) {
 
   if (loading || !data) return <SkeletonList lignes={3} avatar carte />;
 
+  const signaler = () => Alert.alert('Signaler ce profil', 'Pourquoi ? (la personne ne saura pas que c\'est toi)', [
+    ...['Faux profil ou usurpation', 'Arnaque', 'Harcelement', 'Contenu inapproprie'].map((motif) => ({
+      text: motif,
+      onPress: () => api.signalerProfil(id, motif).then((r) => Alert.alert('Merci', r.message)).catch((e) => Alert.alert('Erreur', e.message)),
+    })),
+    { text: 'Annuler', style: 'cancel' },
+  ]);
   const basculerSuivi = () => (data.suivi ? api.nePlusSuivre(id) : api.suivre(id)).then(refresh).catch((e) => Alert.alert('Erreur', e.message));
 
   const changerBlocage = () => {
@@ -57,6 +64,9 @@ export default function StudentProfileScreen({ route, navigation }) {
               <Avatar name={`${user.prenom} ${user.nom}`} size={92} index={user.id} avatar={user.avatar} />
             </View>
             <Text style={styles.name}>{user.prenom} {user.nom}</Text>
+            {user.verifie ? (
+              <View style={styles.verifie}><Ionicons name="checkmark-circle" size={15} color={colors.accent} /><Text style={styles.verifieTexte}>Etudiant verifie</Text></View>
+            ) : null}
             {(user.filiere || user.universite) ? (
               <Text style={styles.uni}>{[user.filiere, user.annee, user.universite].filter(Boolean).join(' · ')}</Text>
             ) : null}
@@ -108,6 +118,12 @@ export default function StudentProfileScreen({ route, navigation }) {
                 <Text style={styles.bloquerTexte}>{data.bloque ? `Debloquer ${user.prenom}` : `Bloquer ${user.prenom}`}</Text>
               </TouchableOpacity>
             ) : null}
+            {!estMoi ? (
+              <TouchableOpacity style={styles.bloquer} onPress={signaler} hitSlop={8}>
+                <Ionicons name="flag-outline" size={15} color={colors.textMuted} />
+                <Text style={styles.bloquerTexte}>Signaler ce profil</Text>
+              </TouchableOpacity>
+            ) : null}
           </View>
           <DetailsProfil user={user} />
           <Text style={styles.sectionTitle}>Publications</Text>
@@ -142,6 +158,8 @@ const useStyles = creerStyles(({ colors, font, shadow }) => ({
   suivre: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm, paddingHorizontal: 22, paddingVertical: 9, borderRadius: radius.pill, backgroundColor: colors.primary, borderWidth: 1, borderColor: colors.primary },
   suivreActif: { backgroundColor: 'transparent' },
   suivreTexte: { color: colors.white, fontWeight: '800' },
+  verifie: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4, backgroundColor: colors.accentSoft, paddingHorizontal: 10, paddingVertical: 3, borderRadius: radius.pill },
+  verifieTexte: { fontSize: 12, fontWeight: '800', color: colors.accent },
   bloquer: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.md, paddingVertical: 6 },
   bloquerTexte: { color: colors.textMuted, fontSize: 13, fontWeight: '600' },
   container: { flex: 1, backgroundColor: colors.bg },

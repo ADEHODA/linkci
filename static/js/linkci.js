@@ -140,7 +140,7 @@
     return `<article class="carte post" data-id="${p.id}" data-auteur="${p.user_id}">
       <div class="post-haut">
         <a href="/profil/${p.user_id}">${L.avatar(`${p.prenom} ${p.nom}`, p.user_id, p.avatar, 42)}</a>
-        <div><a class="post-nom" href="/profil/${p.user_id}" style="color:var(--text)">${L.esc(p.prenom)} ${L.esc(p.nom)}</a>
+        <div><a class="post-nom" href="/profil/${p.user_id}" style="color:var(--text)">${L.esc(p.prenom)} ${L.esc(p.nom)}</a>${p.verifie ? ' <span title="Etudiant verifie" style="color:var(--accent);font-weight:800">✓</span>' : ''}
           <div class="sous">${L.esc([p.universite, L.quand(p.date_post)].filter(Boolean).join(' · '))}</div></div>
         <div class="menu-post"><button class="act" data-menu>⋯</button></div>
       </div>

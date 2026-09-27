@@ -6,12 +6,12 @@ import { PrimaryButton } from './ui';
 import { radius, spacing, creerStyles } from '../theme';
 
 // Changer ID a chaque nouvelle serie de nouveautes a annoncer
-const ID = '2026-10-01';
+const ID = '2026-10-02';
 const CLE = 'linkci_nouveautes_vues';
 const LISTE = [
-  ['📎', 'Envoie des documents', 'Touche le trombone dans une discussion ou un groupe : envoie un PDF, un Word ou un PowerPoint (10 Mo max).'],
-  ['👥', 'Invite ta promo', "Dans un groupe, touche l'icone ➕👤 pour partager le lien du groupe sur WhatsApp."],
-  ['🎟️', 'Invite tes camarades', "Ton lien personnel (Profil) affiche maintenant ton prenom : « Awa t'invite sur LinkCI »."],
+  ['✓', 'Badge etudiant verifie', "Parametres > Compte : confirme ton adresse e-mail de l'universite et obtiens le badge ✓ sur ton profil."],
+  ['🖼️', 'Qui voit ma photo', 'Parametres > Confidentialite : tout le monde, seulement ceux que tu suis, ou personne.'],
+  ['🚩', 'Signaler un faux profil', "Sur le profil d'un etudiant : « Signaler ce profil ». L'equipe LinkCI verifie."],
 ];
 
 export default function Nouveautes() {

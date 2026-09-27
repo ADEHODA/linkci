@@ -30,6 +30,9 @@
       <div class="puces" style="margin:6px 0">
         <button class="puce ${p.qui_peut_ecrire === 'tous' ? 'active' : ''}" data-qui="tous">Tout le monde</button>
         <button class="puce ${p.qui_peut_ecrire === 'abonnes' ? 'active' : ''}" data-qui="abonnes">Personnes que je suis</button></div>
+      <div class="sous" style="margin-top:10px">Qui peut voir ma photo</div>
+      <div class="puces" style="margin:6px 0">${[['tous', 'Tout le monde'], ['suivis', 'Ceux que je suis'], ['personne', 'Personne']].map(([c, l]) =>
+        `<button class="puce ${(p.photo_visible || 'tous') === c ? 'active' : ''}" data-photo="${c}">${l}</button>`).join('')}</div>
       ${inter('vu', 'Accuses de lecture (Vu)', !p.masquer_vu, 'Si tu les desactives, tu ne verras pas non plus ceux des autres.')}
       ${inter('visites', 'Visites de profil anonymes', p.masquer_visites, "Tes visites ne sont pas enregistrees, et tu ne vois pas qui a vu ton profil.")}
       <button class="btn gris petit" id="bloques">Comptes bloques</button></div>
@@ -56,6 +59,8 @@
   zone.addEventListener('click', async (e) => {
     const qui = e.target.closest('[data-qui]');
     if (qui) return enregistrer({ qui_peut_ecrire: qui.dataset.qui });
+    const photo = e.target.closest('[data-photo]');
+    if (photo) return enregistrer({ photo_visible: photo.dataset.photo });
     const th = e.target.closest('[data-theme]');
     if (th) {
       if (th.dataset.theme) document.documentElement.setAttribute('data-theme', th.dataset.theme); else document.documentElement.removeAttribute('data-theme');

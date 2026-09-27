@@ -168,7 +168,7 @@ export default function PostCard({ post, onRefresh }) {
         <TouchableOpacity style={styles.auteur} onPress={() => voirProfil(post.user_id)} activeOpacity={0.7}>
           <Avatar name={`${post.prenom} ${post.nom}`} size={42} index={post.user_id} avatar={post.avatar} />
           <View style={styles.headerInfo}>
-            <Text style={styles.name}>{post.prenom} {post.nom}</Text>
+            <Text style={styles.name}>{post.prenom} {post.nom}{post.verifie ? <Text style={{ color: colors.accent }}> ✓</Text> : null}</Text>
             <Text style={styles.date}>{[post.universite, dateRelative(post.date_post)].filter(Boolean).join(' · ')}</Text>
           </View>
         </TouchableOpacity>

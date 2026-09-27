@@ -7,7 +7,7 @@ from datetime import datetime, date, timedelta, timezone
 
 load_dotenv()
 import db  # apres load_dotenv : lit DATABASE_URL
-from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_file, send_from_directory
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify, flash, send_file, send_from_directory, g
 try:
     from flask_socketio import SocketIO, emit, join_room, leave_room
     SOCKETIO_AVAILABLE = True
@@ -565,7 +565,10 @@ def init_db():
 
     # Version de l'app utilisee (envoyee par l'app depuis 1.2.0) ; sans_version_depuis : premiere
     # requete sans version (ancienne app), averti_version : dernier avertissement envoye
-    for colonne in ('version_app TEXT', 'sans_version_depuis TEXT', 'averti_version TEXT', 'vu_a TEXT'):
+    for colonne in ('version_app TEXT', 'sans_version_depuis TEXT', 'averti_version TEXT', 'vu_a TEXT',
+                    # premiers pas (1 = deja faits : les comptes existants ne sont pas concernes), badge verifie, photo
+                    'premiers_pas_fini INTEGER DEFAULT 1', 'verifie INTEGER DEFAULT 0', "verifie_par TEXT DEFAULT ''",
+                    "email_universitaire TEXT DEFAULT ''", "photo_visible TEXT DEFAULT 'tous'"):
         try:
             conn.execute('ALTER TABLE users ADD COLUMN ' + colonne)
             conn.commit()
@@ -765,6 +768,19 @@ def init_db():
             heure TEXT DEFAULT '',
             salle TEXT DEFAULT '',
             note TEXT DEFAULT '')''',
+        # Verification par e-mail universitaire (un code par etudiant)
+        '''CREATE TABLE IF NOT EXISTS codes_etudiant (
+            user_id INTEGER PRIMARY KEY,
+            email TEXT NOT NULL,
+            code TEXT NOT NULL,
+            expire TEXT NOT NULL)''',
+        # Faux profils signales
+        '''CREATE TABLE IF NOT EXISTS signalements_profils (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            profil_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            motif TEXT NOT NULL,
+            date_signalement TEXT NOT NULL)''',
         # Groupes : reactions, sondages
         '''CREATE TABLE IF NOT EXISTS groupe_message_reactions (
             message_id INTEGER NOT NULL,
@@ -1284,7 +1300,7 @@ def inscription():
         try:
             if conn.execute('SELECT 1 FROM users WHERE lower(email) = ?', (email,)).fetchone():
                 raise db.IntegrityError('email deja utilise')
-            user_id = conn.execute('INSERT INTO users (nom, prenom, email, mot_de_passe, universite, filiere, annee, email_verifie) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            user_id = conn.execute('INSERT INTO users (nom, prenom, email, mot_de_passe, universite, filiere, annee, email_verifie, premiers_pas_fini) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)',
                                    (nom, prenom, email, mot_de_passe, universite, filiere, annee, 0 if verification_active() else 1)).lastrowid
             conn.commit()
             noter_parrain(user_id, request.form.get('invitation'))
@@ -3057,9 +3073,72 @@ def api_require_auth():
     elif request.headers.get('X-LinkCI') == 'web' and session.get('user_id'):
         user_id = session['user_id']
     if user_id:
+        g.lecteur_id = user_id
         noter_jour_actif(user_id)
         noter_presence(user_id)
     return user_id
+
+# ---- Qui peut voir ma photo : 'tous', 'suivis' (les personnes que je suis), 'personne'.
+# Applique a toutes les reponses JSON de l'API : un objet avec 'avatar' appartient a
+# user_id / autre_id / expediteur_id / id ; sa photo est retiree si le lecteur n'y a pas droit.
+_photos_restreintes = {'maj': 0, 'ids': {}}
+
+def photos_restreintes():
+    if time.time() - _photos_restreintes['maj'] > 30:
+        try:
+            conn = get_db()
+            _photos_restreintes['ids'] = {u['id']: u['photo_visible'] for u in conn.execute(
+                "SELECT id, photo_visible FROM users WHERE COALESCE(photo_visible, 'tous') != 'tous'").fetchall()}
+            conn.close()
+            _photos_restreintes['maj'] = time.time()
+        except Exception:
+            pass
+    return _photos_restreintes['ids']
+
+@app.after_request
+def masquer_photos_privees(resp):
+    if not request.path.startswith('/api/') or resp.status_code != 200 or resp.mimetype != 'application/json' or resp.direct_passthrough:
+        return resp
+    restreints = photos_restreintes()
+    if not restreints:
+        return resp
+    lecteur = getattr(g, 'lecteur_id', None)
+    data = resp.get_json(silent=True)
+    if data is None:
+        return resp
+    objets = []
+
+    def parcourir(x):
+        if isinstance(x, dict):
+            if x.get('avatar'):
+                objets.append(x)
+            for v in x.values():
+                parcourir(v)
+        elif isinstance(x, list):
+            for v in x:
+                parcourir(v)
+    parcourir(data)
+    concernes = {}
+    for o in objets:
+        proprio = next((o[k] for k in ('user_id', 'autre_id', 'expediteur_id', 'id') if isinstance(o.get(k), int)), None)
+        if proprio in restreints and proprio != lecteur:
+            concernes.setdefault(proprio, []).append(o)
+    if not concernes:
+        return resp
+    autorises = set()
+    suivis = [p for p in concernes if restreints[p] == 'suivis']
+    if suivis and lecteur:
+        conn = get_db()
+        autorises = {f['follower_id'] for f in conn.execute(
+            f"SELECT follower_id FROM follows WHERE followed_id = ? AND follower_id IN ({','.join('?' * len(suivis))})",
+            [lecteur] + suivis).fetchall()}
+        conn.close()
+    for proprio, liste in concernes.items():
+        if proprio not in autorises:
+            for o in liste:
+                o['avatar'] = None
+    resp.set_data(app.json.dumps(data))
+    return resp
 
 _presence_notee = {}  # user_id -> derniere ecriture de vu_a (timestamp)
 EN_LIGNE = timedelta(minutes=2)
@@ -3193,7 +3272,7 @@ def api_token(user_id):
     return _jetons_api.dumps({'u': int(user_id), 'v': (user['jeton_version'] or 0) if user else 0})
 
 CHAMPS_PUBLICS_USER = ('id, nom, prenom, universite, filiere, annee, bio, avatar, date_inscription, couverture, '
-                       'competences, parcours, lien_linkedin, lien_github, lien_site')
+                       'competences, parcours, lien_linkedin, lien_github, lien_site, COALESCE(verifie, 0) AS verifie')
 
 def liste_json(texte):
     import json
@@ -3266,7 +3345,7 @@ def api_register():
     try:
         if conn.execute('SELECT 1 FROM users WHERE lower(email) = ?', (email,)).fetchone():
             raise db.IntegrityError('email deja utilise')
-        user_id = conn.execute('INSERT INTO users (nom, prenom, email, mot_de_passe, universite, filiere, annee, email_verifie) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        user_id = conn.execute('INSERT INTO users (nom, prenom, email, mot_de_passe, universite, filiere, annee, email_verifie, premiers_pas_fini) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)',
                                (nom, prenom, email, hash_password(mot_de_passe),
                                 sanitize_text(str(data.get('universite') or ''), 100), sanitize_text(str(data.get('filiere') or ''), 100),
                                 sanitize_text(str(data.get('annee') or ''), 20), 0 if verification_active() else 1)).lastrowid
@@ -3403,6 +3482,12 @@ def api_me():
     result = profil_public(user)
     result['badges'] = [dict(b) for b in badges]
     result['est_admin'] = api_est_admin(user_id)
+    conn = get_db()
+    extra = conn.execute('SELECT COALESCE(premiers_pas_fini, 1) AS premiers_pas_fini, verifie_par, email_universitaire FROM users WHERE id = ?',
+                         (user_id,)).fetchone()
+    conn.close()
+    result.update(premiers_pas_fini=bool(extra['premiers_pas_fini']), verifie_par=extra['verifie_par'] or '',
+                  email_universitaire=extra['email_universitaire'] or '')
     return jsonify(result)
 
 @app.route('/api/posts', methods=['GET'])
@@ -3438,7 +3523,7 @@ def requete_posts(conn, user_id, filtre='', params=(), ordre='posts.date_post DE
     """Publications visibles (sans les comptes bloques), avec compteurs, like et enregistrement."""
     return conn.execute('''
         SELECT posts.id, posts.user_id, posts.contenu, posts.image, posts.date_post,
-               users.prenom, users.nom, users.universite, users.avatar,
+               users.prenom, users.nom, users.universite, users.avatar, COALESCE(users.verifie, 0) AS verifie,
                (SELECT COUNT(*) FROM likes WHERE likes.post_id = posts.id) as nb_likes,
                (SELECT COUNT(*) FROM commentaires WHERE commentaires.post_id = posts.id) as nb_commentaires,
                EXISTS(SELECT 1 FROM likes WHERE likes.post_id = posts.id AND likes.user_id = ?) as a_like,
@@ -4497,8 +4582,13 @@ def api_admin_moderation():
         SELECT posts.id, posts.contenu, posts.image, users.prenom, users.nom, COUNT(s.id) AS nb, MAX(s.motif) AS motif
         FROM signalements_posts s JOIN posts ON posts.id = s.post_id JOIN users ON users.id = posts.user_id
         GROUP BY posts.id, posts.contenu, posts.image, users.prenom, users.nom ORDER BY nb DESC''').fetchall()
+    profils = conn.execute('''
+        SELECT users.id, users.prenom, users.nom, users.avatar, COALESCE(users.banni, 0) AS banni, COUNT(s.id) AS nb, MAX(s.motif) AS motif
+        FROM signalements_profils s JOIN users ON users.id = s.profil_id
+        GROUP BY users.id, users.prenom, users.nom, users.avatar, users.banni ORDER BY nb DESC''').fetchall()
     conn.close()
-    return jsonify({'propositions': propositions, 'signalements': [dict(x) for x in signales]})
+    return jsonify({'propositions': propositions, 'signalements': [dict(x) for x in signales],
+                    'profils_signales': [dict(x) for x in profils]})
 
 @app.route('/api/admin/moderation/<genre>/<int:id>/<decision>', methods=['POST'])
 def api_admin_moderer(genre, id, decision):
@@ -4553,7 +4643,7 @@ def api_admin_utilisateurs():
         return erreur
     q = request.args.get('q', '').strip().lower()[:100]
     sql_ = '''SELECT id, prenom, nom, email, universite, date_inscription, COALESCE(banni, 0) AS banni, role,
-                     COALESCE(email_verifie, 1) AS email_verifie FROM users'''
+                     COALESCE(email_verifie, 1) AS email_verifie, COALESCE(verifie, 0) AS verifie FROM users'''
     params = []
     if q:
         sql_ += ' WHERE lower(prenom) LIKE ? OR lower(nom) LIKE ? OR lower(email) LIKE ?'
@@ -4602,10 +4692,11 @@ def admin_annonce_web():
 # ===================== PARAMETRES =====================
 def parametres_de(user_id):
     conn = get_db()
-    u = conn.execute('SELECT qui_peut_ecrire, masquer_vu, notifs_coupees, masquer_visites FROM users WHERE id = ?', (user_id,)).fetchone()
+    u = conn.execute('SELECT qui_peut_ecrire, masquer_vu, notifs_coupees, masquer_visites, photo_visible FROM users WHERE id = ?', (user_id,)).fetchone()
     conn.close()
     coupees = set(filter(None, (u['notifs_coupees'] or '').split(',')))
     return {'qui_peut_ecrire': u['qui_peut_ecrire'] or 'tous', 'masquer_vu': bool(u['masquer_vu']), 'masquer_visites': bool(u['masquer_visites']),
+            'photo_visible': u['photo_visible'] or 'tous',
             'notifications': {c: c not in coupees for c in CATEGORIES_NOTIF}}
 
 @app.route('/api/parametres', methods=['GET', 'PUT'])
@@ -4620,6 +4711,9 @@ def api_parametres():
             conn.execute('UPDATE users SET qui_peut_ecrire = ? WHERE id = ?', (data['qui_peut_ecrire'], user_id))
         if 'masquer_vu' in data:
             conn.execute('UPDATE users SET masquer_vu = ? WHERE id = ?', (1 if data['masquer_vu'] else 0, user_id))
+        if data.get('photo_visible') in ('tous', 'suivis', 'personne'):
+            conn.execute('UPDATE users SET photo_visible = ? WHERE id = ?', (data['photo_visible'], user_id))
+            _photos_restreintes['maj'] = 0  # la regle change tout de suite
         if 'masquer_visites' in data:
             conn.execute('UPDATE users SET masquer_visites = ? WHERE id = ?', (1 if data['masquer_visites'] else 0, user_id))
         if isinstance(data.get('notifications'), dict):
@@ -4737,12 +4831,13 @@ def supprimer_compte(user_id):
                   'evenements', 'groupe_membres', 'groupe_messages', 'user_badges', 'codes_verification', 'opportunites',
                   'annonces', 'stories', 'expo_push_tokens', 'conversations_effacees', 'cours', 'examens',
                   'evenement_participants', 'jours_actifs', 'message_reactions', 'defis_reussis', 'posts_enregistres',
-                  'groupe_message_reactions', 'groupe_sondage_votes', 'story_vues', 'documents_votes'):
+                  'groupe_message_reactions', 'groupe_sondage_votes', 'story_vues', 'documents_votes', 'codes_etudiant'):
         conn.execute(f'DELETE FROM {table} WHERE user_id = ?', (user_id,))
     conn.execute('DELETE FROM groupes WHERE createur_id = ?', (user_id,))
     conn.execute('DELETE FROM messages WHERE expediteur_id = ? OR destinataire_id = ?', (user_id, user_id))
     conn.execute('DELETE FROM follows WHERE follower_id = ? OR followed_id = ?', (user_id, user_id))
     conn.execute('DELETE FROM blocages WHERE bloqueur_id = ? OR bloque_id = ?', (user_id, user_id))
+    conn.execute('DELETE FROM signalements_profils WHERE profil_id = ? OR user_id = ?', (user_id, user_id))
     conn.execute('DELETE FROM conversations_effacees WHERE autre_id = ?', (user_id,))
     conn.execute('DELETE FROM users WHERE id = ?', (user_id,))
     conn.commit()
@@ -5408,6 +5503,134 @@ def telecharger_fichier_message(nom):
     if not nom_propre.lower().endswith(ext):
         nom_propre += ext
     return send_from_directory(os.path.join(app.root_path, 'static', 'uploads'), nom, as_attachment=True, download_name=nom_propre)
+
+# ---- Premiers pas guides (apres l'inscription)
+@app.route('/api/premiers_pas/fini', methods=['POST'])
+def api_premiers_pas_fini():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    conn = get_db()
+    conn.execute('UPDATE users SET premiers_pas_fini = 1 WHERE id = ?', (user_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'premiers_pas_fini': True})
+
+# ---- Badge "etudiant verifie" : adresse e-mail universitaire (ou validation par l'admin)
+DOMAINES_UNIVERSITAIRES = tuple(d.strip().lower() for d in os.environ.get('DOMAINES_UNIVERSITAIRES', '').split(',') if d.strip()) + (
+    'inphb.ci', 'esatic.ci', 'ensea.ed.ci', 'ufhb.edu.ci', 'univ-fhb.edu.ci', 'uao.edu.ci', 'ujlog.edu.ci', 'upgc.edu.ci')
+
+def email_universitaire_valide(email):
+    domaine = email.rsplit('@', 1)[-1] if '@' in email else ''
+    return bool(re.fullmatch(r'[^@\s]+@[a-z0-9.-]+\.[a-z]{2,}', email)) and (
+        domaine.endswith(('.edu.ci', '.ac.ci', '.edu')) or any(domaine == d or domaine.endswith('.' + d) for d in DOMAINES_UNIVERSITAIRES))
+
+@app.route('/api/verification/email', methods=['POST'])
+def api_verification_email():
+    """{email} : envoie un code a l'adresse universitaire."""
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if trop_rapide('verif_etudiant', user_id, 5, 3600):
+        return jsonify({'error': 'Trop de demandes. Reessaie dans une heure.'}), 429
+    email = normaliser_email((request.get_json(silent=True) or {}).get('email'))
+    if not email_universitaire_valide(email):
+        return jsonify({'error': "Ce n'est pas une adresse universitaire reconnue (ex. prenom.nom@univ.edu.ci). "
+                                 "Si ton ecole n'est pas reconnue, contacte l'administrateur."}), 400
+    conn = get_db()
+    deja = conn.execute("SELECT 1 FROM users WHERE email_universitaire = ? AND id != ? AND COALESCE(verifie, 0) = 1", (email, user_id)).fetchone()
+    if deja:
+        conn.close()
+        return jsonify({'error': 'Cette adresse a deja servi a verifier un autre compte.'}), 409
+    code = f'{secrets.randbelow(1000000):06d}'
+    expire = (datetime.now(timezone.utc) + timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M:%S')
+    conn.execute('DELETE FROM codes_etudiant WHERE user_id = ?', (user_id,))
+    conn.execute('INSERT INTO codes_etudiant (user_id, email, code, expire) VALUES (?, ?, ?, ?)', (user_id, email, code, expire))
+    conn.commit()
+    moi = conn.execute('SELECT prenom FROM users WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    if not app.config.get('TESTING'):
+        envoyer_email(email, 'LinkCI : ton code etudiant',
+                      f"Bonjour {moi['prenom']},\n\nTon code pour obtenir le badge etudiant verifie sur LinkCI : {code}\n"
+                      "Il est valable 30 minutes.\n\nSi tu n'as rien demande, ignore cet e-mail.")
+    return jsonify({'message': f'Code envoye a {email}'})
+
+@app.route('/api/verification/code', methods=['POST'])
+def api_verification_code():
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if trop_rapide('verif_code', user_id, 8, 900):
+        return jsonify({'error': 'Trop d essais. Reessaie dans 15 minutes.'}), 429
+    code = str((request.get_json(silent=True) or {}).get('code') or '').strip()
+    conn = get_db()
+    c = conn.execute('SELECT email, code, expire FROM codes_etudiant WHERE user_id = ?', (user_id,)).fetchone()
+    if not c or c['expire'] < datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S') or not secrets.compare_digest(c['code'], code):
+        conn.close()
+        return jsonify({'error': 'Code incorrect ou expire'}), 400
+    conn.execute("UPDATE users SET verifie = 1, verifie_par = 'email_universitaire', email_universitaire = ? WHERE id = ?", (c['email'], user_id))
+    conn.execute('DELETE FROM codes_etudiant WHERE user_id = ?', (user_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'verifie': True, 'message': 'Bravo, ton compte est verifie ✓'})
+
+@app.route('/api/admin/utilisateurs/<int:uid>/verifier', methods=['POST', 'DELETE'])
+def api_admin_verifier(uid):
+    """L'administrateur donne (POST) ou retire (DELETE) le badge verifie."""
+    _, erreur = api_admin_requis()
+    if erreur:
+        return erreur
+    conn = get_db()
+    if request.method == 'POST':
+        conn.execute("UPDATE users SET verifie = 1, verifie_par = 'admin' WHERE id = ?", (uid,))
+    else:
+        conn.execute("UPDATE users SET verifie = 0, verifie_par = '' WHERE id = ?", (uid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'verifie': request.method == 'POST'})
+
+# ---- Signaler un faux profil
+MOTIFS_PROFIL = ('Faux profil ou usurpation', 'Arnaque', 'Harcelement', 'Contenu inapproprie', 'Autre')
+
+@app.route('/api/utilisateurs/<int:uid>/signaler', methods=['POST'])
+def api_signaler_profil(uid):
+    user_id = api_require_auth()
+    if not user_id:
+        return jsonify({'error': 'Non authentifie'}), 401
+    if uid == user_id:
+        return jsonify({'error': 'Impossible'}), 400
+    motif = (request.get_json(silent=True) or {}).get('motif')
+    if motif not in MOTIFS_PROFIL:
+        return jsonify({'error': 'Motif invalide'}), 400
+    if trop_rapide('signaler_profil', user_id, 10, 86400):
+        return jsonify({'error': 'Trop de signalements. Reessaie plus tard.'}), 429
+    conn = get_db()
+    if not conn.execute('SELECT 1 FROM users WHERE id = ?', (uid,)).fetchone():
+        conn.close()
+        return jsonify({'error': 'Introuvable'}), 404
+    if not conn.execute('SELECT 1 FROM signalements_profils WHERE profil_id = ? AND user_id = ?', (uid, user_id)).fetchone():
+        conn.execute('INSERT INTO signalements_profils (profil_id, user_id, motif, date_signalement) VALUES (?, ?, ?, ?)',
+                     (uid, user_id, motif, datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')))
+        conn.commit()
+        admins = [a['id'] for a in conn.execute("SELECT id FROM users WHERE role = 'admin'").fetchall()]
+        conn.close()
+        for a in admins:
+            creer_notification(a, 'signalement', f'Profil signale : {motif}', f'/profil/{uid}')
+    else:
+        conn.close()
+    return jsonify({'message': "Merci, l'equipe LinkCI va verifier ce profil."})
+
+@app.route('/api/admin/signalements_profils/<int:uid>', methods=['DELETE'])
+def api_admin_classer_profil(uid):
+    """Classer sans suite les signalements d'un profil."""
+    _, erreur = api_admin_requis()
+    if erreur:
+        return erreur
+    conn = get_db()
+    conn.execute('DELETE FROM signalements_profils WHERE profil_id = ?', (uid,))
+    conn.commit()
+    conn.close()
+    return jsonify({'message': 'Signalements classes'})
 
 # ---- Recherche dans les messages et medias partages
 def motif_recherche(q):

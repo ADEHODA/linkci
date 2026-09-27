@@ -409,6 +409,13 @@ export const updateProfile = (data) =>
 // Recherche
 export const searchAll = (q) => request(`/api/recherche?q=${encodeURIComponent(q)}`);
 export const getDecouverte = () => request('/api/decouverte');
+// Premiers pas, badge etudiant verifie, signalement de profil
+export const premiersPasFini = () => request('/api/premiers_pas/fini', { method: 'POST' });
+export const demanderVerification = (email) => request('/api/verification/email', { method: 'POST', body: JSON.stringify({ email }) });
+export const confirmerVerification = (code) => request('/api/verification/code', { method: 'POST', body: JSON.stringify({ code }) });
+export const signalerProfil = (id, motif) => request(`/api/utilisateurs/${id}/signaler`, { method: 'POST', body: JSON.stringify({ motif }) });
+export const adminVerifier = (id, oui = true) => request(`/api/admin/utilisateurs/${id}/verifier`, { method: oui ? 'POST' : 'DELETE' });
+export const adminClasserProfil = (id) => request(`/api/admin/signalements_profils/${id}`, { method: 'DELETE' });
 export const getVuesProfil = () => request('/api/profil/vues');
 export const getInvitations = () => request('/api/invitations');
 

@@ -82,7 +82,7 @@ _TABLE_INSERT = re.compile(r'^\s*INSERT\s+(?:OR\s+IGNORE\s+)?INTO\s+(\w+)', re.I
 TABLES_SANS_ID = {'reactions', 'post_sondage_votes', 'votes_reponses', 'conversations_effacees', 'vues_profil',
                   'posts_enregistres', 'message_reactions', 'defis_reussis', 'evenement_participants',
                   'jours_actifs', 'blocages', 'groupe_message_reactions', 'groupe_sondage_votes', 'story_vues',
-                  'documents_votes'}
+                  'documents_votes', 'codes_etudiant'}
 
 
 def table_insert(sql):

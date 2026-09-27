@@ -126,6 +126,8 @@ export default function SettingsScreen({ navigation, onLogin, onLogout }) {
 
       <Section titre="Compte">
         <Ligne icone="create-outline" texte="Modifier le profil" onPress={() => navigation.navigate('ModifierProfil', { user: moi })} />
+        <Ligne icone="shield-checkmark-outline" texte={moi.verifie ? 'Etudiant verifie ✓' : 'Obtenir le badge etudiant verifie'}
+          onPress={() => (moi.verifie ? Alert.alert('Etudiant verifie ✓', 'Ton compte est verifie. Le badge apparait sur ton profil et tes publications.') : setFenetre('verifier'))} />
         <Ligne icone="key-outline" texte="Changer le mot de passe" onPress={() => setFenetre('mdp')} />
         <Ligne icone="phone-portrait-outline" texte="Deconnecter les autres appareils" onPress={deconnecterPartout} />
         <Ligne icone="log-out-outline" texte="Se deconnecter" danger onPress={onLogout} />
@@ -138,6 +140,14 @@ export default function SettingsScreen({ navigation, onLogin, onLogout }) {
           {[['tous', 'Tout le monde'], ['abonnes', 'Personnes que je suis']].map(([cle, label]) => (
             <TouchableOpacity key={cle} style={[styles.segBtn, p.qui_peut_ecrire === cle && styles.segActif]} onPress={() => enregistrer({ qui_peut_ecrire: cle })}>
               <Text style={[styles.segTexte, p.qui_peut_ecrire === cle && { color: colors.white }]}>{label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <Text style={styles.libelle}>Qui peut voir ma photo</Text>
+        <View style={styles.segment}>
+          {[['tous', 'Tout le monde'], ['suivis', 'Ceux que je suis'], ['personne', 'Personne']].map(([cle, label]) => (
+            <TouchableOpacity key={cle} style={[styles.segBtn, (p.photo_visible || 'tous') === cle && styles.segActif]} onPress={() => enregistrer({ photo_visible: cle })}>
+              <Text style={[styles.segTexte, (p.photo_visible || 'tous') === cle && { color: colors.white }]}>{label}</Text>
             </TouchableOpacity>
           ))}
         </View>
@@ -199,6 +209,7 @@ export default function SettingsScreen({ navigation, onLogin, onLogout }) {
       <Bloques visible={fenetre === 'bloques'} onFermer={() => setFenetre(null)} />
       <SupprimerCompte visible={fenetre === 'supprimer'} onFermer={() => setFenetre(null)} onSupprime={onLogout} />
       <Faq visible={fenetre === 'faq'} onFermer={() => setFenetre(null)} />
+      <VerifierEtudiant visible={fenetre === 'verifier'} onFermer={() => setFenetre(null)} onVerifie={() => { setFenetre(null); charger && charger(); }} />
       <ChoixFondEcran visible={fenetre === 'fond'} onFermer={() => setFenetre(null)} />
       <Modal visible={fenetre === 'qr'} transparent animationType="fade" onRequestClose={() => setFenetre(null)}>
         <TouchableOpacity style={styles.fond} activeOpacity={1} onPress={() => setFenetre(null)}>
@@ -220,6 +231,57 @@ function Section({ titre, children }) {
       <Text style={styles.sectionTitre}>{titre}</Text>
       <View style={styles.carte}>{children}</View>
     </View>
+  );
+}
+
+// Badge "etudiant verifie" : code envoye a l'adresse e-mail de l'universite
+function VerifierEtudiant({ visible, onFermer, onVerifie }) {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
+  const [envoye, setEnvoye] = useState(false);
+  const [attente, setAttente] = useState(false);
+  const fermer = () => { setEmail(''); setCode(''); setEnvoye(false); onFermer(); };
+  const envoyer = async () => {
+    setAttente(true);
+    try { const r = await api.demanderVerification(email.trim()); setEnvoye(true); Alert.alert('Code envoye', r.message); }
+    catch (e) { Alert.alert('Adresse non reconnue', e.message); }
+    setAttente(false);
+  };
+  const confirmer = async () => {
+    setAttente(true);
+    try { const r = await api.confirmerVerification(code.trim()); Alert.alert('Bravo 🎉', r.message); setEmail(''); setCode(''); setEnvoye(false); onVerifie(); }
+    catch (e) { Alert.alert('Erreur', e.message); }
+    setAttente(false);
+  };
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={fermer}>
+      <View style={styles.fondBas}>
+        <View style={styles.feuille}>
+          <Text style={styles.feuilleTitre}>✓ Badge etudiant verifie</Text>
+          <Text style={styles.aideTexte}>Entre ton adresse e-mail de l'universite (ex. prenom.nom@...edu.ci). Nous y envoyons un code : il prouve que tu es bien etudiant. Cette adresse n'est montree a personne.</Text>
+          {!envoye ? (
+            <>
+              <TextInput style={styles.champ} value={email} onChangeText={setEmail} placeholder="adresse@universite.edu.ci" placeholderTextColor={colors.textFaint}
+                keyboardType="email-address" autoCapitalize="none" autoCorrect={false} />
+              <PrimaryButton title="Recevoir le code" onPress={envoyer} loading={attente} />
+            </>
+          ) : (
+            <>
+              <TextInput style={styles.champ} value={code} onChangeText={setCode} placeholder="Code a 6 chiffres" placeholderTextColor={colors.textFaint}
+                keyboardType="number-pad" maxLength={6} />
+              <PrimaryButton title="Verifier" onPress={confirmer} loading={attente} />
+              <TouchableOpacity onPress={() => setEnvoye(false)} style={{ alignItems: 'center', padding: spacing.sm }}>
+                <Text style={{ color: colors.primary, fontWeight: '700' }}>Changer d'adresse</Text>
+              </TouchableOpacity>
+            </>
+          )}
+          <Text style={styles.aideTexte}>Ton ecole n'a pas d'adresse e-mail ? Contacte l'administrateur (Aide) pour une verification manuelle.</Text>
+          <TouchableOpacity onPress={fermer} style={{ alignItems: 'center', paddingTop: spacing.sm }}><Text style={{ color: colors.textMuted, fontWeight: '600' }}>Fermer</Text></TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
   );
 }
 
@@ -412,6 +474,8 @@ const useStyles = creerStyles(({ colors, font }) => ({
   fond: { flex: 1, backgroundColor: colors.overlay, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
   fondBas: { flex: 1, backgroundColor: colors.overlay, justifyContent: 'flex-end' },
   feuille: { backgroundColor: colors.card, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.xl, paddingBottom: 32, gap: spacing.md },
+  feuilleTitre: { fontSize: 18, fontWeight: '800', color: colors.text },
+  aideTexte: { fontSize: 13, lineHeight: 19, color: colors.textMuted },
   qrCarte: { backgroundColor: colors.card, borderRadius: radius.xl, padding: spacing.xl, alignItems: 'center', gap: spacing.md },
   qrCadre: { padding: 14, backgroundColor: '#fff', borderRadius: radius.lg },
   champ: { backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: 14, fontSize: 15, color: colors.text },

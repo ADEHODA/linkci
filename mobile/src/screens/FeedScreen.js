@@ -20,6 +20,7 @@ export default function FeedScreen() {
   const { colors } = useTheme();
   const [posts, setPosts] = useState([]);
   const [moi, setMoi] = useState(null);
+  const premiersPasOuverts = React.useRef(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [chargementSuite, setChargementSuite] = useState(false);
@@ -39,6 +40,10 @@ export default function FeedScreen() {
       const [premiere, me] = await Promise.all([api.getPosts(1, facChoisi), api.getMe()]); // profil a jour (carte "Complete ton profil")
       setPosts(premiere);
       setMoi(me);
+      if (me && me.premiers_pas_fini === false && !premiersPasOuverts.current) {
+        premiersPasOuverts.current = true;
+        navigation.navigate('PremiersPas');
+      }
       page.current = 1;
       fin.current = premiere.length < PAR_PAGE;
     } catch (e) {

@@ -2,6 +2,7 @@
 {% block titre %}Fil d'actualite{% endblock %}
 {% block largeur %}large{% endblock %}
 {% block contenu %}
+<div id="bienvenue"></div>
 <div id="filtre-actif"></div>
 <div class="stories" id="stories"></div>
 
@@ -54,6 +55,19 @@
   }
 
   L.brancherPosts(zonePosts);
+  L.moi().then((m) => {
+    if (m.premiers_pas_fini !== false) return;
+    const zone = document.getElementById('bienvenue');
+    zone.innerHTML = `<div class="carte" style="border:2px solid var(--primary)">
+      <strong style="font-size:17px">👋 Bienvenue ${L.esc(m.prenom)} ! 3 etapes pour bien commencer</strong>
+      <ol style="margin:8px 0 10px;padding-left:20px;line-height:1.9">
+        <li><a href="/profil/modifier">Indique ta fac et ta filiere</a>${m.universite && m.filiere ? ' ✅' : ''}</li>
+        <li><a href="/groupes">Rejoins le groupe de ta promo</a></li>
+        <li><a href="/decouvrir">Suis des etudiants de ta filiere</a></li>
+      </ol>
+      <button class="btn petit" id="bienvenueFini">C'est fait</button></div>`;
+    zone.querySelector('#bienvenueFini').onclick = () => L.api('/api/premiers_pas/fini', { methode: 'POST' }).then(() => { zone.innerHTML = ''; }).catch(L.erreur);
+  }).catch(() => {});
   L.stories(document.getElementById('stories')).catch(() => {});
 
   const charger = async (reset) => {
