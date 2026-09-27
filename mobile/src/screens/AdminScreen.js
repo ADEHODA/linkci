@@ -7,7 +7,17 @@ import { Card, Chip, EmptyState, Loading, PrimaryButton } from '../components/ui
 import { radius, spacing, creerStyles, useTheme } from '../theme';
 
 const ONGLETS = [['stats', 'Stats', 'stats-chart'], ['moderation', 'Moderation', 'shield-checkmark'],
-  ['annonce', 'Annonce', 'megaphone'], ['utilisateurs', 'Etudiants', 'people']];
+  ['contenu', 'Contenu', 'albums'], ['annonce', 'Annonce', 'megaphone'], ['utilisateurs', 'Etudiants', 'people']];
+
+const BIENVENUE = `Bienvenue sur LinkCI 👋🇨🇮
+
+LinkCI, c'est le reseau des etudiants de Cote d'Ivoire :
+👥 rejoins le groupe de ta promo (onglet Groupes)
+📚 trouve et partage cours, TD et anciens sujets (Documents)
+🎓 bourses et stages (Explorer)
+🤝 pose tes questions dans l'Entraide
+
+Presente-toi en commentaire : ta fac, ta filiere, ton annee ! 👇`;
 
 export default function AdminScreen() {
   const styles = useStyles();
@@ -23,7 +33,8 @@ export default function AdminScreen() {
           </TouchableOpacity>
         ))}
       </View>
-      {onglet === 'stats' ? <Stats /> : onglet === 'moderation' ? <Moderation /> : onglet === 'annonce' ? <Annonce /> : <Utilisateurs />}
+      {onglet === 'stats' ? <Stats /> : onglet === 'moderation' ? <Moderation /> : onglet === 'contenu' ? <Contenu />
+        : onglet === 'annonce' ? <Annonce /> : <Utilisateurs />}
     </View>
   );
 }
@@ -259,6 +270,78 @@ function Annonce() {
   );
 }
 
+// Contenu de depart : groupes de promo (a cocher) et publication de bienvenue epinglee
+function Contenu() {
+  const styles = useStyles();
+  const { colors } = useTheme();
+  const [modeles, setModeles] = useState(null);
+  const [choix, setChoix] = useState([]);
+  const [texte, setTexte] = useState(BIENVENUE);
+  const [envoi, setEnvoi] = useState(false);
+  const charger = useCallback(() => api.getGroupesPromo().then(setModeles).catch((e) => Alert.alert('Erreur', e.message)), []);
+  useEffect(() => { charger(); }, [charger]);
+  if (!modeles) return <Loading />;
+
+  const parUniversite = modeles.reduce((acc, m) => ({ ...acc, [m.universite]: [...(acc[m.universite] || []), m] }), {});
+  const basculer = (nom) => setChoix((c) => (c.includes(nom) ? c.filter((x) => x !== nom) : [...c, nom]));
+  const creer = () => Alert.alert(`Creer ${choix.length} groupe${choix.length > 1 ? 's' : ''} ?`, 'Tu en seras l\'administrateur. Les etudiants de ces filieres les verront en suggestion.', [
+    { text: 'Annuler', style: 'cancel' },
+    { text: 'Creer', onPress: async () => {
+      setEnvoi(true);
+      try {
+        const r = await api.creerGroupesPromo(modeles.filter((m) => choix.includes(m.nom)));
+        Alert.alert('OK', r.message);
+        setChoix([]);
+        charger();
+      } catch (e) { Alert.alert('Erreur', e.message); }
+      setEnvoi(false);
+    } },
+  ]);
+  const publier = () => Alert.alert('Publier et epingler ?', 'La publication apparaitra en haut du fil de tous les etudiants.', [
+    { text: 'Annuler', style: 'cancel' },
+    { text: 'Publier', onPress: async () => {
+      setEnvoi(true);
+      try {
+        const r = await api.createPost(texte.trim());
+        await api.epinglerPost(r.id, true);
+        Alert.alert('Publie 📌', 'Ta publication est epinglee en haut du fil. Tu peux la desepingler depuis son menu ⋯.');
+      } catch (e) { Alert.alert('Erreur', e.message); }
+      setEnvoi(false);
+    } },
+  ]);
+
+  return (
+    <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+      <Text style={styles.section}>Publication de bienvenue</Text>
+      <Card>
+        <Text style={styles.aide}>Relis et modifie le texte, puis publie-le : il sera epingle en haut du fil (2 publications epinglees au maximum).</Text>
+        <TextInput style={[styles.champTexte, { minHeight: 180 }]} value={texte} onChangeText={setTexte} multiline maxLength={2000} />
+        <PrimaryButton title="Publier et epingler 📌" onPress={publier} loading={envoi} />
+      </Card>
+
+      <Text style={styles.section}>Groupes de promo</Text>
+      <Text style={styles.aide}>Coche les groupes a creer. Ceux qui existent deja sont marques ✓.</Text>
+      {Object.entries(parUniversite).map(([universite, liste]) => (
+        <Card key={universite}>
+          <Text style={styles.titre}>{universite}</Text>
+          <View style={styles.puces}>
+            {liste.map((m) => {
+              const coche = choix.includes(m.nom);
+              return (
+                <TouchableOpacity key={m.nom} disabled={m.existe} onPress={() => basculer(m.nom)}
+                  style={[styles.pucePromo, coche && { backgroundColor: colors.primary, borderColor: colors.primary }, m.existe && { opacity: 0.55 }]}>
+                  <Text style={[styles.pucePromoTexte, coche && { color: colors.white }]}>{m.existe ? '✓ ' : coche ? '☑ ' : ''}{m.filiere}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </Card>
+      ))}
+      {choix.length ? <PrimaryButton title={`Creer ${choix.length} groupe${choix.length > 1 ? 's' : ''}`} onPress={creer} loading={envoi} /> : null}
+    </ScrollView>
+  );
+}
+
 function Utilisateurs() {
   const styles = useStyles();
   const { colors } = useTheme();
@@ -316,6 +399,9 @@ function Utilisateurs() {
 
 const useStyles = creerStyles(({ colors, font }) => ({
   container: { flex: 1, backgroundColor: colors.bg },
+  champTexte: { backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: 12, fontSize: 14, color: colors.text, textAlignVertical: 'top', marginVertical: spacing.sm },
+  pucePromo: { paddingHorizontal: 11, paddingVertical: 6, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
+  pucePromoTexte: { fontSize: 12, fontWeight: '700', color: colors.text },
   onglets: { flexDirection: 'row', gap: 6, padding: spacing.sm, backgroundColor: colors.card, borderBottomWidth: 1, borderBottomColor: colors.border },
   onglet: { flex: 1, alignItems: 'center', gap: 2, paddingVertical: 8, borderRadius: radius.md },
   ongletActif: { backgroundColor: colors.primary },

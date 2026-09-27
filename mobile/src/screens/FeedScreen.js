@@ -40,6 +40,7 @@ export default function FeedScreen() {
       const [premiere, me] = await Promise.all([api.getPosts(1, facChoisi), api.getMe()]); // profil a jour (carte "Complete ton profil")
       setPosts(premiere);
       setMoi(me);
+      api.setEstAdmin(me && me.est_admin);
       if (me && me.premiers_pas_fini === false && !premiersPasOuverts.current) {
         premiersPasOuverts.current = true;
         navigation.navigate('PremiersPas');

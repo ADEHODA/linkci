@@ -29,13 +29,23 @@ export default function NotificationsScreen({ navigation }) {
   }, [rafraichirCompteurs]));
   useEvenement('notification_update', () => reload());
 
+  // meme type et meme lien, a la suite : une seule ligne avec le nombre
+  const groupees = [];
+  for (const n of data) {
+    const prec = groupees[groupees.length - 1];
+    if (prec && prec.type === n.type && prec.lien === n.lien && n.type !== 'message' && n.type !== 'annonce') {
+      prec.nb += 1;
+      prec.lu = prec.lu && n.lu;
+    } else groupees.push({ ...n, nb: 1 });
+  }
+
   if (loading) return <SkeletonList />;
 
   return (
     <FlatList
       style={styles.container}
       contentContainerStyle={styles.content}
-      data={data}
+      data={groupees}
       keyExtractor={(item) => String(item.id)}
       refreshControl={pullToRefresh(refreshing, refresh)}
       renderItem={({ item }) => {
@@ -48,6 +58,7 @@ export default function NotificationsScreen({ navigation }) {
             </View>
             <View style={styles.body}>
               <Text style={[styles.message, !item.lu && styles.messageUnread]}>{item.message}</Text>
+              {item.nb > 1 ? <Text style={styles.plus}>+ {item.nb - 1} autre{item.nb > 2 ? 's' : ''} du meme genre</Text> : null}
               <Text style={styles.time}>{dateRelative(item.date_notification)}</Text>
             </View>
             {!item.lu && <View style={styles.dot} />}
@@ -68,6 +79,7 @@ const useStyles = creerStyles(({ colors, font, shadow }) => ({
   body: { flex: 1 },
   message: { fontSize: 14, lineHeight: 19, color: colors.text },
   messageUnread: { fontWeight: '700' },
+  plus: { fontSize: 12, fontWeight: '700', color: colors.primary, marginTop: 2 },
   time: { fontSize: 12, color: colors.textFaint, marginTop: 3 },
   dot: { width: 9, height: 9, borderRadius: 5, backgroundColor: colors.primary },
 }));

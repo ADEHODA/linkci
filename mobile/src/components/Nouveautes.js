@@ -6,12 +6,13 @@ import { PrimaryButton } from './ui';
 import { radius, spacing, creerStyles } from '../theme';
 
 // Changer ID a chaque nouvelle serie de nouveautes a annoncer
-const ID = '2026-10-02';
+const ID = '2026-10-03';
 const CLE = 'linkci_nouveautes_vues';
 const LISTE = [
-  ['✓', 'Badge etudiant verifie', "Parametres > Compte : confirme ton adresse e-mail de l'universite et obtiens le badge ✓ sur ton profil."],
-  ['🖼️', 'Qui voit ma photo', 'Parametres > Confidentialite : tout le monde, seulement ceux que tu suis, ou personne.'],
-  ['🚩', 'Signaler un faux profil', "Sur le profil d'un etudiant : « Signaler ce profil ». L'equipe LinkCI verifie."],
+  ['📶', 'Economie de donnees', "Parametres > Donnees mobiles : les photos ne se chargent que si tu les touches, et tes envois sont plus legers."],
+  ['⚡', 'Photos plus rapides', 'Le fil charge maintenant des photos allegees : touche une photo pour la voir en grand.'],
+  ['🔔', 'Resume du jour', "A 18 h, si tu n'es pas passe, un seul message resume tes messages, les nouvelles bourses et celles qui se terminent."],
+  ['🗂️', 'Notifications regroupees', 'Les notifications semblables sont reunies en une seule ligne.'],
 ];
 
 export default function Nouveautes() {

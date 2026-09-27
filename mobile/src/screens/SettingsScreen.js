@@ -10,6 +10,7 @@ import Avatar from '../components/Avatar';
 import { PrimaryButton, Loading } from '../components/ui';
 import { verifierMaintenant } from '../misesAJour';
 import { ChoixFondEcran } from '../components/FondEcran';
+import { useEconomie, changerEconomie } from '../donnees';
 import { verrouActif, changerVerrou, verrouMessagesActif, changerVerrouMessages } from '../verrou';
 import { radius, spacing, creerStyles, useTheme } from '../theme';
 
@@ -22,6 +23,7 @@ const NOTIFS = [
   ['offres', 'Stages et emplois', 'briefcase-outline'],
   ['entraide', 'Entraide', 'help-buoy-outline'],
   ['annonces', "Annonces de l'administration", 'megaphone-outline'],
+  ['resume', 'Resume du jour (18 h)', 'today-outline'],
 ];
 
 const FAQ = [
@@ -96,6 +98,7 @@ export default function SettingsScreen({ navigation, onLogin, onLogout }) {
   };
 
   const [recherche, setRecherche] = useState(false);
+  const economie = useEconomie();
   const rechercherMiseAJour = async () => {
     setRecherche(true);
     const resultat = await verifierMaintenant();
@@ -192,6 +195,12 @@ export default function SettingsScreen({ navigation, onLogin, onLogout }) {
         <Interrupteur icone="contrast-outline" texte="Contraste eleve" valeur={!!contraste}
           onChange={(v) => setAccessibilite({ contraste: v })} />
         <Ligne icone="color-palette-outline" texte="Fond d'ecran des discussions" onPress={() => setFenetre('fond')} />
+      </Section>
+
+      <Section titre="Donnees mobiles">
+        <Interrupteur icone="cellular-outline" texte="Economie de donnees"
+          aide="Les photos ne se chargent que quand tu les touches, et celles que tu envoies sont plus legeres. Ideal avec un petit forfait."
+          valeur={economie} onChange={changerEconomie} />
       </Section>
 
       <Section titre="Aide">

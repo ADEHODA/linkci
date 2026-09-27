@@ -2,6 +2,7 @@
 import { Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { economieActive } from './donnees';
 
 const TAILLE_MAX = 1280; // pixels sur le plus grand cote
 const QUALITE = 0.7;     // JPEG : ~150-300 Ko par photo (la base Neon gratuite fait 0,5 Go)
@@ -26,7 +27,7 @@ export async function choisirPhoto(source = 'galerie', { carre = false } = {}) {
   if (resultat.canceled || !resultat.assets?.length) return null;
 
   // une photo de profil n'a pas besoin de plus de 512 px
-  return compresser(resultat.assets[0], carre ? 512 : TAILLE_MAX);
+  return compresser(resultat.assets[0], carre ? 512 : economieActive() ? 1024 : TAILLE_MAX);
 }
 
 async function compresser({ uri, width, height }, tailleMax) {
@@ -35,7 +36,7 @@ async function compresser({ uri, width, height }, tailleMax) {
     actions.push({ resize: width >= height ? { width: tailleMax } : { height: tailleMax } });
   }
   const photo = await ImageManipulator.manipulateAsync(uri, actions, {
-    compress: QUALITE,
+    compress: economieActive() ? 0.55 : QUALITE,
     format: ImageManipulator.SaveFormat.JPEG,
     base64: true,
   });

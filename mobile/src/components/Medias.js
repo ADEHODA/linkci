@@ -36,7 +36,7 @@ export default function Medias({ visible, titre, charger, onFermer }) {
             contentContainerStyle={{ padding: spacing.md, gap: 4 }}
             columnWrapperStyle={{ gap: 4 }}
             renderItem={({ item }) => (
-              <PostImage uri={api.imageUrl(item.image)} style={{ width: cote, height: cote, borderRadius: radius.sm }} carre />
+              <PostImage uri={api.imageUrl(item.image)} mini={api.miniUrl(item.image)} style={{ width: cote, height: cote, borderRadius: radius.sm }} carre />
             )}
             ListEmptyComponent={<Text style={styles.vide}>Aucune photo partagee pour l'instant.</Text>}
           />

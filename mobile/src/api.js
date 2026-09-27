@@ -229,6 +229,17 @@ export const voirStory = (id) => request(`/api/stories/${id}/vue`, { method: 'PO
 export const getVuesStory = (id) => request(`/api/stories/${id}/vues`);
 export const supprimerStory = (id) => request(`/api/stories/${id}`, { method: 'DELETE' });
 
+// Miniature legere (640 px) d'une image envoyee : pour les listes ; l'originale en plein ecran
+export const miniUrl = (nom) => (nom ? `${API_BASE}/mini/${nom}` : null);
+// Administration du contenu
+export const getGroupesPromo = () => request('/api/admin/groupes_promo');
+export const creerGroupesPromo = (groupes) => request('/api/admin/groupes_promo', { method: 'POST', body: JSON.stringify({ groupes }) });
+export const epinglerPost = (id, oui = true) => request(`/api/admin/posts/${id}/epingler`, { method: oui ? 'POST' : 'DELETE' });
+// Admin connu (pour afficher "Epingler" sur les publications)
+let _estAdmin = false;
+export const setEstAdmin = (v) => { _estAdmin = !!v; };
+export const estAdmin = () => _estAdmin;
+
 // Adresse d'une image envoyee sur le serveur (ex. post.image)
 export const imageUrl = (nom, dossier = 'uploads') => `${API_BASE}/static/${dossier}/${nom}`;
 

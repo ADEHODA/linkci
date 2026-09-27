@@ -768,6 +768,10 @@ def init_db():
             heure TEXT DEFAULT '',
             salle TEXT DEFAULT '',
             note TEXT DEFAULT '')''',
+        # Taches du jour (resume quotidien...) : derniere execution
+        '''CREATE TABLE IF NOT EXISTS taches (
+            nom TEXT PRIMARY KEY,
+            derniere TEXT NOT NULL)''',
         # Verification par e-mail universitaire (un code par etudiant)
         '''CREATE TABLE IF NOT EXISTS codes_etudiant (
             user_id INTEGER PRIMARY KEY,
@@ -852,7 +856,8 @@ def init_db():
                            ('messages', 'story_id INTEGER'), ('messages', "story_apercu TEXT DEFAULT ''"),
                            ('documents', "filiere TEXT DEFAULT ''"), ('documents', "type_doc TEXT DEFAULT 'cours'"),
                            ('messages', 'fichier TEXT'), ('messages', 'fichier_nom TEXT'), ('messages', 'fichier_taille INTEGER'),
-                           ('groupe_messages', 'fichier TEXT'), ('groupe_messages', 'fichier_nom TEXT'), ('groupe_messages', 'fichier_taille INTEGER')):
+                           ('groupe_messages', 'fichier TEXT'), ('groupe_messages', 'fichier_nom TEXT'), ('groupe_messages', 'fichier_taille INTEGER'),
+                           ('posts', 'epingle INTEGER DEFAULT 0')):
         try:
             conn.execute(f'ALTER TABLE {table} ADD COLUMN {colonne}')
             conn.commit()
@@ -2361,6 +2366,7 @@ TITRES_PUSH = {
     'message': 'Nouveau message', 'like': "J'aime", 'commentaire': 'Nouveau commentaire',
     'mention': 'Tu es mentionne', 'suivi': 'Nouvel abonne', 'bourse': 'Nouvelle bourse',
     'document': 'Nouveau document', 'formation': 'Nouvelle formation', 'annonce': 'LinkCI', 'mise_a_jour': 'Nouvelle version de LinkCI',
+    'resume': 'Ton resume LinkCI',
     'opportunite': 'Nouvelle offre', 'entraide': 'Entraide', 'signalement': 'Signalement',
 }
 
@@ -2389,8 +2395,8 @@ def _envoyer_push_expo(messages):
 # Types de notification regroupes comme dans les Parametres de l'app
 CATEGORIE_NOTIF = {'message': 'messages', 'like': 'reactions', 'commentaire': 'commentaires', 'mention': 'commentaires',
                    'suivi': 'abonnes', 'bourse': 'nouveautes', 'formation': 'nouveautes', 'document': 'nouveautes',
-                   'opportunite': 'offres', 'entraide': 'entraide', 'annonce': 'annonces'}
-CATEGORIES_NOTIF = ('messages', 'reactions', 'commentaires', 'abonnes', 'nouveautes', 'offres', 'entraide', 'annonces')
+                   'opportunite': 'offres', 'entraide': 'entraide', 'annonce': 'annonces', 'resume': 'resume'}
+CATEGORIES_NOTIF = ('messages', 'reactions', 'commentaires', 'abonnes', 'nouveautes', 'offres', 'entraide', 'annonces', 'resume')
 
 def envoyer_push(user_ids, type, message, lien=''):
     """Notification sur le telephone (meme app fermee) pour ces utilisateurs."""
@@ -3513,9 +3519,14 @@ def api_posts():
             return jsonify([])
         filtre_fac += ' AND lower(posts.contenu) LIKE ?'
         params_fac += (f'%#{tag}%',)
+    epingles = []
+    if not filtre_fac:  # fil general : les publications epinglees par l'administration en premier
+        filtre_fac = ' AND COALESCE(posts.epingle, 0) = 0'
+        if page == 1:
+            epingles = requete_posts(conn, user_id, ' AND COALESCE(posts.epingle, 0) = 1', limite=2)
     posts = requete_posts(conn, user_id, filtre_fac, params_fac, limite=per_page, decalage=offset)
     conn.close()
-    return jsonify(enrichir_posts([dict(p) for p in posts], user_id))
+    return jsonify(enrichir_posts([dict(p) for p in list(epingles) + list(posts)], user_id))
 
 HASHTAG_RE = re.compile(r'#(\w{2,40})', re.UNICODE)
 
@@ -3528,7 +3539,7 @@ def requete_posts(conn, user_id, filtre='', params=(), ordre='posts.date_post DE
                (SELECT COUNT(*) FROM commentaires WHERE commentaires.post_id = posts.id) as nb_commentaires,
                EXISTS(SELECT 1 FROM likes WHERE likes.post_id = posts.id AND likes.user_id = ?) as a_like,
                EXISTS(SELECT 1 FROM posts_enregistres e WHERE e.post_id = posts.id AND e.user_id = ?) as enregistre,
-               (posts.user_id = ?) as est_auteur
+               (posts.user_id = ?) as est_auteur, COALESCE(posts.epingle, 0) AS epingle
         FROM posts JOIN users ON posts.user_id = users.id
         WHERE posts.user_id NOT IN (SELECT bloque_id FROM blocages WHERE bloqueur_id = ?) AND posts.user_id NOT IN (SELECT bloqueur_id FROM blocages WHERE bloque_id = ?)
         ''' + filtre + ' ORDER BY ' + ordre + ' LIMIT ? OFFSET ?',
@@ -4486,6 +4497,7 @@ def sante():
         conn = get_db()
         conn.execute('SELECT 1').fetchone()
         conn.close()
+        lancer_taches_du_jour()
         return jsonify({'ok': True})
     except Exception:
         return jsonify({'ok': False}), 503
@@ -5503,6 +5515,171 @@ def telecharger_fichier_message(nom):
     if not nom_propre.lower().endswith(ext):
         nom_propre += ext
     return send_from_directory(os.path.join(app.root_path, 'static', 'uploads'), nom, as_attachment=True, download_name=nom_propre)
+
+# ---- Taches du jour : resume quotidien a 18 h (heure d'Abidjan = UTC), une seule fois par jour
+HEURE_RESUME = 18
+_taches_en_cours = threading.Lock()
+
+def tache_a_faire(conn, nom, maintenant):
+    """True (et note l'execution) si la tache n'a pas encore tourne aujourd'hui."""
+    jour = maintenant.strftime('%Y-%m-%d')
+    t = conn.execute('SELECT derniere FROM taches WHERE nom = ?', (nom,)).fetchone()
+    if t and t['derniere'][:10] == jour:
+        return False
+    conn.execute('DELETE FROM taches WHERE nom = ?', (nom,))
+    conn.execute('INSERT INTO taches (nom, derniere) VALUES (?, ?)', (nom, maintenant.strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    return True
+
+def lancer_taches_du_jour():
+    maintenant = datetime.now(timezone.utc)
+    if app.config.get('TESTING') or maintenant.hour < HEURE_RESUME or not _taches_en_cours.acquire(blocking=False):
+        return
+    def travail():
+        try:
+            conn = get_db()
+            faire = tache_a_faire(conn, 'resume_quotidien', maintenant)
+            conn.close()
+            if faire:
+                envoyer_resumes_du_jour(maintenant)
+        except Exception as e:
+            print('Taches du jour :', e)
+        finally:
+            _taches_en_cours.release()
+    threading.Thread(target=travail, daemon=True).start()
+
+def resume_du_jour(conn, user_id, depuis, aujourdhui):
+    """Texte du resume d'un etudiant, ou '' s'il n'y a rien de neuf."""
+    un = lambda requete, *p: conn.execute(requete, p).fetchone()['nb']
+    morceaux = []
+    messages = un('SELECT COUNT(*) AS nb FROM messages WHERE destinataire_id = ? AND lu = 0 AND COALESCE(supprime, 0) = 0', user_id)
+    if messages:
+        morceaux.append(f"{messages} message{'s' if messages > 1 else ''} non lu{'s' if messages > 1 else ''}")
+    groupes = un("""SELECT COUNT(*) AS nb FROM groupe_messages gm WHERE gm.date_envoi >= ? AND gm.user_id != ? AND COALESCE(gm.supprime, 0) = 0
+                    AND gm.groupe_id IN (SELECT groupe_id FROM groupe_membres WHERE user_id = ?)""", depuis, user_id, user_id)
+    if groupes:
+        morceaux.append(f"{groupes} message{'s' if groupes > 1 else ''} dans tes groupes")
+    bourses = un("SELECT COUNT(*) AS nb FROM bourses WHERE COALESCE(valide, 1) = 1 AND date_publication >= ?", depuis)
+    offres = un("SELECT COUNT(*) AS nb FROM opportunites WHERE COALESCE(valide, 1) = 1 AND date_publication >= ?", depuis)
+    if bourses:
+        morceaux.append(f"{bourses} nouvelle{'s' if bourses > 1 else ''} bourse{'s' if bourses > 1 else ''}")
+    if offres:
+        morceaux.append(f"{offres} nouvelle{'s' if offres > 1 else ''} offre{'s' if offres > 1 else ''} de stage")
+    dans_3_jours = (datetime.strptime(aujourdhui, '%Y-%m-%d') + timedelta(days=3)).strftime('%Y-%m-%d')
+    expirent = un("SELECT COUNT(*) AS nb FROM bourses WHERE COALESCE(valide, 1) = 1 AND deadline >= ? AND deadline <= ?", aujourdhui, dans_3_jours)
+    if expirent:
+        morceaux.append(f"{expirent} bourse{'s' if expirent > 1 else ''} se termine{'nt' if expirent > 1 else ''} dans 3 jours")
+    return ' · '.join(morceaux)
+
+def envoyer_resumes_du_jour(maintenant=None):
+    """Un seul message par etudiant (ceux qui ne sont pas venus aujourd'hui), s'il y a du nouveau."""
+    maintenant = maintenant or datetime.now(timezone.utc)
+    aujourdhui = maintenant.strftime('%Y-%m-%d')
+    depuis = (maintenant - timedelta(days=1)).strftime('%Y-%m-%d %H:%M:%S')
+    conn = get_db()
+    etudiants = [u['user_id'] for u in conn.execute("""
+        SELECT DISTINCT t.user_id FROM expo_push_tokens t JOIN users ON users.id = t.user_id
+        WHERE COALESCE(users.banni, 0) = 0
+          AND t.user_id NOT IN (SELECT user_id FROM jours_actifs WHERE jour = ?)""", (aujourdhui,)).fetchall()]
+    envois = []
+    for uid in etudiants:
+        texte = resume_du_jour(conn, uid, depuis, aujourdhui)
+        if texte:
+            envois.append((uid, texte))
+    conn.close()
+    for uid, texte in envois:
+        envoyer_push([uid], 'resume', texte, '/fil')
+    return envois
+
+# ---- Miniatures d'images (economie de donnees) : 640 px, JPEG leger, gardees apres la 1re demande
+MINI_LARGEUR = 640
+
+@app.route('/mini/<nom>')
+def miniature(nom):
+    if not re.fullmatch(r'[0-9a-f]{32}\.(jpg|jpeg|png|gif|webp)', nom):
+        return 'Image introuvable', 404
+    chemin_mini = f'static/uploads/mini/{nom}.jpg'
+    if not restaurer_fichier(chemin_mini):
+        if not restaurer_fichier('static/uploads/' + nom):
+            return 'Image introuvable', 404
+        try:
+            from PIL import Image
+            import io as _io
+            with Image.open(_chemin_disque('static/uploads/' + nom)) as img:
+                img = img.convert('RGB')
+                img.thumbnail((MINI_LARGEUR, MINI_LARGEUR * 2))
+                sortie = _io.BytesIO()
+                img.save(sortie, 'JPEG', quality=60, optimize=True)
+            stocker_fichier(chemin_mini, sortie.getvalue())
+        except Exception:
+            return redirect(f'/static/uploads/{nom}')  # pas de Pillow ou image illisible : l'originale
+    resp = send_from_directory(os.path.join(app.root_path, 'static', 'uploads', 'mini'), nom + '.jpg')
+    resp.headers['Cache-Control'] = 'public, max-age=604800'
+    return resp
+
+# ---- Contenu : groupes de promo prepares par l'administration, publication epinglee
+UNIVERSITES_PROMO = {
+    'UFHB': ['Informatique', 'Mathematiques', 'Physique-Chimie', 'Biologie', 'Droit', 'Sciences economiques', 'Lettres modernes',
+             'Anglais', 'Histoire', 'Sociologie', 'Medecine', 'Pharmacie', 'Criminologie', 'Communication'],
+    'INP-HB': ['Genie civil', 'Informatique', 'Electricite', 'Mines et geologie', 'Agronomie', 'Commerce et gestion', 'Chimie'],
+    'UAO': ['Droit', 'Sciences economiques', 'Lettres', 'Medecine', 'Communication'],
+    'UNA': ['Sciences et technologies des aliments', 'Environnement', 'Informatique', 'Biologie'],
+    'UJLoG': ['Agroforesterie', 'Informatique', 'Environnement', 'Lettres'],
+    'UPGC': ['Sciences biologiques', 'Informatique', 'Lettres', 'Sciences economiques'],
+    'ESATIC': ['Telecommunications', 'Informatique', 'Management'],
+    'ENSEA': ['Statistique', 'Economie'],
+}
+
+def nom_groupe_promo(filiere, universite):
+    return f'{filiere} · {universite}'
+
+@app.route('/api/admin/groupes_promo', methods=['GET', 'POST'])
+def api_admin_groupes_promo():
+    """GET : modeles de groupes (existe deja ou non). POST {groupes: [{universite, filiere}]} : cree ceux qui manquent."""
+    admin_id, erreur = api_admin_requis()
+    if erreur:
+        return erreur
+    conn = get_db()
+    existants = {g['nom'].lower() for g in conn.execute('SELECT nom FROM groupes').fetchall()}
+    if request.method == 'GET':
+        conn.close()
+        return jsonify([{'universite': u, 'filiere': f, 'nom': nom_groupe_promo(f, u), 'existe': nom_groupe_promo(f, u).lower() in existants}
+                        for u, filieres in UNIVERSITES_PROMO.items() for f in filieres])
+    crees = 0
+    for g in ((request.get_json(silent=True) or {}).get('groupes') or [])[:100]:
+        universite = sanitize_text(str(g.get('universite') or ''), 100)
+        filiere = sanitize_text(str(g.get('filiere') or ''), 100)
+        nom = nom_groupe_promo(filiere, universite)
+        if not universite or not filiere or nom.lower() in existants:
+            continue
+        gid = conn.execute('INSERT INTO groupes (nom, description, universite, filiere, createur_id) VALUES (?, ?, ?, ?, ?)',
+                           (nom, f'Groupe des etudiants en {filiere} a {universite} : cours, infos, entraide.', universite, filiere, admin_id)).lastrowid
+        conn.execute('INSERT INTO groupe_membres (groupe_id, user_id, role) VALUES (?, ?, ?)', (gid, admin_id, 'admin'))
+        existants.add(nom.lower())
+        crees += 1
+    conn.commit()
+    conn.close()
+    return jsonify({'crees': crees, 'message': f"{crees} groupe{'s' if crees > 1 else ''} cree{'s' if crees > 1 else ''}"})
+
+@app.route('/api/admin/posts/<int:post_id>/epingler', methods=['POST', 'DELETE'])
+def api_admin_epingler(post_id):
+    """Epingler une publication en haut du fil (2 au maximum : la plus ancienne est desepinglee)."""
+    _, erreur = api_admin_requis()
+    if erreur:
+        return erreur
+    conn = get_db()
+    if not conn.execute('SELECT 1 FROM posts WHERE id = ?', (post_id,)).fetchone():
+        conn.close()
+        return jsonify({'error': 'Publication introuvable'}), 404
+    if request.method == 'POST':
+        conn.execute('UPDATE posts SET epingle = 1 WHERE id = ?', (post_id,))
+        garder = [p['id'] for p in conn.execute('SELECT id FROM posts WHERE COALESCE(epingle, 0) = 1 ORDER BY id DESC LIMIT 2').fetchall()]
+        conn.execute(f"UPDATE posts SET epingle = 0 WHERE COALESCE(epingle, 0) = 1 AND id NOT IN ({','.join('?' * len(garder))})", garder)
+    else:
+        conn.execute('UPDATE posts SET epingle = 0 WHERE id = ?', (post_id,))
+    conn.commit()
+    conn.close()
+    return jsonify({'epingle': request.method == 'POST'})
 
 # ---- Premiers pas guides (apres l'inscription)
 @app.route('/api/premiers_pas/fini', methods=['POST'])

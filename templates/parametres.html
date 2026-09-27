@@ -10,7 +10,7 @@
   const L = LinkCI;
   const NOTIFS = [['messages', 'Messages prives'], ['reactions', "J'aime et reactions"], ['commentaires', 'Commentaires et mentions'],
     ['abonnes', 'Nouveaux abonnes'], ['nouveautes', 'Bourses, formations, documents'], ['offres', 'Stages et emplois'],
-    ['entraide', 'Entraide'], ['annonces', "Annonces de l'administration"]];
+    ['entraide', 'Entraide'], ['annonces', "Annonces de l'administration"], ['resume', 'Resume du jour (18 h)']];
   let p = await L.api('/api/parametres');
   const zone = document.getElementById('contenu');
   const inter = (cle, label, valeur, aide) => `<label class="ligne" style="padding:10px 0;cursor:pointer">

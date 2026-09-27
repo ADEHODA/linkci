@@ -364,7 +364,7 @@ export default function ConversationScreen({ route, navigation }) {
                   ) : null}
                   {item.supprime ? <Text style={[styles.supprime, !recu && styles.msgTimeSent]}>🚫 Message supprime</Text> : null}
                   {item.image || item.imageLocale ? (
-                    <PostImage uri={item.imageLocale || api.imageUrl(item.image)} style={styles.photo} />
+                    <PostImage uri={item.imageLocale || api.imageUrl(item.image)} mini={item.image ? api.miniUrl(item.image) : null} style={styles.photo} />
                   ) : null}
                   {item.fichier || item.fichierLocal ? <BulleFichier message={item} clair={!recu} /> : null}
                   {item.audio || item.audioLocal ? (

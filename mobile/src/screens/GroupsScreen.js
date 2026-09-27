@@ -331,7 +331,7 @@ function GroupChat({ groupe: groupeInitial, moi, onBack, onVoirProfil }) {
                     </View>
                   ) : null}
                   {item.supprime ? <Text style={[styles.supprime, moiAuteur && { color: 'rgba(255,255,255,0.85)' }]}>🚫 Message supprime</Text> : null}
-                  {item.image || item.imageLocale ? <PostImage uri={item.imageLocale || api.imageUrl(item.image)} style={{ width: 210, marginBottom: 4 }} /> : null}
+                  {item.image || item.imageLocale ? <PostImage uri={item.imageLocale || api.imageUrl(item.image)} mini={item.image ? api.miniUrl(item.image) : null} style={{ width: 210, marginBottom: 4 }} /> : null}
                   {item.fichier || item.fichierLocal ? <BulleFichier message={item} clair={moiAuteur} /> : null}
                   {item.audio || item.audioLocal ? <BulleVocale uri={item.audioLocal || api.imageUrl(item.audio)} duree={item.duree} clair={moiAuteur} /> : null}
                   {item.contenu ? <TexteMentions texte={item.sondage?.length ? `📊 ${item.contenu}` : item.contenu} clair={moiAuteur} /> : null}

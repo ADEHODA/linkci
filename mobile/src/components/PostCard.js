@@ -136,6 +136,14 @@ export default function PostCard({ post, onRefresh }) {
       .catch((e) => Alert.alert('Erreur', e.message));
   };
 
+  // administrateur : epingler en haut du fil, supprimer
+  const menuAdmin = () => Alert.alert('Administration', undefined, [
+    { text: post.epingle ? 'Desepingler' : '📌 Epingler en haut du fil',
+      onPress: () => api.epinglerPost(post.id, !post.epingle).then(() => onRefresh && onRefresh()).catch((e) => Alert.alert('Erreur', e.message)) },
+    ...(post.est_auteur ? [{ text: 'Supprimer', style: 'destructive', onPress: handleDelete }] : [{ text: 'Signaler / bloquer...', onPress: ouvrirMenu }]),
+    { text: 'Annuler', style: 'cancel' },
+  ]);
+
   const ouvrirMenu = () => {
     Alert.alert(`${post.prenom} ${post.nom}`, 'Que veux-tu faire ?', [
       {
@@ -172,7 +180,8 @@ export default function PostCard({ post, onRefresh }) {
             <Text style={styles.date}>{[post.universite, dateRelative(post.date_post)].filter(Boolean).join(' · ')}</Text>
           </View>
         </TouchableOpacity>
-        <TouchableOpacity onPress={post.est_auteur ? handleDelete : ouvrirMenu} hitSlop={10}>
+        {post.epingle ? <Text style={styles.epingle}>📌 Epingle</Text> : null}
+        <TouchableOpacity onPress={api.estAdmin() ? menuAdmin : post.est_auteur ? handleDelete : ouvrirMenu} hitSlop={10}>
           <Ionicons name="ellipsis-horizontal" size={20} color={colors.textFaint} />
         </TouchableOpacity>
       </View>
@@ -181,7 +190,7 @@ export default function PostCard({ post, onRefresh }) {
         <TexteAvecHashtags texte={post.contenu} style={styles.content} styleTag={styles.hashtag}
           onTag={(tag) => navigation.push('Hashtag', { tag })} />
       ) : null}
-      {post.image ? <PostImage uri={api.imageUrl(post.image)} style={styles.image} /> : null}
+      {post.image ? <PostImage uri={api.imageUrl(post.image)} mini={api.miniUrl(post.image)} style={styles.image} /> : null}
 
       {extra.sondage.length ? (() => {
         const total = extra.sondage.reduce((n, o) => n + o.votes, 0);
@@ -302,6 +311,7 @@ const useStyles = creerStyles(({ colors, font, shadow }) => ({
   date: { ...font.tiny, marginTop: 1 },
   content: { ...font.body, marginBottom: spacing.md },
   hashtag: { color: colors.primary, fontWeight: '700' },
+  epingle: { fontSize: 11, fontWeight: '800', color: colors.primary, marginRight: 8 },
   image: { marginBottom: spacing.md },
   actions: { flexDirection: 'row', gap: spacing.sm },
   actionBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 6, paddingHorizontal: 12, borderRadius: radius.pill, backgroundColor: colors.bg },
