@@ -28,6 +28,11 @@ if IS_PG:
 else:
     IntegrityError = sqlite3.IntegrityError
 
+# Doublon detecte par le code (ex. e-mail deja pris) : `raise db.Doublon(...)` est attrape
+# par `except db.IntegrityError` avec SQLite comme avec PostgreSQL (IntegrityError y est un tuple,
+# qu'on ne peut pas lever directement).
+Doublon = sqlite3.IntegrityError
+
 
 class Row:
     """Equivalent de sqlite3.Row : acces par index, par nom, et dict(row)."""

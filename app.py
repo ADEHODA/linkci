@@ -1304,7 +1304,7 @@ def inscription():
         conn = get_db()
         try:
             if conn.execute('SELECT 1 FROM users WHERE lower(email) = ?', (email,)).fetchone():
-                raise db.IntegrityError('email deja utilise')
+                raise db.Doublon('email deja utilise')
             user_id = conn.execute('INSERT INTO users (nom, prenom, email, mot_de_passe, universite, filiere, annee, email_verifie, premiers_pas_fini) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)',
                                    (nom, prenom, email, mot_de_passe, universite, filiere, annee, 0 if verification_active() else 1)).lastrowid
             conn.commit()
@@ -3350,7 +3350,7 @@ def api_register():
     conn = get_db()
     try:
         if conn.execute('SELECT 1 FROM users WHERE lower(email) = ?', (email,)).fetchone():
-            raise db.IntegrityError('email deja utilise')
+            raise db.Doublon('email deja utilise')
         user_id = conn.execute('INSERT INTO users (nom, prenom, email, mot_de_passe, universite, filiere, annee, email_verifie, premiers_pas_fini) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)',
                                (nom, prenom, email, hash_password(mot_de_passe),
                                 sanitize_text(str(data.get('universite') or ''), 100), sanitize_text(str(data.get('filiere') or ''), 100),
@@ -3368,8 +3368,15 @@ def api_register():
         return jsonify({'a_verifier': True, 'email': email,
                         'message': f'Un code a 6 chiffres a ete envoye a {email}.'}), 201
     except db.IntegrityError:
+        existant = conn.execute('SELECT id, prenom, mot_de_passe, COALESCE(email_verifie, 1) AS email_verifie FROM users WHERE lower(email) = ?',
+                                (email,)).fetchone()
         conn.close()
-        return jsonify({'error': 'Email deja utilise'}), 409
+        if existant and not existant['email_verifie'] and check_password(mot_de_passe, existant['mot_de_passe']):
+            # l'etudiant s'etait deja inscrit mais n'a pas confirme son adresse : nouveau code
+            envoyer_code_verification(existant['id'], email, existant['prenom'])
+            return jsonify({'a_verifier': True, 'email': email,
+                            'message': f'Tu es deja inscrit : un nouveau code a 6 chiffres a ete envoye a {email}.'}), 200
+        return jsonify({'error': 'Cet e-mail est deja utilise. Connecte-toi, ou utilise "Mot de passe oublie".'}), 409
 
 @app.route('/api/login', methods=['POST'])
 def api_login():
