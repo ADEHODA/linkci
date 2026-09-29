@@ -5635,6 +5635,7 @@ UNIVERSITES_PROMO = {
     'UPGC': ['Sciences biologiques', 'Informatique', 'Lettres', 'Sciences economiques'],
     'ESATIC': ['Telecommunications', 'Informatique', 'Management'],
     'ENSEA': ['Statistique', 'Economie'],
+    'UPB': ['ASSRI', 'MIAGE'],  # Universite polytechnique de Bingerville (confirme par des inscriptions reelles)
 }
 
 def nom_groupe_promo(filiere, universite):
