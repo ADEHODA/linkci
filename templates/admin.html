@@ -136,6 +136,31 @@
             </div>
             {% endfor %}
         </div>
+        <div class="admin-section">
+            <h3>📈 Croissance et retention</h3>
+            <p style="font-size:0.85rem;color:var(--text-muted);">
+                Parmi les etudiants inscrits depuis au moins... combien sont encore actifs cette semaine :
+                {% if stats_jours.retention.j7 is not none %}<strong>{{ stats_jours.retention.j7 }} %</strong> a 7 jours{% endif %}
+                {% if stats_jours.retention.j30 is not none %} · <strong>{{ stats_jours.retention.j30 }} %</strong> a 30 jours{% endif %}
+                {% if stats_jours.retention.j7 is none and stats_jours.retention.j30 is none %}pas encore assez d'historique.{% endif %}
+            </p>
+            {% if cohortes_utiles %}
+            <table class="admin-table">
+                <tr><th>Semaine d'inscription</th><th>Inscrits</th><th>Encore actifs</th><th>%</th></tr>
+                {% for c in cohortes_utiles %}
+                <tr><td>{{ c.semaine }}</td><td>{{ c.inscrits }}</td><td>{{ c.actifs }}</td><td>{{ c.pourcentage }} %</td></tr>
+                {% endfor %}
+            </table>
+            {% endif %}
+            {% if stats_jours.facs %}
+            <table class="admin-table" style="margin-top:1rem;">
+                <tr><th>Universite</th><th>Filiere</th><th>Etudiants</th><th>Actifs (7 j)</th></tr>
+                {% for f in stats_jours.facs %}
+                <tr><td>{{ f.universite }}</td><td>{{ f.filiere }}</td><td>{{ f.utilisateurs }}</td><td>{{ f.actifs_7j }}</td></tr>
+                {% endfor %}
+            </table>
+            {% endif %}
+        </div>
         {% if posts_signales %}
         <div class="admin-section">
             <h3>Publications signalees ({{ posts_signales|length }})</h3>

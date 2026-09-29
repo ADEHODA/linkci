@@ -2806,7 +2806,9 @@ def admin_dashboard():
     conn.close()
     stats_jours = statistiques_admin()
     stats_jours['erreurs'] = erreurs_recentes(10)
-    return render_template('admin.html', stats=stats, stats_jours=stats_jours, derniers_inscrits=derniers_inscrits, derniers_posts=derniers_posts,
+    cohortes_utiles = [c for c in stats_jours['cohortes'] if c['inscrits'] > 0]
+    return render_template('admin.html', stats=stats, stats_jours=stats_jours, cohortes_utiles=cohortes_utiles,
+                           derniers_inscrits=derniers_inscrits, derniers_posts=derniers_posts,
                            bourses_attente=bourses_attente, formations_attente=formations_attente, posts_signales=posts_signales,
                            opportunites_attente=opportunites_attente)
 
@@ -4472,6 +4474,62 @@ def api_admin_requis():
         return None, (jsonify({'error': 'Reserve aux administrateurs'}), 403)
     return user_id, None
 
+def taux_retention(conn, jours_min):
+    """% des etudiants inscrits depuis au moins `jours_min` jours qui sont encore actifs cette semaine
+    (au moins un jour dans `jours_actifs` sur les 7 derniers jours). None s'il n'y a personne d'assez ancien."""
+    limite = (date.today() - timedelta(days=jours_min)).isoformat()
+    eligibles = conn.execute("SELECT COUNT(*) AS nb FROM users WHERE COALESCE(banni, 0) = 0 AND substr(date_inscription, 1, 10) <= ?",
+                            (limite,)).fetchone()['nb']
+    if not eligibles:
+        return None
+    il_y_a_7j = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%d')
+    actifs = conn.execute("""SELECT COUNT(DISTINCT u.id) AS nb FROM users u JOIN jours_actifs j ON j.user_id = u.id
+                             WHERE COALESCE(u.banni, 0) = 0 AND substr(u.date_inscription, 1, 10) <= ? AND j.jour >= ?""",
+                         (limite, il_y_a_7j)).fetchone()['nb']
+    return round(100 * actifs / eligibles)
+
+def cohortes_retention(conn, nb_semaines=8):
+    """Pour chaque semaine d'inscription (lundi -> dimanche) : combien d'etudiants, et combien sont
+    encore actifs cette semaine (au moins un jour dans `jours_actifs` sur les 7 derniers jours)."""
+    aujourdhui = date.today()
+    lundi = lambda d: d - timedelta(days=d.weekday())
+    debut_fenetre = lundi(aujourdhui) - timedelta(weeks=nb_semaines - 1)
+    inscrits = conn.execute("SELECT id, substr(date_inscription, 1, 10) AS jour FROM users "
+                           "WHERE COALESCE(banni, 0) = 0 AND substr(date_inscription, 1, 10) >= ?",
+                           (debut_fenetre.isoformat(),)).fetchall()
+    il_y_a_7j = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%d')
+    actifs_ids = {a['user_id'] for a in conn.execute("SELECT DISTINCT user_id FROM jours_actifs WHERE jour >= ?", (il_y_a_7j,)).fetchall()}
+    cohortes = {}
+    for row in inscrits:
+        try:
+            jour_inscription = datetime.strptime(row['jour'], '%Y-%m-%d').date()
+        except ValueError:
+            continue
+        semaine = lundi(jour_inscription).isoformat()
+        c = cohortes.setdefault(semaine, {'inscrits': 0, 'actifs': 0})
+        c['inscrits'] += 1
+        if row['id'] in actifs_ids:
+            c['actifs'] += 1
+    resultat = []
+    for k in range(nb_semaines):
+        semaine = (lundi(aujourdhui) - timedelta(weeks=nb_semaines - 1 - k)).isoformat()
+        c = cohortes.get(semaine, {'inscrits': 0, 'actifs': 0})
+        resultat.append({'semaine': semaine, 'inscrits': c['inscrits'], 'actifs': c['actifs'],
+                         'pourcentage': round(100 * c['actifs'] / c['inscrits']) if c['inscrits'] else None})
+    return resultat
+
+def activite_par_fac(conn, limite=12):
+    """Etudiants et etudiants actifs (7 j) par universite + filiere : pour reperer ou concentrer la croissance."""
+    il_y_a_7j = (datetime.now(timezone.utc) - timedelta(days=7)).strftime('%Y-%m-%d')
+    lignes = conn.execute("""
+        SELECT COALESCE(NULLIF(TRIM(universite), ''), '(non precisee)') AS universite,
+               COALESCE(NULLIF(TRIM(filiere), ''), '(non precisee)') AS filiere,
+               COUNT(*) AS utilisateurs,
+               SUM(CASE WHEN EXISTS (SELECT 1 FROM jours_actifs j WHERE j.user_id = users.id AND j.jour >= ?) THEN 1 ELSE 0 END) AS actifs_7j
+        FROM users WHERE COALESCE(banni, 0) = 0
+        GROUP BY universite, filiere ORDER BY utilisateurs DESC LIMIT ?""", (il_y_a_7j, limite)).fetchall()
+    return [dict(l) for l in lignes]
+
 def statistiques_admin(jours=14):
     conn = get_db()
     compte = lambda sql_, *a: conn.execute(sql_, a).fetchone()['nb']
@@ -4512,6 +4570,10 @@ def statistiques_admin(jours=14):
             "SELECT CASE WHEN sans_version_depuis IS NOT NULL THEN 'ancienne' ELSE version_app END AS version, COUNT(*) AS nb "
             "FROM users WHERE version_app IS NOT NULL OR sans_version_depuis IS NOT NULL "
             "GROUP BY CASE WHEN sans_version_depuis IS NOT NULL THEN 'ancienne' ELSE version_app END ORDER BY nb DESC").fetchall()],
+        # tableau de bord croissance : retention et activite par fac/filiere
+        'retention': {'j7': taux_retention(conn, 7), 'j30': taux_retention(conn, 30)},
+        'facs': activite_par_fac(conn),
+        'cohortes': cohortes_retention(conn),
     }
     conn.close()
     return stats

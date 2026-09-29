@@ -95,13 +95,46 @@ function Stats() {
       ) : null}
       <Graphique titre="Inscriptions (14 jours)" serie={data.inscriptions} couleur={colors.primary} />
       <Graphique titre="Publications (14 jours)" serie={data.publications} couleur={colors.accent} />
-      {data.universites.length ? (
+      {data.retention && (data.retention.j7 !== null || data.retention.j30 !== null) ? (
         <Card>
-          <Text style={styles.cardTitre}>Universites les plus representees</Text>
-          {data.universites.map((u) => (
-            <View key={u.universite} style={styles.ligne}>
-              <Text style={styles.ligneTexte} numberOfLines={1}>{u.universite}</Text>
-              <Text style={styles.ligneNb}>{u.nb}</Text>
+          <Text style={styles.cardTitre}>📈 Retention</Text>
+          <Text style={styles.aide}>Parmi les etudiants inscrits depuis au moins... combien sont encore actifs cette semaine.</Text>
+          <View style={styles.grille}>
+            <View style={styles.stat}>
+              <Text style={[styles.statValeur, { color: colors.primary }]}>{data.retention.j7 ?? '—'}{data.retention.j7 !== null ? ' %' : ''}</Text>
+              <Text style={styles.statLabel}>7 jours</Text>
+            </View>
+            <View style={styles.stat}>
+              <Text style={[styles.statValeur, { color: colors.accent }]}>{data.retention.j30 ?? '—'}{data.retention.j30 !== null ? ' %' : ''}</Text>
+              <Text style={styles.statLabel}>30 jours</Text>
+            </View>
+          </View>
+        </Card>
+      ) : null}
+      {data.cohortes?.some((c) => c.inscrits > 0) ? (
+        <Card>
+          <Text style={styles.cardTitre}>Retention par semaine d'inscription</Text>
+          {data.cohortes.filter((c) => c.inscrits > 0).map((c) => (
+            <View key={c.semaine} style={styles.ligne}>
+              <Text style={styles.ligneTexte} numberOfLines={1}>Semaine du {c.semaine}</Text>
+              <Text style={styles.aide}>{c.actifs}/{c.inscrits}</Text>
+              <Text style={styles.ligneNb}>{c.pourcentage}%</Text>
+            </View>
+          ))}
+        </Card>
+      ) : null}
+      {data.facs?.length ? (
+        <Card>
+          <Text style={styles.cardTitre}>Activite par fac et filiere</Text>
+          <View style={[styles.ligne, { borderBottomWidth: 1, borderBottomColor: colors.border, paddingBottom: 6 }]}>
+            <Text style={[styles.aide, { flex: 1 }]}>Fac · Filiere</Text>
+            <Text style={styles.aide}>Actifs (7j)</Text>
+          </View>
+          {data.facs.map((f) => (
+            <View key={`${f.universite}-${f.filiere}`} style={styles.ligne}>
+              <Text style={styles.ligneTexte} numberOfLines={1}>{f.universite} · {f.filiere}</Text>
+              <Text style={styles.aide}>{f.actifs_7j}/{f.utilisateurs}</Text>
+              <Text style={styles.ligneNb}>{f.utilisateurs}</Text>
             </View>
           ))}
         </Card>
