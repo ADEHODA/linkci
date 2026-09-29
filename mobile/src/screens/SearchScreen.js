@@ -30,7 +30,7 @@ export default function SearchScreen({ navigation, route }) {
     if (q.trim().length < 2) { setResults(null); return; }
     timer.current = setTimeout(async () => {
       setLoading(true);
-      try { setResults(await api.searchAll(q.trim())); } catch (e) {}
+      try { setResults(await api.searchAll(q.trim())); setFiltre(''); } catch (e) {}
       setLoading(false);
     }, 350);
   };
@@ -48,6 +48,9 @@ export default function SearchScreen({ navigation, route }) {
 
   const profil = (id) => navigation.navigate('ProfilEtudiant', { id });
   const total = results ? Object.values(results).reduce((n, l) => n + l.length, 0) : 0;
+  const CATEGORIES = [['users', 'Etudiants'], ['posts', 'Publications'], ['questions', 'Entraide'], ['annonces', 'Annonces'],
+    ['offres', 'Offres'], ['bourses', 'Bourses'], ['formations', 'Formations'], ['groupes', 'Groupes'], ['documents', 'Documents']];
+  const visible = (cle) => !filtre || filtre === cle;
 
   return (
     <View style={styles.container}>
@@ -64,44 +67,53 @@ export default function SearchScreen({ navigation, route }) {
         {results && !loading ? (
           total === 0 ? <EmptyState icon="search-outline" title="Aucun resultat" hint={`Rien pour « ${query} ». Essaie un autre mot.`} /> : (
             <>
-              <Section titre="Etudiants" liste={results.users} rendu={(u) => (
+              {CATEGORIES.filter(([cle]) => (results[cle] || []).length).length > 1 ? (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtres}>
+                  {[['', 'Tout'], ...CATEGORIES.filter(([cle]) => (results[cle] || []).length)].map(([cle, label]) => (
+                    <TouchableOpacity key={cle} style={[styles.puce, filtre === cle && styles.puceActive]} onPress={() => setFiltre(cle)}>
+                      <Text style={[styles.puceTexte, filtre === cle && { color: colors.white }]}>{label}{cle ? ` (${results[cle].length})` : ''}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              ) : null}
+              {visible('users') ? <Section titre="Etudiants" liste={results.users} rendu={(u) => (
                 <Ligne key={u.id} gauche={<Avatar name={`${u.prenom} ${u.nom}`} size={40} index={u.id} avatar={u.avatar} />}
                   titre={`${u.prenom} ${u.nom}`} sous={[u.filiere, u.universite].filter(Boolean).join(' · ')} onPress={() => profil(u.id)} />
-              )} />
-              <Section titre="Publications" liste={results.posts} rendu={(p) => (
+              )} /> : null}
+              {visible('posts') ? <Section titre="Publications" liste={results.posts} rendu={(p) => (
                 <Ligne key={p.id} gauche={<Avatar name={`${p.prenom} ${p.nom}`} size={40} index={p.user_id} avatar={p.avatar} />}
                   titre={p.contenu || 'Photo'} sous={`${p.prenom} ${p.nom} · ${dateRelative(p.date_post)}`} onPress={() => profil(p.user_id)} />
-              )} />
-              <Section titre="Questions d'entraide" liste={results.questions} rendu={(q) => (
+              )} /> : null}
+              {visible('questions') ? <Section titre="Questions d'entraide" liste={results.questions} rendu={(q) => (
                 <Ligne key={q.id} icone="help-buoy" couleur="#7C3AED" titre={q.titre}
                   sous={`${q.matiere} · ${q.nb_reponses} reponse${q.nb_reponses > 1 ? 's' : ''}${q.resolue ? ' · resolue' : ''}`}
                   onPress={() => navigation.navigate('Question', { id: q.id })} />
-              )} />
-              <Section titre="Petites annonces" liste={results.annonces} rendu={(a) => (
+              )} /> : null}
+              {visible('annonces') ? <Section titre="Petites annonces" liste={results.annonces} rendu={(a) => (
                 <Ligne key={a.id} gauche={a.image ? <Image source={{ uri: api.imageUrl(a.image) }} style={styles.vignette} /> : null}
                   icone="pricetags" couleur="#DB2777" titre={a.titre} sous={[prix(a), a.ville].filter(Boolean).join(' · ')}
                   onPress={() => navigation.navigate('Annonces')} />
-              )} />
-              <Section titre="Stages et emplois" liste={results.offres} rendu={(o) => (
+              )} /> : null}
+              {visible('offres') ? <Section titre="Stages et emplois" liste={results.offres} rendu={(o) => (
                 <Ligne key={o.id} icone="briefcase" couleur="#0891B2" titre={o.titre}
                   sous={[LIBELLE_OFFRE[o.type], o.entreprise, o.ville].filter(Boolean).join(' · ')} onPress={() => navigation.navigate('Opportunites')} />
-              )} />
-              <Section titre="Bourses" liste={results.bourses} rendu={(b) => (
+              )} /> : null}
+              {visible('bourses') ? <Section titre="Bourses" liste={results.bourses} rendu={(b) => (
                 <Ligne key={b.id} icone="cash" couleur="#FF6B35" titre={b.titre} sous={[b.organisme, b.type].filter(Boolean).join(' · ')}
                   onPress={() => navigation.navigate('Bourses')} />
-              )} />
-              <Section titre="Formations" liste={results.formations} rendu={(f) => (
+              )} /> : null}
+              {visible('formations') ? <Section titre="Formations" liste={results.formations} rendu={(f) => (
                 <Ligne key={f.id} icone="school" couleur="#009E60" titre={f.nom} sous={[f.universite, f.niveau].filter(Boolean).join(' · ')}
                   onPress={() => navigation.navigate('Formations')} />
-              )} />
-              <Section titre="Groupes" liste={results.groupes} rendu={(g) => (
+              )} /> : null}
+              {visible('groupes') ? <Section titre="Groupes" liste={results.groupes} rendu={(g) => (
                 <Ligne key={g.id} gauche={<Avatar name={g.nom} size={40} index={g.id} />} titre={g.nom}
                   sous={`${g.nb_membres} membre${g.nb_membres > 1 ? 's' : ''}${g.membre ? ' · tu es membre' : ''}`}
                   onPress={() => navigation.navigate('Groupes', g.membre ? { ouvrir: g.id } : undefined)} />
-              )} />
-              <Section titre="Documents" liste={results.documents} rendu={(d) => (
+              )} /> : null}
+              {visible('documents') ? <Section titre="Documents" liste={results.documents} rendu={(d) => (
                 <Ligne key={d.id} icone="document-text" couleur="#2563EB" titre={d.titre} sous={d.matiere || ''} onPress={() => navigation.navigate('Documents')} />
-              )} />
+              )} /> : null}
             </>
           )
         ) : null}
@@ -208,4 +220,8 @@ const useStyles = creerStyles(({ colors }) => ({
   tag: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.card, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 7 },
   tagTexte: { color: colors.primary, fontWeight: '800' },
   tagNb: { fontSize: 11, color: colors.textFaint },
+  filtres: { gap: 6, paddingBottom: spacing.md },
+  puce: { paddingHorizontal: 13, paddingVertical: 7, borderRadius: radius.pill, backgroundColor: colors.card, borderWidth: 1, borderColor: colors.border },
+  puceActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  puceTexte: { fontSize: 13, fontWeight: '700', color: colors.textMuted },
 }));

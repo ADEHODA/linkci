@@ -42,3 +42,19 @@ def test_pages_converties(client):
         assert r.status_code == 200, url
         html = r.get_data(as_text=True)
         assert 'class="menu"' in html and 'app.css' in html, url
+
+
+def test_recherche_redirige_vers_decouvrir(client):
+    """L'ancienne page /recherche (code mort) redirige vers /decouvrir avec la meme requete."""
+    inscrire(client, 'web.rech@test.ci')
+    connecter(client, 'web.rech@test.ci')
+    r = client.get('/recherche?q=algo')
+    assert r.status_code == 302 and '/decouvrir' in r.headers['Location'] and 'q=algo' in r.headers['Location']
+
+
+def test_decouvrir_a_les_filtres_de_categorie(client):
+    """La page /decouvrir contient bien la barre de filtres par categorie."""
+    inscrire(client, 'web.filtres@test.ci')
+    connecter(client, 'web.filtres@test.ci')
+    html = client.get('/decouvrir').get_data(as_text=True)
+    assert 'id="filtres"' in html and 'data-filtre' in html

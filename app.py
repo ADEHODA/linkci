@@ -2073,68 +2073,7 @@ def rechercher_utilisateurs():
 def recherche():
     if 'user_id' not in session:
         return redirect(url_for('connexion'))
-    # remplacee par la recherche globale de /decouvrir
     return redirect(url_for('decouvrir_web', q=request.args.get('q', '')))
-    q = request.args.get('q', '').strip()
-    resultats = {'posts': [], 'bourses': [], 'formations': [], 'utilisateurs': [], 'documents': []}
-    if q:
-        conn = get_db()
-        try:
-            safe = q.replace("'", "''")
-            resultats['posts'] = [dict(r) for r in conn.execute('''
-                SELECT posts.id, posts.contenu, posts.date_post, users.prenom, users.nom
-                FROM posts_fts JOIN posts ON posts_fts.rowid = posts.id JOIN users ON posts.user_id = users.id
-                WHERE posts_fts MATCH ? ORDER BY rank LIMIT 10
-            ''', (safe,)).fetchall()]
-        except Exception:
-            resultats['posts'] = [dict(r) for r in conn.execute('''
-                SELECT posts.id, posts.contenu, posts.date_post, users.prenom, users.nom
-                FROM posts JOIN users ON posts.user_id = users.id
-                WHERE posts.contenu LIKE ? ORDER BY posts.date_post DESC LIMIT 10
-            ''', ('%' + q + '%',)).fetchall()]
-        try:
-            safe = q.replace("'", "''")
-            resultats['bourses'] = [dict(r) for r in conn.execute('''
-                SELECT bourses.id, titre, organisme, type FROM bourses_fts JOIN bourses ON bourses_fts.rowid = bourses.id
-                WHERE bourses.COALESCE(valide, 1) = 1 AND bourses_fts MATCH ? ORDER BY rank LIMIT 10
-            ''', (safe,)).fetchall()]
-        except Exception:
-            resultats['bourses'] = [dict(r) for r in conn.execute('''
-                SELECT id, titre, organisme, type FROM bourses
-                WHERE COALESCE(valide, 1) = 1 AND (titre LIKE ? OR description LIKE ? OR organisme LIKE ?)
-                ORDER BY date_publication DESC LIMIT 10
-            ''', ('%' + q + '%', '%' + q + '%', '%' + q + '%')).fetchall()]
-        try:
-            safe = q.replace("'", "''")
-            resultats['formations'] = [dict(r) for r in conn.execute('''
-                SELECT formations.id, nom, universite, niveau FROM formations_fts JOIN formations ON formations_fts.rowid = formations.id
-                WHERE formations.COALESCE(valide, 1) = 1 AND formations_fts MATCH ? ORDER BY rank LIMIT 10
-            ''', (safe,)).fetchall()]
-        except Exception:
-            resultats['formations'] = [dict(r) for r in conn.execute('''
-                SELECT id, nom, universite, niveau FROM formations
-                WHERE COALESCE(valide, 1) = 1 AND (nom LIKE ? OR description LIKE ? OR universite LIKE ?)
-                LIMIT 10
-            ''', ('%' + q + '%', '%' + q + '%', '%' + q + '%')).fetchall()]
-        try:
-            safe = q.replace("'", "''")
-            resultats['utilisateurs'] = [dict(r) for r in conn.execute('''
-                SELECT users.id, prenom, nom, filiere, universite FROM users_fts JOIN users ON users_fts.rowid = users.id
-                WHERE users_fts MATCH ? AND users.id != ? ORDER BY rank LIMIT 10
-            ''', (safe, session['user_id'])).fetchall()]
-        except Exception:
-            resultats['utilisateurs'] = [dict(r) for r in conn.execute('''
-                SELECT id, prenom, nom, filiere, universite FROM users
-                WHERE (prenom || ' ' || nom LIKE ?) AND id != ?
-                LIMIT 10
-            ''', ('%' + q + '%', session['user_id'])).fetchall()]
-        resultats['documents'] = [dict(r) for r in conn.execute('''
-            SELECT id, titre, matiere FROM documents
-            WHERE titre LIKE ? OR description LIKE ? OR matiere LIKE ?
-            LIMIT 10
-        ''', ('%' + q + '%', '%' + q + '%', '%' + q + '%')).fetchall()]
-        conn.close()
-    return render_template('recherche.html', q=q, resultats=resultats)
 
 @app.route('/api/recherche')
 def api_recherche():
