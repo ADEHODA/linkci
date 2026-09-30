@@ -58,3 +58,11 @@ def test_decouvrir_a_les_filtres_de_categorie(client):
     connecter(client, 'web.filtres@test.ci')
     html = client.get('/decouvrir').get_data(as_text=True)
     assert 'id="filtres"' in html and 'data-filtre' in html
+
+
+def test_parametres_a_le_choix_de_police(client):
+    """La page /parametres propose bien le choix de la police de lecture."""
+    inscrire(client, 'web.police@test.ci')
+    connecter(client, 'web.police@test.ci')
+    html = client.get('/parametres').get_data(as_text=True)
+    assert 'data-police' in html and 'linkci_police' in html

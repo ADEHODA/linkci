@@ -2,6 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as SecureStore from 'expo-secure-store';
+import { useFonts } from 'expo-font';
+// Fichier precis (pas l'index du paquet) : evite d'embarquer les graisses inutilisees (italique, Light...)
+import AtkinsonHyperlegible_400Regular from '@expo-google-fonts/atkinson-hyperlegible/400Regular/AtkinsonHyperlegible_400Regular.ttf';
+import AtkinsonHyperlegible_700Bold from '@expo-google-fonts/atkinson-hyperlegible/700Bold/AtkinsonHyperlegible_700Bold.ttf';
+import Quicksand_500Medium from '@expo-google-fonts/quicksand/500Medium/Quicksand_500Medium.ttf';
+import Quicksand_700Bold from '@expo-google-fonts/quicksand/700Bold/Quicksand_700Bold.ttf';
 import AppNavigator, { navigationRef } from './src/navigation/AppNavigator';
 import { activerNotifications, desactiverNotifications, surNotificationTouchee } from './src/notifications';
 import { destinationNotification } from './src/utils';
@@ -22,6 +28,10 @@ export default function App() {
   const [accueilVu, setAccueilVu] = useState(true);
 
   useEffect(() => surveillerMisesAJour(), []);
+
+  // Polices "Lisible" et "Arrondie" (Parametres > Apparence) : chargees en arriere-plan,
+  // sans bloquer le demarrage (la police systeme s'affiche le temps qu'elles arrivent).
+  useFonts({ AtkinsonHyperlegible_400Regular, AtkinsonHyperlegible_700Bold, Quicksand_500Medium, Quicksand_700Bold });
 
   // messages ecrits hors ligne : envoyes des que possible
   useEffect(() => {

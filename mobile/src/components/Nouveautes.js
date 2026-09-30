@@ -6,9 +6,10 @@ import { PrimaryButton } from './ui';
 import { radius, spacing, creerStyles } from '../theme';
 
 // Changer ID a chaque nouvelle serie de nouveautes a annoncer
-const ID = '2026-10-03';
+const ID = '2026-09-30';
 const CLE = 'linkci_nouveautes_vues';
 const LISTE = [
+  ['🔤', 'Change la police', "Parametres > Apparence : choisis la police qui te plait, dont une police pensee pour la lisibilite."],
   ['📶', 'Economie de donnees', "Parametres > Donnees mobiles : les photos ne se chargent que si tu les touches, et tes envois sont plus legers."],
   ['⚡', 'Photos plus rapides', 'Le fil charge maintenant des photos allegees : touche une photo pour la voir en grand.'],
   ['🔔', 'Resume du jour', "A 18 h, si tu n'es pas passe, un seul message resume tes messages, les nouvelles bourses et celles qui se terminent."],

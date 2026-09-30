@@ -12,7 +12,7 @@ import { verifierMaintenant } from '../misesAJour';
 import { ChoixFondEcran } from '../components/FondEcran';
 import { useEconomie, changerEconomie } from '../donnees';
 import { verrouActif, changerVerrou, verrouMessagesActif, changerVerrouMessages } from '../verrou';
-import { radius, spacing, creerStyles, useTheme } from '../theme';
+import { radius, spacing, creerStyles, useTheme, POLICES, NOMS_POLICES } from '../theme';
 
 const NOTIFS = [
   ['messages', 'Messages prives', 'chatbubble-ellipses-outline'],
@@ -37,7 +37,7 @@ const FAQ = [
 
 export default function SettingsScreen({ navigation, onLogin, onLogout }) {
   const styles = useStyles();
-  const { colors, preference, setPreference, taille, contraste, setAccessibilite } = useTheme();
+  const { colors, preference, setPreference, taille, contraste, police, setAccessibilite } = useTheme();
   const [moi, setMoi] = useState(null);
   const [p, setP] = useState(null);
   const [verrou, setVerrou] = useState(false);
@@ -189,6 +189,16 @@ export default function SettingsScreen({ navigation, onLogin, onLogout }) {
             <TouchableOpacity key={cle} style={[styles.segBtn, taille === cle && styles.segActif]} onPress={() => setAccessibilite({ taille: cle })}
               accessibilityLabel={`Taille du texte ${cle.replace('_', ' ')}`}>
               <Text style={[styles.segTexte, taille === cle && { color: colors.white }]}>{label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+        <Text style={styles.sousTitre}>Police</Text>
+        <View style={styles.segment}>
+          {POLICES.map(([cle, label]) => (
+            <TouchableOpacity key={cle} style={[styles.segBtn, police === cle && styles.segActif]} onPress={() => setAccessibilite({ police: cle })}
+              accessibilityLabel={`Police ${label}`}>
+              <Text style={[styles.segTexte, police === cle && { color: colors.white },
+                NOMS_POLICES[cle] ? { fontFamily: NOMS_POLICES[cle].gras } : null]}>{label}</Text>
             </TouchableOpacity>
           ))}
         </View>

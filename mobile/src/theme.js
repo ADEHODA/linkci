@@ -56,11 +56,21 @@ export const colors = clair;
 export const radius = { sm: 8, md: 12, lg: 16, xl: 22, pill: 999 };
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24 };
 
-// Accessibilite : taille du texte et contraste eleve (reglages dans Parametres > Apparence)
+// Accessibilite : taille du texte, contraste eleve et police (reglages dans Parametres > Apparence)
 export const TAILLES = { petit: 0.9, normal: 1, grand: 1.15, tres_grand: 1.3 };
 const CONTRASTE = {
   clair: { textMuted: '#3F424B', textFaint: '#5F636E', border: '#B9BCC6' },
   sombre: { textMuted: '#D5D8DF', textFaint: '#AEB3BD', border: '#4A505C' },
+};
+
+// Polices proposees : 'defaut' = police du telephone (aucun fichier a charger).
+// Les 2 autres sont chargees par App.js via expo-font ; ces noms doivent correspondre
+// exactement aux cles passees a useFonts(). Une seule graisse "normale" et une "grasse" :
+// suffisant pour tous les styles de l'app (titres en gras, corps de texte normal).
+export const POLICES = [['defaut', 'Par defaut'], ['lisible', 'Lisible'], ['arrondie', 'Arrondie']];
+export const NOMS_POLICES = {
+  lisible: { normal: 'AtkinsonHyperlegible_400Regular', gras: 'AtkinsonHyperlegible_700Bold' },
+  arrondie: { normal: 'Quicksand_500Medium', gras: 'Quicksand_700Bold' },
 };
 
 // Agrandit fontSize et lineHeight d'une feuille de styles
@@ -75,7 +85,22 @@ function agrandir(feuille, echelle) {
   return r;
 }
 
-function construire(c, estSombre, echelle = 1) {
+// Remplace la police de chaque style de la feuille (systeme -> 'lisible'/'arrondie').
+// Sans effet sur les styles qui ne s'appliquent pas a du texte (RN ignore fontFamily ailleurs).
+function appliquerPolice(feuille, police) {
+  const noms = NOMS_POLICES[police];
+  if (!noms) return feuille; // 'defaut' (ou valeur inconnue) : police du systeme, inchangee
+  const r = {};
+  for (const [cle, style] of Object.entries(feuille)) {
+    if (!style || typeof style !== 'object') { r[cle] = style; continue; }
+    const poids = typeof style.fontWeight === 'string' ? parseInt(style.fontWeight, 10) : style.fontWeight;
+    const gras = style.fontWeight === 'bold' || (Number.isFinite(poids) && poids >= 600);
+    r[cle] = { ...style, fontFamily: gras ? noms.gras : noms.normal };
+  }
+  return r;
+}
+
+function construire(c, estSombre, echelle = 1, police = 'defaut') {
   const font = {
     title: { fontSize: 22, fontWeight: '800', color: c.text },
     heading: { fontSize: 17, fontWeight: '700', color: c.text },
@@ -83,7 +108,7 @@ function construire(c, estSombre, echelle = 1) {
     small: { fontSize: 13, color: c.textMuted },
     tiny: { fontSize: 11, color: c.textFaint },
   };
-  // font : deja agrandi (usage direct) ; fontBase : pour creerStyles, qui agrandit toute la feuille
+  // font : deja agrandi + police appliquee (usage direct) ; fontBase : pour creerStyles, qui traite toute la feuille
   const fontBase = font;
   const shadow = estSombre
     ? { borderWidth: StyleSheet.hairlineWidth, borderColor: c.border } // en sombre, un fin contour remplace l'ombre
@@ -97,7 +122,7 @@ function construire(c, estSombre, echelle = 1) {
     headerTintColor: c.primary,
     headerTitleStyle: { fontWeight: '800', fontSize: 18, color: c.text },
   };
-  return { colors: c, sombre: estSombre, font: agrandir(fontBase, echelle), fontBase, shadow, headerOptions, radius, spacing, echelle };
+  return { colors: c, sombre: estSombre, font: appliquerPolice(agrandir(fontBase, echelle), police), fontBase, shadow, headerOptions, radius, spacing, echelle, police };
 }
 
 const themes = { clair: construire(clair, false), sombre: construire(sombre, true) };
@@ -113,7 +138,7 @@ const ThemeContext = createContext({ ...themes.clair, preference: 'auto', setPre
 export function ThemeProvider({ children }) {
   const systeme = useColorScheme();
   const [preference, setPref] = useState('auto');
-  const [acces, setAcces] = useState({ taille: 'normal', contraste: false });
+  const [acces, setAcces] = useState({ taille: 'normal', contraste: false, police: 'defaut' });
 
   useEffect(() => {
     SecureStore.getItemAsync(CLE).then((p) => { if (p) setPref(p); }).catch(() => {});
@@ -135,11 +160,12 @@ export function ThemeProvider({ children }) {
 
   const mode = preference === 'auto' ? (systeme === 'dark' ? 'sombre' : 'clair') : preference;
   const echelle = TAILLES[acces.taille] || 1;
-  const base = useMemo(() => (echelle === 1 && !acces.contraste ? themes[mode]
-    : construire(acces.contraste ? { ...palettes[mode], ...CONTRASTE[mode] } : palettes[mode], mode === 'sombre', echelle)),
-  [mode, echelle, acces.contraste]);
-  const valeur = useMemo(() => ({ ...base, preference, setPreference, taille: acces.taille, contraste: acces.contraste,
-    setAccessibilite, cleStyles: `${mode}-${acces.taille}-${acces.contraste ? 1 : 0}` }), [base, preference, acces]);
+  const police = acces.police || 'defaut';
+  const base = useMemo(() => (echelle === 1 && !acces.contraste && police === 'defaut' ? themes[mode]
+    : construire(acces.contraste ? { ...palettes[mode], ...CONTRASTE[mode] } : palettes[mode], mode === 'sombre', echelle, police)),
+  [mode, echelle, acces.contraste, police]);
+  const valeur = useMemo(() => ({ ...base, preference, setPreference, taille: acces.taille, contraste: acces.contraste, police,
+    setAccessibilite, cleStyles: `${mode}-${acces.taille}-${acces.contraste ? 1 : 0}-${police}` }), [base, preference, acces, police]);
   actuel = base;
   return <ThemeContext.Provider value={valeur}>{children}</ThemeContext.Provider>;
 }
@@ -152,7 +178,11 @@ export function creerStyles(fabrique) {
   return function useStyles() {
     const theme = useTheme();
     const cle = theme.cleStyles || (theme.sombre ? 'sombre' : 'clair');
-    if (!cache[cle]) cache[cle] = StyleSheet.create(agrandir(fabrique({ ...theme, font: theme.fontBase || theme.font }), theme.echelle || 1));
+    if (!cache[cle]) {
+      let feuille = agrandir(fabrique({ ...theme, font: theme.fontBase || theme.font }), theme.echelle || 1);
+      feuille = appliquerPolice(feuille, theme.police);
+      cache[cle] = StyleSheet.create(feuille);
+    }
     return cache[cle];
   };
 }

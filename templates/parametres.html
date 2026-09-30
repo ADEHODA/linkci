@@ -39,7 +39,14 @@
     <div class="carte"><strong>Notifications sur le telephone</strong>
       ${NOTIFS.map(([c, l]) => inter('n:' + c, l, p.notifications[c] !== false)).join('')}</div>
     <div class="carte"><strong>Apparence</strong><div class="puces" style="margin:10px 0 0">
-      <button class="puce" data-theme="">Automatique</button><button class="puce" data-theme="light">Clair</button><button class="puce" data-theme="dark">Sombre</button></div></div>
+      <button class="puce" data-theme="">Automatique</button><button class="puce" data-theme="light">Clair</button><button class="puce" data-theme="dark">Sombre</button></div>
+      <div class="sous" style="margin-top:10px">Police</div>
+      <div class="puces" style="margin:6px 0 0">
+        <button class="puce" data-police="" style="font-family:Inter">Par defaut</button>
+        <button class="puce" data-police="lisible" style="font-family:'Atkinson Hyperlegible'">Lisible</button>
+        <button class="puce" data-police="classique" style="font-family:Georgia">Classique</button>
+        <button class="puce" data-police="arrondie" style="font-family:Quicksand">Arrondie</button>
+      </div></div>
     <div class="carte"><strong>Aide</strong><div style="margin-top:8px">
       <a href="/confidentialite">Politique de confidentialite</a> · <a href="/conditions">Conditions d'utilisation</a> ·
       <a href="#" id="contact">Contacter l'administrateur</a></div></div>`;
@@ -65,6 +72,12 @@
     if (th) {
       if (th.dataset.theme) document.documentElement.setAttribute('data-theme', th.dataset.theme); else document.documentElement.removeAttribute('data-theme');
       try { if (th.dataset.theme) localStorage.setItem('linkci_theme', th.dataset.theme); else localStorage.removeItem('linkci_theme'); } catch (x) {}
+      return;
+    }
+    const pol = e.target.closest('[data-police]');
+    if (pol) {
+      if (pol.dataset.police) document.documentElement.setAttribute('data-police', pol.dataset.police); else document.documentElement.removeAttribute('data-police');
+      try { if (pol.dataset.police) localStorage.setItem('linkci_police', pol.dataset.police); else localStorage.removeItem('linkci_police'); } catch (x) {}
       return;
     }
     try {
