@@ -66,3 +66,11 @@ def test_parametres_a_le_choix_de_police(client):
     connecter(client, 'web.police@test.ci')
     html = client.get('/parametres').get_data(as_text=True)
     assert 'data-police' in html and 'linkci_police' in html
+
+
+def test_parametres_a_le_style_de_texte(client):
+    """La page /parametres propose bien le style de texte (gras/italique)."""
+    inscrire(client, 'web.style@test.ci')
+    connecter(client, 'web.style@test.ci')
+    html = client.get('/parametres').get_data(as_text=True)
+    assert 'data-style-texte' in html and 'linkci_style_texte' in html

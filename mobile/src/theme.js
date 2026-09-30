@@ -73,6 +73,9 @@ export const NOMS_POLICES = {
   arrondie: { normal: 'Quicksand_500Medium', gras: 'Quicksand_700Bold' },
 };
 
+// Style de texte : 'normal' (inchange), 'gras' (renforce la graisse), 'italique'.
+export const STYLES_TEXTE = [['normal', 'Normal'], ['gras', 'Gras'], ['italique', 'Italique']];
+
 // Agrandit fontSize et lineHeight d'une feuille de styles
 function agrandir(feuille, echelle) {
   if (echelle === 1) return feuille;
@@ -81,6 +84,25 @@ function agrandir(feuille, echelle) {
     r[cle] = style && typeof style === 'object' ? { ...style } : style;
     if (r[cle]?.fontSize) r[cle].fontSize = Math.round(r[cle].fontSize * echelle);
     if (r[cle]?.lineHeight) r[cle].lineHeight = Math.round(r[cle].lineHeight * echelle);
+  }
+  return r;
+}
+
+// Renforce la graisse ('gras') ou penche le texte ('italique') de chaque style de la feuille.
+// Applique AVANT appliquerPolice : une graisse renforcee doit choisir la variante "gras" de la police.
+function appliquerStyleTexte(feuille, styleTexte) {
+  if (!styleTexte || styleTexte === 'normal') return feuille;
+  const r = {};
+  for (const [cle, style] of Object.entries(feuille)) {
+    if (!style || typeof style !== 'object') { r[cle] = style; continue; }
+    r[cle] = { ...style };
+    if (styleTexte === 'gras') {
+      const poids = style.fontWeight === 'bold' ? 700
+        : (Number.isFinite(parseInt(style.fontWeight, 10)) ? parseInt(style.fontWeight, 10) : 400);
+      r[cle].fontWeight = String(Math.max(poids, 700));
+    } else if (styleTexte === 'italique') {
+      r[cle].fontStyle = 'italic';
+    }
   }
   return r;
 }
@@ -100,7 +122,7 @@ function appliquerPolice(feuille, police) {
   return r;
 }
 
-function construire(c, estSombre, echelle = 1, police = 'defaut') {
+function construire(c, estSombre, echelle = 1, police = 'defaut', styleTexte = 'normal') {
   const font = {
     title: { fontSize: 22, fontWeight: '800', color: c.text },
     heading: { fontSize: 17, fontWeight: '700', color: c.text },
@@ -122,7 +144,9 @@ function construire(c, estSombre, echelle = 1, police = 'defaut') {
     headerTintColor: c.primary,
     headerTitleStyle: { fontWeight: '800', fontSize: 18, color: c.text },
   };
-  return { colors: c, sombre: estSombre, font: appliquerPolice(agrandir(fontBase, echelle), police), fontBase, shadow, headerOptions, radius, spacing, echelle, police };
+  return { colors: c, sombre: estSombre,
+    font: appliquerPolice(appliquerStyleTexte(agrandir(fontBase, echelle), styleTexte), police),
+    fontBase, shadow, headerOptions, radius, spacing, echelle, police, styleTexte };
 }
 
 const themes = { clair: construire(clair, false), sombre: construire(sombre, true) };
@@ -138,7 +162,7 @@ const ThemeContext = createContext({ ...themes.clair, preference: 'auto', setPre
 export function ThemeProvider({ children }) {
   const systeme = useColorScheme();
   const [preference, setPref] = useState('auto');
-  const [acces, setAcces] = useState({ taille: 'normal', contraste: false, police: 'defaut' });
+  const [acces, setAcces] = useState({ taille: 'normal', contraste: false, police: 'defaut', styleTexte: 'normal' });
 
   useEffect(() => {
     SecureStore.getItemAsync(CLE).then((p) => { if (p) setPref(p); }).catch(() => {});
@@ -161,11 +185,12 @@ export function ThemeProvider({ children }) {
   const mode = preference === 'auto' ? (systeme === 'dark' ? 'sombre' : 'clair') : preference;
   const echelle = TAILLES[acces.taille] || 1;
   const police = acces.police || 'defaut';
-  const base = useMemo(() => (echelle === 1 && !acces.contraste && police === 'defaut' ? themes[mode]
-    : construire(acces.contraste ? { ...palettes[mode], ...CONTRASTE[mode] } : palettes[mode], mode === 'sombre', echelle, police)),
-  [mode, echelle, acces.contraste, police]);
-  const valeur = useMemo(() => ({ ...base, preference, setPreference, taille: acces.taille, contraste: acces.contraste, police,
-    setAccessibilite, cleStyles: `${mode}-${acces.taille}-${acces.contraste ? 1 : 0}-${police}` }), [base, preference, acces, police]);
+  const styleTexte = acces.styleTexte || 'normal';
+  const base = useMemo(() => (echelle === 1 && !acces.contraste && police === 'defaut' && styleTexte === 'normal' ? themes[mode]
+    : construire(acces.contraste ? { ...palettes[mode], ...CONTRASTE[mode] } : palettes[mode], mode === 'sombre', echelle, police, styleTexte)),
+  [mode, echelle, acces.contraste, police, styleTexte]);
+  const valeur = useMemo(() => ({ ...base, preference, setPreference, taille: acces.taille, contraste: acces.contraste, police, styleTexte,
+    setAccessibilite, cleStyles: `${mode}-${acces.taille}-${acces.contraste ? 1 : 0}-${police}-${styleTexte}` }), [base, preference, acces, police, styleTexte]);
   actuel = base;
   return <ThemeContext.Provider value={valeur}>{children}</ThemeContext.Provider>;
 }
@@ -180,6 +205,7 @@ export function creerStyles(fabrique) {
     const cle = theme.cleStyles || (theme.sombre ? 'sombre' : 'clair');
     if (!cache[cle]) {
       let feuille = agrandir(fabrique({ ...theme, font: theme.fontBase || theme.font }), theme.echelle || 1);
+      feuille = appliquerStyleTexte(feuille, theme.styleTexte);
       feuille = appliquerPolice(feuille, theme.police);
       cache[cle] = StyleSheet.create(feuille);
     }

@@ -8,12 +8,13 @@
   {% include '_partage.html' %}
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=Atkinson+Hyperlegible:wght@400;700&family=Quicksand:wght@500;700&display=swap" rel="stylesheet">
   {% block styles_anciens %}{% endblock %}
-  <link rel="stylesheet" href="/static/css/app.css?v=4">
+  <link rel="stylesheet" href="/static/css/app.css?v=5">
   {% block tete %}{% endblock %}
   <script>
     // theme et police memorises (clair / sombre / automatique ; police de lecture) avant l'affichage, sans flash
     try { var t = localStorage.getItem('linkci_theme'); if (t) document.documentElement.setAttribute('data-theme', t); } catch (e) {}
     try { var pol = localStorage.getItem('linkci_police'); if (pol) document.documentElement.setAttribute('data-police', pol); } catch (e) {}
+    try { var st = localStorage.getItem('linkci_style_texte'); if (st) document.documentElement.setAttribute('data-style-texte', st); } catch (e) {}
   </script>
 </head>
 <body>

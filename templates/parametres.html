@@ -46,6 +46,12 @@
         <button class="puce" data-police="lisible" style="font-family:'Atkinson Hyperlegible'">Lisible</button>
         <button class="puce" data-police="classique" style="font-family:Georgia">Classique</button>
         <button class="puce" data-police="arrondie" style="font-family:Quicksand">Arrondie</button>
+      </div>
+      <div class="sous" style="margin-top:10px">Style de texte</div>
+      <div class="puces" style="margin:6px 0 0">
+        <button class="puce" data-style-texte="">Normal</button>
+        <button class="puce" data-style-texte="gras" style="font-weight:800">Gras</button>
+        <button class="puce" data-style-texte="italique" style="font-style:italic">Italique</button>
       </div></div>
     <div class="carte"><strong>Aide</strong><div style="margin-top:8px">
       <a href="/confidentialite">Politique de confidentialite</a> · <a href="/conditions">Conditions d'utilisation</a> ·
@@ -64,20 +70,30 @@
     else enregistrer({ notifications: { [c.slice(2)]: e.target.checked } });
   });
   zone.addEventListener('click', async (e) => {
-    const qui = e.target.closest('[data-qui]');
+    // "button[data-xxx]" et non juste "[data-xxx]" : data-theme/data-police/data-style-texte sont aussi
+    // portes par <html> (pour s'appliquer a toute la page), et closest() remonte jusque-la. Sans le tag
+    // "button", un premier clic sur N'IMPORTE QUEL bouton de la page matcherait <html> a tort et court-circuiterait
+    // les branches suivantes (ex. la police et le style de texte deviendraient injoignables des qu'un theme est choisi).
+    const qui = e.target.closest('button[data-qui]');
     if (qui) return enregistrer({ qui_peut_ecrire: qui.dataset.qui });
-    const photo = e.target.closest('[data-photo]');
+    const photo = e.target.closest('button[data-photo]');
     if (photo) return enregistrer({ photo_visible: photo.dataset.photo });
-    const th = e.target.closest('[data-theme]');
+    const th = e.target.closest('button[data-theme]');
     if (th) {
       if (th.dataset.theme) document.documentElement.setAttribute('data-theme', th.dataset.theme); else document.documentElement.removeAttribute('data-theme');
       try { if (th.dataset.theme) localStorage.setItem('linkci_theme', th.dataset.theme); else localStorage.removeItem('linkci_theme'); } catch (x) {}
       return;
     }
-    const pol = e.target.closest('[data-police]');
+    const pol = e.target.closest('button[data-police]');
     if (pol) {
       if (pol.dataset.police) document.documentElement.setAttribute('data-police', pol.dataset.police); else document.documentElement.removeAttribute('data-police');
       try { if (pol.dataset.police) localStorage.setItem('linkci_police', pol.dataset.police); else localStorage.removeItem('linkci_police'); } catch (x) {}
+      return;
+    }
+    const st = e.target.closest('button[data-style-texte]');
+    if (st) {
+      if (st.dataset.styleTexte) document.documentElement.setAttribute('data-style-texte', st.dataset.styleTexte); else document.documentElement.removeAttribute('data-style-texte');
+      try { if (st.dataset.styleTexte) localStorage.setItem('linkci_style_texte', st.dataset.styleTexte); else localStorage.removeItem('linkci_style_texte'); } catch (x) {}
       return;
     }
     try {

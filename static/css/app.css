@@ -20,6 +20,9 @@
 :root[data-police="lisible"] { --font-body: 'Atkinson Hyperlegible', Arial, sans-serif; }
 :root[data-police="classique"] { --font-body: Georgia, 'Times New Roman', serif; }
 :root[data-police="arrondie"] { --font-body: Quicksand, system-ui, sans-serif; }
+/* Style de texte (Parametres > Apparence) : gras partout, ou penche */
+:root[data-style-texte="gras"] * { font-weight: bolder !important; }
+:root[data-style-texte="italique"] * { font-style: italic !important; }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; }
