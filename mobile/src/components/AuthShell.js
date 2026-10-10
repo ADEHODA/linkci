@@ -1,6 +1,6 @@
 // Mise en page commune a la connexion et a l'inscription
 import React from 'react';
-import { View, Text, TextInput, ScrollView, KeyboardAvoidingView, Platform, StyleSheet } from 'react-native';
+import { View, Text, TextInput, ScrollView, KeyboardAvoidingView, Platform, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radius, spacing, creerStyles, useTheme } from '../theme';
 
@@ -11,7 +11,7 @@ export default function AuthShell({ titre, sousTitre, children }) {
     <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
         <View style={styles.hero}>
-          <View style={styles.logoBox}><Ionicons name="school" size={34} color={colors.primary} /></View>
+          <Image source={require('../../assets/logo-bulles.png')} style={styles.logoBox} />
           <Text style={styles.logo}>LINK CI</Text>
           <Text style={styles.tagline}>Le reseau des etudiants de Cote d'Ivoire</Text>
         </View>
@@ -40,7 +40,7 @@ const useStyles = creerStyles(({ colors, font, shadow }) => ({
   container: { flex: 1, backgroundColor: colors.primary },
   scroll: { flexGrow: 1, justifyContent: 'flex-end' },
   hero: { alignItems: 'center', paddingTop: 70, paddingBottom: 34, paddingHorizontal: spacing.xl },
-  logoBox: { width: 68, height: 68, borderRadius: 22, backgroundColor: colors.white, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
+  logoBox: { width: 76, height: 76, borderRadius: 24, marginBottom: spacing.md },
   logo: { fontSize: 34, fontWeight: '900', color: colors.white, letterSpacing: 1 },
   tagline: { fontSize: 14, color: 'rgba(255,255,255,0.9)', marginTop: 4, textAlign: 'center' },
   sheet: { backgroundColor: colors.card, borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: spacing.xl, paddingBottom: 40 },
