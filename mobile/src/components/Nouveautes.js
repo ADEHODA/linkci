@@ -6,9 +6,10 @@ import { PrimaryButton } from './ui';
 import { radius, spacing, creerStyles } from '../theme';
 
 // Changer ID a chaque nouvelle serie de nouveautes a annoncer
-const ID = '2026-09-30b';
+const ID = '2026-10-10';
 const CLE = 'linkci_nouveautes_vues';
 const LISTE = [
+  ['🎨', 'Nouveau logo', "LinkCI a un nouveau logo : deux bulles de discussion. L'icone du telephone change avec la prochaine installation."],
   ['🔤', 'Change la police', "Parametres > Apparence : choisis la police qui te plait, dont une police pensee pour la lisibilite."],
   ['𝐁', 'Style de texte', 'Parametres > Apparence : affiche tout en gras ou en italique, si tu preferes.'],
   ['📶', 'Economie de donnees', "Parametres > Donnees mobiles : les photos ne se chargent que si tu les touches, et tes envois sont plus legers."],

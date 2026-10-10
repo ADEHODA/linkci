@@ -216,7 +216,7 @@ export default function FeedScreen() {
         chargementSuite ? <ActivityIndicator color={colors.primary} style={{ marginVertical: spacing.lg }} />
           : posts.length && fin.current ? <Text style={styles.finFil}>Tu es a jour ✨</Text> : null
       }
-      ListEmptyComponent={<EmptyState icon="newspaper-outline" title="Aucune publication" hint="Sois le premier a partager quelque chose !" />}
+      ListEmptyComponent={<EmptyState illustration icon="newspaper-outline" title="Aucune publication" hint="Sois le premier a partager quelque chose !" />}
     />
   );
 }

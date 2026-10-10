@@ -1,6 +1,6 @@
 // Composants d'interface communs a tous les ecrans
 import React from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, RefreshControl, Animated } from 'react-native';
+import { View, Text, TouchableOpacity, ActivityIndicator, RefreshControl, Animated, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { radius, spacing, creerStyles, useTheme, themeActuel } from '../theme';
 
@@ -26,14 +26,18 @@ export function Loading() {
   );
 }
 
-export function EmptyState({ icon, title, hint }) {
+export function EmptyState({ icon, title, hint, illustration }) {
   const styles = useStyles();
   const { colors } = useTheme();
   return (
     <View style={styles.empty}>
-      <View style={styles.emptyIcon}>
-        <Ionicons name={icon} size={30} color={colors.primary} />
-      </View>
+      {illustration ? (
+        <Image source={require('../../assets/illustration-reseau.png')} style={styles.emptyIllustration} resizeMode="cover" />
+      ) : (
+        <View style={styles.emptyIcon}>
+          <Ionicons name={icon} size={30} color={colors.primary} />
+        </View>
+      )}
       <Text style={styles.emptyTitle}>{title}</Text>
       {hint ? <Text style={styles.emptyHint}>{hint}</Text> : null}
     </View>
@@ -132,6 +136,7 @@ const useStyles = creerStyles(({ colors, font, shadow }) => ({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg },
   empty: { alignItems: 'center', paddingVertical: 60, paddingHorizontal: 30 },
   emptyIcon: { width: 64, height: 64, borderRadius: 32, backgroundColor: colors.primarySoft, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.md },
+  emptyIllustration: { width: 240, height: 160, borderRadius: radius.lg, marginBottom: spacing.md },
   emptyTitle: { ...font.heading, textAlign: 'center' },
   emptyHint: { ...font.small, textAlign: 'center', marginTop: spacing.xs },
   chip: { flexDirection: 'row', alignItems: 'center', gap: 4, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 3, alignSelf: 'flex-start' },

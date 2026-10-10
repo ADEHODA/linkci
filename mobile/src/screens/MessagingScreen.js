@@ -170,7 +170,7 @@ function ListeConversations({ navigation }) {
       )}
       ListEmptyComponent={
         <View>
-          <EmptyState icon="chatbubbles-outline" title="Aucune conversation" hint="Trouve un etudiant et envoie-lui ton premier message." />
+          <EmptyState illustration icon="chatbubbles-outline" title="Aucune conversation" hint="Trouve un etudiant et envoie-lui ton premier message." />
           <PrimaryButton title="Trouver un etudiant" icon="search" onPress={() => navigation.navigate('Search')} style={styles.cta} />
         </View>
       }
